@@ -1,0 +1,418 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 222.2 84% 4.9%;
+        --card: 0 0% 100%;
+        --card-foreground: 222.2 84% 4.9%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 222.2 84% 4.9%;
+        --primary: 222.2 47.4% 11.2%;
+        --primary-foreground: 210 40% 98%;
+        --secondary: 210 40% 96%;
+        --secondary-foreground: 222.2 47.4% 11.2%;
+        --muted: 210 40% 96%;
+        --muted-foreground: 215.4 16.3% 46.9%;
+        --accent: 210 40% 96%;
+        --accent-foreground: 222.2 47.4% 11.2%;
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 214.3 31.8% 91.4%;
+        --input: 214.3 31.8% 91.4%;
+        --ring: 222.2 84% 4.9%;
+        --radius: 0.5rem;
+    }
+
+    .dark {
+        --background: 222.2 84% 4.9%;
+        --foreground: 210 40% 98%;
+        --card: 222.2 84% 4.9%;
+        --card-foreground: 210 40% 98%;
+        --popover: 222.2 84% 4.9%;
+        --popover-foreground: 210 40% 98%;
+        --primary: 210 40% 98%;
+        --primary-foreground: 222.2 47.4% 11.2%;
+        --secondary: 217.2 32.6% 17.5%;
+        --secondary-foreground: 210 40% 98%;
+        --muted: 217.2 32.6% 17.5%;
+        --muted-foreground: 215 20.2% 65.1%;
+        --accent: 217.2 32.6% 17.5%;
+        --accent-foreground: 210 40% 98%;
+        --destructive: 0 62.8% 30.6%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 217.2 32.6% 17.5%;
+        --input: 217.2 32.6% 17.5%;
+        --ring: 212.7 26.8% 83.9%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+        font-family:
+            "Inter",
+            ui-sans-serif,
+            system-ui,
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            Roboto,
+            "Helvetica Neue",
+            Arial,
+            "Noto Sans",
+            sans-serif,
+            "Apple Color Emoji",
+            "Segoe UI Emoji",
+            "Segoe UI Symbol",
+            "Noto Color Emoji";
+    }
+}
+
+/* Enhanced dark theme with deeper colors */
+.light {
+    background: linear-gradient(
+        135deg,
+        #fdf2f8 0%,
+        #fce7f3 25%,
+        #f3e8ff 50%,
+        #fce7f3 75%,
+        #fdf2f8 100%
+    );
+}
+
+.light .bg-gradient-to-br {
+    background: linear-gradient(
+        135deg,
+        #fdf2f8 0%,
+        #fce7f3 25%,
+        #f3e8ff 50%,
+        #fce7f3 75%,
+        #fdf2f8 100%
+    );
+}
+
+.light .glass {
+    @apply bg-white/40 backdrop-blur-md border border-purple-200/50;
+}
+
+.light .text-purple-100 {
+    @apply text-purple-900;
+}
+
+.light .text-purple-200 {
+    @apply text-purple-800;
+}
+
+.light .text-purple-300 {
+    @apply text-purple-700;
+}
+
+.light .text-purple-400 {
+    @apply text-purple-600;
+}
+
+/* Darker theme with deeper purples and more subdued colors */
+.dark {
+    background: linear-gradient(
+        135deg,
+        #0a0a0f 0%,
+        #1a0b2e 25%,
+        #16213e 50%,
+        #1a0b2e 75%,
+        #0a0a0f 100%
+    );
+}
+
+.dark .bg-gradient-to-br {
+    background: linear-gradient(
+        135deg,
+        #0a0a0f 0%,
+        #1a0b2e 25%,
+        #16213e 50%,
+        #1a0b2e 75%,
+        #0a0a0f 100%
+    );
+}
+
+.dark .glass {
+    @apply bg-black/30 backdrop-blur-md border border-purple-600/20;
+}
+
+/* Darker message bubbles */
+.dark .message-user {
+    background: linear-gradient(135deg, #4c1d95 0%, #6b21a8 50%, #7c3aed 100%);
+}
+
+.dark .message-assistant {
+    @apply bg-gray-900/60 border border-purple-600/20;
+}
+
+/* Custom scrollbar with darker theme */
+*::-webkit-scrollbar {
+    width: 8px;
+}
+
+html *::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+html *::-webkit-scrollbar-thumb {
+    background: rgba(184, 145, 207, 0.6);
+    border-radius: 4px;
+}
+
+html *::-webkit-scrollbar-thumb:hover {
+    background: rgb(184 145 207);
+}
+
+html.dark *::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+html.dark *::-webkit-scrollbar-thumb {
+    background: rgb(38, 33, 73);
+    border-radius: 4px;
+}
+
+html.dark *::-webkit-scrollbar-thumb:hover {
+    background: rgb(54, 27, 87);
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+}
+
+.scrollbar-hidden {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+}
+
+/* Gradient text utility with darker colors */
+.gradient-text {
+    @apply bg-gradient-to-r from-purple-600 via-purple-500 to-indigo-600 bg-clip-text text-transparent;
+}
+
+
+/* Message animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.message-enter {
+    animation: fadeInUp 0.3s ease-out;
+}
+
+/* Typing indicator animation */
+@keyframes typing {
+    0%,
+    60%,
+    100% {
+        transform: translateY(0);
+    }
+    30% {
+        transform: translateY(-10px);
+    }
+}
+
+.typing-dot {
+    animation: typing 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.typing-dot:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+/* Enhanced button hover effects */
+.btn-hover-lift {
+    @apply transition-all duration-200 hover:scale-[1.02] active:scale-[0.98];
+}
+
+/* Mobile responsive improvements */
+@media (max-width: 768px) {
+    .mobile-sidebar {
+        @apply fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out;
+    }
+
+    .mobile-sidebar.closed {
+        @apply -translate-x-full;
+    }
+
+    .mobile-overlay {
+        @apply fixed inset-0 bg-black/50 z-40;
+    }
+
+    .mobile-chat-header {
+        @apply sticky top-0 z-30 bg-black/80 backdrop-blur-md border-b border-purple-600/20;
+    }
+
+    .mobile-message-input {
+        @apply sticky bottom-0 bg-black/80 backdrop-blur-md border-t border-purple-600/20;
+    }
+}
+
+/* Voice recording animation */
+@keyframes pulse-record {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: scale(1.1);
+        opacity: 0.8;
+    }
+}
+
+.recording-pulse {
+    animation: pulse-record 1s ease-in-out infinite;
+}
+
+/* Audio waveform animation */
+@keyframes waveform {
+    0%,
+    100% {
+        height: 4px;
+    }
+    50% {
+        height: 20px;
+    }
+}
+
+.waveform-bar {
+    animation: waveform 1s ease-in-out infinite;
+}
+
+.waveform-bar:nth-child(2) {
+    animation-delay: 0.1s;
+}
+.waveform-bar:nth-child(3) {
+    animation-delay: 0.2s;
+}
+.waveform-bar:nth-child(4) {
+    animation-delay: 0.3s;
+}
+.waveform-bar:nth-child(5) {
+    animation-delay: 0.4s;
+}
+
+/* Landing page animations */
+@keyframes float {
+    0%,
+    100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-20px);
+    }
+}
+
+.float-animation {
+    animation: float 6s ease-in-out infinite;
+}
+
+@keyframes glow {
+    0%,
+    100% {
+        box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 40px rgba(139, 92, 246, 0.6);
+    }
+}
+
+.glow-animation {
+    animation: glow 2s ease-in-out infinite;
+}
+
+/* Enhanced focus states */
+.focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-900;
+}
+
+/* Improved prose styling for markdown with darker theme */
+.prose {
+    @apply text-purple-200;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+    @apply text-purple-100;
+}
+
+.prose blockquote {
+    @apply border-l-purple-600 text-purple-300 bg-purple-600/10 rounded-r;
+}
+
+.prose a {
+    @apply text-purple-400 hover:text-purple-300 transition-colors;
+}
+
+.prose code {
+    @apply !bg-purple-600/20 !text-purple-200 !px-1.5 !py-0.5 !rounded !text-sm;
+}
+
+.prose pre {
+    @apply !bg-gray-900 !border !border-purple-600/30 !rounded-lg;
+}
+
+/* Loading spinner */
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.animate-spin {
+    animation: spin 1s linear infinite;
+}
+
+/* Pulse animation for streaming indicator */
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Edit message textarea styling */
+.edit-textarea {
+    @apply w-full min-h-[100px] p-3 rounded-lg text-purple-100 placeholder:text-purple-400 focus:ring-1 focus:ring-purple-500 focus:outline-none resize-none transition-all duration-200;
+}
+
+.dark .edit-textarea {
+    @apply bg-gray-900/60 border border-purple-600/30 focus:border-purple-500;
+}
+
+.light .edit-textarea {
+    @apply bg-white/60 border border-purple-300/50 focus:border-purple-500 text-purple-900 placeholder:text-purple-600;
+}
