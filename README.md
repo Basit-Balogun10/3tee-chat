@@ -1,28 +1,84 @@
-# 3Tee Chat Clone - Phase 1 MVP
-  
-This is a project built with [Chef](https://chef.convex.dev) using [Convex](https://convex.dev) as its backend.
-  
-This project is connected to the Convex deployment named [`adamant-herring-941`](https://dashboard.convex.dev/d/adamant-herring-941).
-  
-## Project structure
-  
-The frontend code is in the `app` directory and is built with [Vite](https://vitejs.dev/).
-  
-The backend code is in the `convex` directory.
-  
-`npm run dev` will start the frontend and backend servers.
+Got it! Here's a **simple and focused `README.md`** that only covers the `package.json` commands and `.env.example` setup for your Vite + Convex app:
 
-## App authentication
+---
 
-Chef apps use [Convex Auth](https://auth.convex.dev/) with Anonymous auth for easy sign in. You may wish to change this before deploying your app.
+````markdown
+# Vite + Convex App
 
-## Developing and deploying your app
+Full-stack app powered by Vite (frontend) and Convex (backend).
 
-Check out the [Convex docs](https://docs.convex.dev/) for more information on how to develop with Convex.
-* If you're new to Convex, the [Overview](https://docs.convex.dev/understanding/) is a good place to start
-* Check out the [Hosting and Deployment](https://docs.convex.dev/production/) docs for how to deploy your app
-* Read the [Best Practices](https://docs.convex.dev/understanding/best-practices/) guide for tips on how to improve you app further
+## 📦 Setup
 
-## HTTP API
+Install dependencies:
 
-User-defined http routes are defined in the `convex/router.ts` file. We split these routes into a separate file from `convex/http.ts` to allow us to prevent the LLM from modifying the authentication routes.
+```bash
+pnpm install
+````
+
+Copy `.env.example` to `.env`:
+
+```bash
+cp .env.example .env
+```
+
+## 🧪 Scripts
+
+### Start local development (frontend + backend)
+
+```bash
+pnpm dev
+```
+
+### Start only frontend (Vite)
+
+```bash
+pnpm dev:frontend
+```
+
+### Start only backend (Convex)
+
+```bash
+pnpm dev:backend
+```
+
+### Lint + type check frontend & backend
+
+```bash
+pnpm run lint
+```
+
+## 🌐 Environment Variables (`.env.example`)
+
+```env
+# Convex Configuration
+CONVEX_DEPLOYMENT=
+VITE_CONVEX_URL=
+SITE_URL=
+
+# Authentication - GitHub OAuth
+AUTH_GITHUB_ID=
+AUTH_GITHUB_SECRET=
+
+# Authentication - Google OAuth  
+AUTH_GOOGLE_ID=
+AUTH_GOOGLE_SECRET=
+
+# AssemblyAI API
+ASSEMBLYAI_API_KEY=
+
+# Azure OpenAI
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_API_KEY=
+OPENAI_API_VERSION=
+
+# Google Cloud
+GOOGLE_CLOUD_PROJECT=
+GOOGLE_CLOUD_LOCATION=
+
+# Openrouter
+OPENROUTER_BASE_URL=
+OPENROUTER_API_KEY=
+
+# Deepseek
+DEEPSEEK_API_KEY=
+```

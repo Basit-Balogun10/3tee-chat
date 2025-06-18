@@ -314,7 +314,7 @@ export function AuthComponent({ onSuccess }: AuthComponentProps) {
 
             <div className="space-y-3">
                 {/* OAuth Providers */}
-                <Button
+                {/* <Button
                     onClick={() => handleOAuthSignIn("github")}
                     disabled={isLoading}
                     className="w-full bg-gray-800 hover:bg-gray-700 text-white border border-gray-600"
@@ -338,7 +338,7 @@ export function AuthComponent({ onSuccess }: AuthComponentProps) {
                         <Chrome className="w-5 h-5 mr-2" />
                     )}
                     Continue with Google
-                </Button>
+                </Button> */}
 
                 {/* Email Authentication */}
                 <Button

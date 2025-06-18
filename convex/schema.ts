@@ -15,8 +15,7 @@ const applicationTables = {
         // Shared content arrays for collaboration
         sharedChats: v.optional(v.array(v.id("chats"))),
         sharedProjects: v.optional(v.array(v.id("projects"))),
-    }),
-
+    }).index("email", ["email"]),
     chats: defineTable({
         userId: v.id("users"),
         title: v.string(),
@@ -222,11 +221,14 @@ const applicationTables = {
 
     authVerificationCodes: defineTable({
         email: v.string(),
+        accountId: v.id("users"),
         code: v.string(),
         expiresAt: v.number(),
         createdAt: v.number(),
         verified: v.optional(v.boolean()),
-    }).index("by_email", ["email"]),
+    })
+        .index("by_email", ["email"])
+        .index("accountId", ["accountId"]),
 
     streamingSessions: defineTable({
         messageId: v.id("messages"),
