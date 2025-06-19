@@ -8,6 +8,7 @@ import { MessageBranchNavigator } from "./MessageBranchNavigator";
 import { Button } from "./ui/button";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { LoadingPlaceholder } from "./LoadingPlaceholder";
 import { useResumableStreaming } from "../hooks/useResumableStreaming";
 import {
     Edit3,
@@ -29,6 +30,7 @@ import {
     RefreshCw,
     Wifi,
     WifiOff,
+    FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -58,6 +60,15 @@ interface Message {
         }>;
         imagePrompt?: string;
         generatedImageUrl?: string;
+        structuredOutput?: boolean;
+        canvasIntro?: string;
+        canvasSummary?: string;
+        artifacts?: Array<{
+            id: string;
+            filename: string;
+            language: string;
+            description?: string;
+        }>;
         audioTranscription?: string;
         videoPrompt?: string;
         generatedVideoUrl?: string;
@@ -360,7 +371,7 @@ export function MessageList({
         return (
             <div className="space-y-3 mb-3">
                 {/* Voice transcription indicator */}
-                {message.metadata.audioTranscription && (
+                {/* {message.metadata.audioTranscription && (
                     <div className="flex items-center gap-2 text-sm text-purple-400 bg-purple-600/10 rounded-lg p-3 border border-purple-500/20">
                         <Mic className="w-4 h-4" />
                         <span>
@@ -368,112 +379,209 @@ export function MessageList({
                         </span>
                     </div>
                 )}
-
+ */}
                 {/* Generated image display */}
-                {message.metadata.generatedImageUrl && (
-                    <div className="my-4">
-                        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
-                            <Image className="w-4 h-4" />
-                            Generated image: "{message.metadata.imagePrompt}"
-                        </div>
-                        <div className="relative group">
-                            <img
-                                src={message.metadata.generatedImageUrl}
-                                alt={message.metadata.imagePrompt}
-                                className="max-w-md w-full rounded-lg shadow-lg transition-transform group-hover:scale-105"
-                            />
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg" />
-                            <Button
-                                size="sm"
-                                variant="secondary"
-                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() =>
-                                    window.open(
-                                        message.metadata?.generatedImageUrl,
-                                        "_blank"
-                                    )
-                                }
-                            >
-                                <ExternalLink className="w-4 h-4" />
-                            </Button>
-                        </div>
+                // Replace the existing image/video metadata rendering with loading-aware versions:
+
+{/* Generated image display with loading state */}
+{message.metadata.imagePrompt && (
+    <div className="my-4">
+        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
+            <Image className="w-4 h-4" />
+            Generated image: "{message.metadata.imagePrompt}"
+        </div>
+        
+        {message.metadata.generatedImageUrl ? (
+            // Show actual image
+            <div className="relative group">
+                <img
+                    src={message.metadata.generatedImageUrl}
+                    alt={message.metadata.imagePrompt}
+                    className="max-w-md w-full rounded-lg shadow-lg transition-transform group-hover:scale-105"
+                />
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg" />
+                <Button
+                    size="sm"
+                    variant="secondary"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => window.open(message.metadata?.generatedImageUrl, "_blank")}
+                >
+                    <ExternalLink className="w-4 h-4" />
+                </Button>
+            </div>
+        ) : (
+            // Show loading placeholder
+            <LoadingPlaceholder 
+                type="image" 
+                prompt={message.metadata.imagePrompt}
+                className="my-2"
+            />
+        )}
+    </div>
+)}
+
+{/* Generated video display with loading state */}
+{message.metadata.videoPrompt && (
+    <div className="my-4">
+        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
+            <Video className="w-4 h-4" />
+            Generated video: "{message.metadata.videoPrompt}"
+        </div>
+        
+        {message.metadata.generatedVideoUrl ? (
+            // Show actual video
+            <div className="relative group">
+                <video
+                    src={message.metadata.generatedVideoUrl}
+                    poster={message.metadata.videoThumbnailUrl}
+                    controls
+                    className="max-w-md w-full rounded-lg shadow-lg"
+                    preload="metadata"
+                >
+                    Your browser does not support the video tag.
+                </video>
+                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg pointer-events-none" />
+                <Button
+                    size="sm"
+                    variant="secondary"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => window.open(message.metadata?.generatedVideoUrl, "_blank")}
+                >
+                    <ExternalLink className="w-4 h-4" />
+                </Button>
+                {/* Video metadata overlay */}
+                {(message.metadata.videoDuration || message.metadata.videoResolution) && (
+                    <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
+                        {message.metadata.videoDuration && <span>{message.metadata.videoDuration}</span>}
+                        {message.metadata.videoDuration && message.metadata.videoResolution && (
+                            <span className="mx-1">•</span>
+                        )}
+                        {message.metadata.videoResolution && <span>{message.metadata.videoResolution}</span>}
                     </div>
                 )}
+            </div>
+        ) : (
+            // Show loading placeholder
+            <LoadingPlaceholder 
+                type="video" 
+                prompt={message.metadata.videoPrompt}
+                className="my-2"
+            />
+        )}
+    </div>
+)}
+                {/* Canvas Artifacts Display - REPLACE EXISTING PLACEHOLDER */}
+{message.metadata?.structuredOutput && message.metadata?.artifacts && (
+    <div className="mt-4 p-4 bg-gradient-to-br from-blue-600/10 to-purple-600/10 rounded-lg border border-blue-600/20">
+        {/* Canvas Intro */}
+        {message.metadata.canvasIntro && (
+            <div className="mb-4">
+                <MarkdownRenderer 
+                    content={message.metadata.canvasIntro} 
+                    className="text-blue-100" 
+                />
+            </div>
+        )}
 
-                {/* Generated video display */}
-                {message.metadata.generatedVideoUrl && (
-                    <div className="my-4">
-                        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
-                            <Video className="w-4 h-4" />
-                            Generated video: "{message.metadata.videoPrompt}"
+        {/* Artifacts List */}
+        <div className="space-y-3">
+            <div className="flex items-center gap-2 text-blue-200">
+                <Palette className="w-5 h-5" />
+                <h4 className="font-medium">Created Artifacts</h4>
+                <span className="text-xs bg-blue-600/20 px-2 py-1 rounded">
+                    {message.metadata.artifacts.length} files
+                </span>
+            </div>
+            
+            {message.metadata.artifacts.map((artifact: any) => (
+                <div 
+                    key={artifact.id}
+                    className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-blue-600/10 hover:border-blue-600/30 transition-colors group cursor-pointer"
+                    onClick={() => {
+                        // Open artifact in Canvas - dispatch event for parent to handle
+                        const event = new CustomEvent('openArtifact', { 
+                            detail: { artifactId: artifact.id } 
+                        });
+                        document.dispatchEvent(event);
+                    }}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center">
+                            <FileText className="w-4 h-4 text-blue-400" />
                         </div>
-                        <div className="relative group">
-                            <video
-                                src={message.metadata.generatedVideoUrl}
-                                poster={message.metadata.videoThumbnailUrl}
-                                controls
-                                className="max-w-md w-full rounded-lg shadow-lg"
-                                preload="metadata"
-                            >
-                                Your browser does not support the video tag.
-                            </video>
-                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg pointer-events-none" />
-                            <Button
-                                size="sm"
-                                variant="secondary"
-                                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                onClick={() =>
-                                    window.open(
-                                        message.metadata?.generatedVideoUrl,
-                                        "_blank"
-                                    )
-                                }
-                            >
-                                <ExternalLink className="w-4 h-4" />
-                            </Button>
-                            {/* Video metadata overlay */}
-                            {(message.metadata.videoDuration ||
-                                message.metadata.videoResolution) && (
-                                <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
-                                    {message.metadata.videoDuration && (
-                                        <span>
-                                            {message.metadata.videoDuration}
-                                        </span>
-                                    )}
-                                    {message.metadata.videoDuration &&
-                                        message.metadata.videoResolution && (
-                                            <span className="mx-1">•</span>
-                                        )}
-                                    {message.metadata.videoResolution && (
-                                        <span>
-                                            {message.metadata.videoResolution}
-                                        </span>
-                                    )}
-                                </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <span className="font-medium text-blue-100">
+                                    {artifact.filename}
+                                </span>
+                                <span className="text-xs bg-blue-600/20 px-2 py-1 rounded text-blue-300">
+                                    {artifact.language}
+                                </span>
+                            </div>
+                            {artifact.description && (
+                                <p className="text-sm text-blue-300 mt-1">
+                                    {artifact.description}
+                                </p>
                             )}
                         </div>
                     </div>
-                )}
-
-                {/* Canvas Artifacts Display */}
-                {message.metadata?.structuredOutput && (
-                    <div className="my-4">
-                        <div className="text-sm text-purple-400 mb-3 flex items-center gap-2">
-                            <Palette className="w-4 h-4" />
-                            Canvas Artifacts:
-                        </div>
-                        {/* This will be populated by the parent component with actual artifacts */}
-                        <div className="space-y-2">
-                            <div className="text-xs text-purple-500 bg-purple-600/10 px-3 py-2 rounded border border-purple-500/20">
-                                💡 Artifacts created - check the Canvas sidebar
-                                to view and edit them
-                            </div>
-                        </div>
+                    
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                const event = new CustomEvent('openArtifact', { 
+                                    detail: { artifactId: artifact.id } 
+                                });
+                                document.dispatchEvent(event);
+                            }}
+                            className="h-8 w-8 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-600/20"
+                            title="Open in Canvas"
+                        >
+                            <ExternalLink className="w-4 h-4" />
+                        </Button>
                     </div>
-                )}
+                </div>
+            ))}
+        </div>
 
-                {/* Web search results - REMOVED: Replace with new citations display */}
-                {/* This old searchResults display is replaced by the new citations system */}
+        {/* Canvas Summary */}
+        {message.metadata.canvasSummary && (
+            <div className="mt-4 pt-4 border-t border-blue-600/20">
+                <MarkdownRenderer 
+                    content={message.metadata.canvasSummary} 
+                    className="text-blue-100" 
+                />
+            </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="mt-4 pt-4 border-t border-blue-600/20 flex items-center justify-between">
+            <div className="text-xs text-blue-400">
+                Canvas response • {message.metadata.artifacts.length} artifacts created
+            </div>
+            <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                    // Open Canvas panel if available
+                    if (message?.metadata?.artifacts.length > 0) {
+                        const event = new CustomEvent('openArtifact', { 
+                            detail: { artifactId: message?.metadata?.artifacts[0].id } 
+                        });
+                        document.dispatchEvent(event);
+                    }
+                }}
+                className="border-blue-600/30 text-blue-300 hover:bg-blue-600/20"
+            >
+                <Palette className="w-4 h-4 mr-2" />
+                Open Canvas
+            </Button>
+        </div>
+    </div>
+)}
             </div>
         );
     };

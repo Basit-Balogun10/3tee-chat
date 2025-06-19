@@ -21,7 +21,7 @@ interface StreamingState {
 export function useResumableStreaming({
     messageId,
     onContentUpdate,
-    resumeInterval = 1000,
+    resumeInterval = 10000,
 }: UseResumableStreamingOptions) {
     const [state, setState] = useState<StreamingState>({
         content: "",
@@ -113,7 +113,8 @@ export function useResumableStreaming({
                 if (!isActiveRef.current) return;
                 
                 await resumeFromPosition();
-            }, resumeInterval);
+            }, 10000);
+            // }, resumeInterval);
         };
 
         // Initial resume call

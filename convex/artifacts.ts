@@ -343,7 +343,9 @@ export const updateArtifactProviderFile = internalMutation({
     handler: async (ctx, args) => {
         const artifact = await ctx.db
             .query("artifacts")
-            .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.artifactId))
+            .withIndex("by_artifact_id", (q) =>
+                q.eq("artifactId", args.artifactId)
+            )
             .first();
 
         if (!artifact) {
@@ -383,7 +385,9 @@ export const getCachedProviderFile = internalQuery({
     handler: async (ctx, args) => {
         const artifact = await ctx.db
             .query("artifacts")
-            .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.artifactId))
+            .withIndex("by_artifact_id", (q) =>
+                q.eq("artifactId", args.artifactId)
+            )
             .first();
 
         if (!artifact?.providerFiles) {
@@ -394,7 +398,7 @@ export const getCachedProviderFile = internalQuery({
         if (!providerFile) {
             return null;
         }
-        
+
         // Check if file has expired
         if (providerFile.expiresAt && providerFile.expiresAt < Date.now()) {
             return null;
@@ -421,7 +425,9 @@ export const updateProviderFileUsage = internalMutation({
     handler: async (ctx, args) => {
         const artifact = await ctx.db
             .query("artifacts")
-            .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.artifactId))
+            .withIndex("by_artifact_id", (q) =>
+                q.eq("artifactId", args.artifactId)
+            )
             .first();
 
         if (!artifact?.providerFiles?.[args.provider]) {
@@ -462,7 +468,9 @@ export const cleanupExpiredProviderFiles = internalMutation({
             let hasChanges = false;
 
             // Check each provider's file for expiration
-            for (const [provider, fileInfo] of Object.entries(updatedProviderFiles)) {
+            for (const [provider, fileInfo] of Object.entries(
+                updatedProviderFiles
+            )) {
                 if (fileInfo?.expiresAt && fileInfo.expiresAt < now) {
                     delete updatedProviderFiles[provider];
                     hasChanges = true;
@@ -472,13 +480,30 @@ export const cleanupExpiredProviderFiles = internalMutation({
 
             if (hasChanges) {
                 await ctx.db.patch(artifact._id, {
-                    providerFiles: Object.keys(updatedProviderFiles).length > 0
-                        ? updatedProviderFiles
-                        : undefined,
+                    providerFiles:
+                        Object.keys(updatedProviderFiles).length > 0
+                            ? updatedProviderFiles
+                            : undefined,
                 });
             }
         }
 
         return { cleanedCount };
+    },
+});
+
+export const getUserArtifacts = query({
+    args: {},
+    handler: async (ctx) => {
+        const identity = await ctx.auth.getUserIdentity();
+        if (!identity) return [];
+
+        return await ctx.db
+            .query("artifacts")
+            .withIndex("by_user", (q) =>
+                q.eq("userId", identity.subject as Id<"users">)
+            )
+            .order("desc")
+            .collect();
     },
 });

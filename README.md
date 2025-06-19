@@ -2,18 +2,18 @@
 
 > **An AI Chat Experience, Feedback-Forged. Universally Cross-Platform.**
 
-[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-3tee.chat-blue?style=for-the-badge)](https://3tee-chat-clone.vercel.app/)
-[![GitHub](https://img.shields.io/badge/⭐_Star_on_GitHub-black?style=for-the-badge&logo=github)](https://github.com/mabdulbasit/3tee-chat-clone)
+[![Live Demo](https://img.shields.io/badge/🌐_Live_Demo-3tee.chat-blue?style=for-the-badge)](https://3tee-chat.vercel.app/)
+[![GitHub](https://img.shields.io/badge/⭐_Star_on_GitHub-black?style=for-the-badge&logo=github)](https://github.com/Basit-Balogun10/3tee-chat)
 
 ## 🎯 What Makes This Special?
 
 This isn't just another chat clone. This is a **feedback-driven, architecturally-sound chat ecosystem** built in **10 days** that runs on **web, desktop, and mobile** from a **single, reusable codebase**. It's powered by real community insights and built for the future of AI interaction.
 
 ### ✨ The Magic: ONE Codebase, EVERY Platform
-- 🌐 **Web**: Blazing fast PWA with glassmorphism UI
+- 🌐 **Web**: Blazing fast SPA with glassmorphism UI
 - 💻 **Desktop**: Native Windows, MacOS, Linux apps via Tauri v2
 - 📱 **Mobile**: Native Android & iOS apps (same Tauri magic!)  
-- 🔄 **Sync**: Your chats, projects, and preferences everywhere, always
+- 🔄 **Realtime Sync**: Your chats, projects, and preferences everywhere, always thanks to Convex
 
 ---
 
@@ -35,9 +35,7 @@ This isn't just another chat clone. This is a **feedback-driven, architecturally
 
 ### 🎨 **Beautiful Interface & UX**
 - **✨ Glassmorphism Design**: Stunning frosted glass effects with backdrop blur, gradient borders, and ethereal aesthetics
-- **🌈 Dynamic Color System**: Intelligent color palettes that adapt to content and user preferences with accessibility considerations
 - **⌨️ Custom Keyboard Shortcuts**: Fully customizable shortcuts with auto-detection - press key combinations and they're automatically configured
-- **🎯 Context-Aware UI**: Smart interface that adapts based on content type, user role, and conversation context
 
 ### 🔄 **Export & Data Management**
 - **📊 Universal Export System**: Export individual chats, entire projects, or your complete workspace in multiple formats
@@ -58,13 +56,13 @@ This isn't just another chat clone. This is a **feedback-driven, architecturally
 My journey began with a personal mission: build an AI-powered portfolio to solve the "stateless resume" challenge and truly stand out in a competitive job market. Deep research into AI chat interfaces became my foundation.
 
 ### 👁️ **Theo's Feedback Call & The Pivot**
-Then I saw Theo's post seeking community feedback on **3Tee.chat**. He mentioned issues with AI tools analyzing replies. Recognizing a real-time problem I could tackle, I pivoted. I started scraping and analyzing **hundreds of replies** to provide clean, categorized insights.
+Then I saw Theo's post seeking community feedback on **t3.chat**. He mentioned issues with AI tools analyzing replies. Recognizing a real-time problem I could tackle, I pivoted. I started scraping and analyzing **hundreds of replies** to provide clean, categorized insights.
 
 ### 👑 **The 3Tee Cloneathon Emerges**
 Mid-analysis, the **3Tee Cloneathon** was announced – perfect timing! It felt like destiny calling.
 
 ### 🤝 **Good Faith & The Main Quest**
-I completed the feedback analysis anyway and shared it via GitHub Gist as an act of good faith. With that done, the Cloneathon became the main quest: build the AI chat clone the community was actually asking for.
+I completed the feedback analysis anyway and shared it with Theo via GitHub Gist oin his X's DM, as an act of good faith. With that done, the Cloneathon became the main quest: build the AI chat clone the community was actually asking for.
 
 ### 🏃‍♂️ **10 Days of Hyper-Development**
 An insane deadline fueled an adrenaline-driven sprint. Leveraging a reusable engine, Convex for backend, and Tauri for cross-platform magic, the vision rapidly materialized into this masterpiece.
@@ -92,26 +90,12 @@ Built on a robust **PNPM monorepo** with a versatile "engine" of shared componen
 - **Anthropic Approach**: Similar dual strategy - Vertex AI for cost management, native Anthropic SDK for user-provided keys
 - **OpenRouter Support**: Full integration for users who want access to additional models (user keys required due to cost considerations)
 
-#### **Smart Cost Management**
-```typescript
-// Dynamic provider initialization based on key availability
-const getProviderInstance = (provider: string, userKey?: string) => {
-  if (userKey) {
-    // Use user's key with native SDK
-    return initializeNativeProvider(provider, userKey);
-  } else {
-    // Use our cloud credits with managed endpoints
-    return initializeManagedProvider(provider);
-  }
-};
-```
-
 ### 🌍 **Universal Deployment Architecture**
 ```
 📦 ONE Codebase → Multiple Targets
 ├── 🌐 Web App (Vercel deployment)
 ├── 💻 Desktop Apps (Tauri builds)
-│   ├── Windows (.msi installer)
+│   ├── Windows (.exe installer)
 │   ├── MacOS (.dmg bundle)  
 │   └── Linux (.AppImage)
 ├── 📱 Mobile Apps (Tauri mobile)
@@ -121,15 +105,15 @@ const getProviderInstance = (provider: string, userKey?: string) => {
 ```
 
 ---
-
+  
 ## 🚀 **Getting Started**
 
 ### 📦 **Quick Setup**
 
 ```bash
 # Clone the magic
-git clone https://github.com/mabdulbasit/3tee-chat-clone.git
-cd 3tee-chat-clone
+git clone https://github.com/Basit-Balogun10/3tee-chat
+cd 3tee-chat
 
 # Install dependencies (uses PNPM workspaces)
 pnpm install
@@ -161,24 +145,24 @@ pnpm build
 
 ```bash
 # Run desktop app in development mode
-cd c:/Users/Basit/software-engineering/t3-chat-clone && pnpm tauri dev
+pnpm tauri dev
 
 # Build desktop app for production
-cd c:/Users/Basit/software-engineering/t3-chat-clone && pnpm tauri build
+pnpm tauri build
 ```
 
 #### 📱 **Mobile Development (Tauri)**
 
 ```bash
 # Android development
-cd c:/Users/Basit/software-engineering/t3-chat-clone && pnpm tauri android dev
+pnpm tauri android dev
 
 # iOS development (macOS only)
-cd c:/Users/Basit/software-engineering/t3-chat-clone && pnpm tauri ios dev
+pnpm tauri ios dev
 
 # Build mobile apps for production
-cd c:/Users/Basit/software-engineering/t3-chat-clone && pnpm tauri android build
-cd c:/Users/Basit/software-engineering/t3-chat-clone && pnpm tauri ios build
+pnpm tauri android build
+pnpm tauri ios build
 ```
 
 **📋 Prerequisites for Mobile:**
@@ -230,31 +214,6 @@ These features came directly from analyzing **hundreds of community replies** on
 ✅ **Real Collaboration**: Multi-user sharing with permission levels  
 ✅ **Source Citation**: Transparent AI reasoning with linked sources  
 
----
-
-## 🏆 **The Ultimate Flex: Reusable Engine Success**
-
-The architecture is so robust that the same engine powers multiple applications:
-
-- **🤖 AI Portfolio Project**: Same core components, different knowledge base (currently in development)
-- **🔄 Cross-Platform Apps**: Web, desktop, and mobile from one codebase
-- **📊 Analytics Dashboard**: Built using the same component library
-- **🛠️ Admin Interface**: Leverages the same real-time infrastructure
-
-This proves the architecture's power and demonstrates my ability to build scalable, reusable systems.
-
----
-
-## 📱 **Try It Now**
-
-| Platform | Status | Description |
-|----------|--------|-------------|
-| 🌐 **Web App** | ✅ **Live** | [Launch in browser](https://3tee-chat-clone.vercel.app) |
-| 💻 **Desktop** | 🔄 **Coming Soon** | Native Windows, Mac, Linux apps |
-| 📱 **Mobile** | 🔄 **Coming Soon** | Android APK & iOS builds |
-
----
-
 ## 🎨 **Feature Showcase**
 
 ### **🎤 Smart Voice Recording**
@@ -274,53 +233,24 @@ Beautiful frosted glass effects with backdrop blur, gradient borders, and dynami
 
 ---
 
-## 🤝 **Contributing**
-
-This project represents 10 days of intense development passion. Want to contribute? 
-
-1. ⭐ **Star this repo** 
-2. 🍴 **Fork it**
-3. 🌟 **Create your feature branch**
-4. 💬 **Submit a PR**
-
----
-
-## 🏅 **Hackathon Achievements**
+## 🏅 **Hackathon Highlights**
 
 - ✅ **10-Day Development Sprint**: From concept to cross-platform reality
 - ✅ **Community Feedback Integration**: Built on real user insights from 200+ replies  
 - ✅ **Cross-Platform Excellence**: One codebase, six deployment targets
 - ✅ **Advanced AI Features**: Voice, vision, search, branching, and collaboration
-- ✅ **Smart Cost Management**: Hybrid approach balancing free credits with user flexibility
-- ✅ **Scalable Architecture**: Proven with multiple app deployments
-- ✅ **Open Source**: Available for the community to build upon
 
 ---
 
 ## 📄 **License**
 
-MIT License - Built with ❤️ for the **3Tee Cloneathon**
+Apache 2.0 License - Built with ❤️ for the **T3 Chat Cloneathon**
 
 ---
 
 ## 🙏 **Acknowledgments**
 
-- **Theo** for inspiring this journey with the original 3Tee.chat
-- **The Community** whose 200+ feedback replies shaped every feature decision
-- **The 3Tee Cloneathon** for providing the perfect stage and deadline pressure
+- **Theo** for inspiring this with the original t3.chat
+- **The Community** whose 200+ feedback replies took part in shaping every feature decision
+- **The T3 Chat Cloneathon** for providing the perfect stage and deadline pressure
 - **Modern Web Ecosystem** (Vite, React, Tauri, Convex) for enabling rapid development
-- **Open Source Community** for the incredible tools that made this possible
-
----
-
-<div align="center">
-
-### 🚀 **Ready to Experience the Future of AI Chat?**
-
-[![Launch Chat](https://img.shields.io/badge/🚀_Launch_Chat_Now-blue?style=for-the-badge&logoColor=white)](https://3tee-chat-clone.vercel.app/)
-
-**Built in 10 days. Engineered for eternity.** ⚡
-
-*"Not just a clone - a complete evolution of AI chat interfaces"*
-
-</div>
