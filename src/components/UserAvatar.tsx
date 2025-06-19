@@ -13,6 +13,7 @@ export function UserAvatar({ onOpenSettings }: UserAvatarProps) {
     const [showAuth, setShowAuth] = useState(false);
     const user = useQuery(api.users.getCurrentUser);
     const menuRef = useRef<HTMLDivElement>(null);
+    const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const { signOut } = useAuthActions();
 
     // Close dropdown when clicking outside
@@ -34,6 +35,39 @@ export function UserAvatar({ onOpenSettings }: UserAvatarProps) {
             document.removeEventListener("mousedown", handleClickOutside);
     }, [isOpen]);
 
+    // Clear any pending close timeout
+    const clearCloseTimeout = () => {
+        if (closeTimeoutRef.current) {
+            clearTimeout(closeTimeoutRef.current);
+            closeTimeoutRef.current = null;
+        }
+    };
+
+    // Schedule dropdown close with delay
+    const scheduleClose = () => {
+        clearCloseTimeout();
+        closeTimeoutRef.current = setTimeout(() => {
+            setIsOpen(false);
+        }, 100); // 0.3 second delay
+    };
+
+    const handleMouseEnter = () => {
+        clearCloseTimeout(); // Cancel any pending close
+        setIsOpen(true);
+    };
+
+    const handleMouseLeave = () => {
+        scheduleClose(); // Schedule close with delay instead of immediate close
+    };
+
+    const handleDropdownMouseEnter = () => {
+        clearCloseTimeout(); // Cancel close when mouse enters dropdown
+    };
+
+    const handleDropdownMouseLeave = () => {
+        scheduleClose(); // Schedule close when mouse leaves dropdown
+    };
+
     const handleToggleDropdown = (e: React.MouseEvent) => {
         e.stopPropagation();
         setIsOpen(!isOpen);
@@ -51,13 +85,9 @@ export function UserAvatar({ onOpenSettings }: UserAvatarProps) {
         setShowAuth(true);
     };
 
-    const handleAuthSuccess = () => {
-        setShowAuth(false);
-    };
-
     // Show auth component if requested
     if (showAuth) {
-        return <AuthComponent onSuccess={handleAuthSuccess} />;
+        return <AuthComponent />;
     }
 
     if (!user) return null;
@@ -92,10 +122,8 @@ export function UserAvatar({ onOpenSettings }: UserAvatarProps) {
         <div className="relative" ref={menuRef}>
             <button
                 onClick={handleToggleDropdown}
-                onMouseEnter={() => setIsOpen(true)}
-                onMouseLeave={() => {
-                    setIsOpen(false);
-                }}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
                 className="flex items-center space-x-4 w-full p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
             >
                 <div className="w-10 h-10 rounded-full bg-gradient-to-r from-pink-600/60 to-purple-600/60 flex items-center justify-center text-white font-medium">
@@ -122,8 +150,8 @@ export function UserAvatar({ onOpenSettings }: UserAvatarProps) {
             {isOpen && (
                 <div
                     className="absolute left-0 bottom-full mb-1 w-full bg-gray-900/90 backdrop-blur-md border border-purple-600/30 rounded-lg shadow-xl z-50 overflow-hidden"
-                    onMouseEnter={() => setIsOpen(true)}
-                    onMouseLeave={() => setIsOpen(false)}
+                    onMouseEnter={handleDropdownMouseEnter}
+                    onMouseLeave={handleDropdownMouseLeave}
                 >
                     <div className="p-1 space-y-0.5">
                         {onOpenSettings && (

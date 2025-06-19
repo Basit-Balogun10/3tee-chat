@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -15,7 +16,10 @@ interface ShareMenuProps {
 export function ShareMenu({ chatId }: ShareMenuProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [showShareModal, setShowShareModal] = useState(false);
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
     const menuRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Get chat data and messages for export
     const chat = useQuery(api.chats.getChat, { chatId });
@@ -61,22 +65,70 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
             );
     }, [chatId]);
 
+    // Calculate dropdown position when opening
+    const updateDropdownPosition = () => {
+        if (buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            setDropdownPosition({
+                top: rect.bottom + 8, // 8px gap below button
+                right: window.innerWidth - rect.right, // Distance from right edge
+            });
+        }
+    };
+
     const handleToggleDropdown = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (!isOpen) {
+            updateDropdownPosition();
+        }
         setIsOpen(!isOpen);
     };
 
-    const downloadFile = (content: string, filename: string, type: string) => {
-        const blob = new Blob([content], { type });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+    // Clear any pending close timeout
+    const clearCloseTimeout = () => {
+        if (closeTimeoutRef.current) {
+            clearTimeout(closeTimeoutRef.current);
+            closeTimeoutRef.current = null;
+        }
     };
+
+    // Schedule dropdown close with delay
+    const scheduleClose = () => {
+        clearCloseTimeout();
+        closeTimeoutRef.current = setTimeout(() => {
+            setIsOpen(false);
+        }, 100); // 0.1 second delay
+    };
+
+    const handleMouseEnter = () => {
+        clearCloseTimeout(); // Cancel any pending close
+        updateDropdownPosition();
+        setIsOpen(true);
+    };
+
+    const handleMouseLeave = () => {
+        scheduleClose(); // Schedule close with delay instead of immediate close
+    };
+
+    const handleDropdownMouseEnter = () => {
+        clearCloseTimeout(); // Cancel close when mouse enters dropdown
+    };
+
+    const handleDropdownMouseLeave = () => {
+        scheduleClose(); 
+    };
+
+    // Update position on window resize
+    useEffect(() => {
+        const handleResize = () => {
+            if (isOpen) {
+                updateDropdownPosition();
+            }
+        };
+
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [isOpen]);
 
     const handleExportmarkdown = () => {
         if (!chat || !messages.length) {
@@ -402,77 +454,99 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
         }
     };
 
-    return (
-        <div className="relative" ref={menuRef}>
-            <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleToggleDropdown}
-                onMouseEnter={() => setIsOpen(true)}
-                onMouseLeave={() => {
-                    setIsOpen(false);
-                }}
-                className="p-2 rounded-lg hover:bg-purple-500/30 transition-colors text-purple-200"
-                title="Share & Export"
-            >
-                <Share2 className="w-5 h-5" />
-            </Button>
-
-            {isOpen && (
-                <div
-                    className="absolute top-full right-0 mt-2 min-w-[200px] h-[25rem] bg-gray-900/95 backdrop-blur-md border border-purple-600/30 rounded-lg shadow-xl z-[999]"
-                    onMouseEnter={() => setIsOpen(true)}
-                    onMouseLeave={() => setIsOpen(false)}
+    const dropdownContent = isOpen && (
+        <div
+            className="fixed mt-2 min-w-[200px] bg-gray-900/95 backdrop-blur-md border border-purple-600/30 rounded-lg shadow-xl z-[9999]"
+            style={{
+                top: `${dropdownPosition.top}px`,
+                right: `${dropdownPosition.right}px`,
+            }}
+            onMouseEnter={handleDropdownMouseEnter}
+            onMouseLeave={handleDropdownMouseLeave}
+        >
+            <div className="p-1 space-y-0.5">
+                <button
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowShareModal(true);
+                        clearCloseTimeout(); // Prevent auto-close
+                    }}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
                 >
-                    <div className="p-1 space-y-0.5">
-                        <button
-                            onClick={() => {
-                                setShowShareModal(true);
-                                setIsOpen(false);
-                            }}
-                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
-                        >
-                            <Link className="w-4 h-4" />
-                            Share Chat
-                        </button>
+                    <Link className="w-4 h-4" />
+                    Share Chat
+                </button>
 
-                        <div className="border-t border-purple-600/20 my-1"></div>
+                <div className="border-t border-purple-600/20 my-1"></div>
 
-                        <button
-                            onClick={handleExportmarkdown}
-                            disabled={!messages.length}
-                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
-                        >
-                            <FileText className="w-4 h-4" />
-                            Export as markdown
-                        </button>
+                <button
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleExportmarkdown();
+                    }}
+                    disabled={!messages.length}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
+                >
+                    <FileText className="w-4 h-4" />
+                    Export as Markdown
+                </button>
 
-                        <button
-                            onClick={handleExportJSON}
-                            disabled={!messages.length}
-                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
-                        >
-                            <Code className="w-4 h-4" />
-                            Export as JSON
-                        </button>
+                <button
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleExportJSON();
+                    }}
+                    disabled={!messages.length}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
+                >
+                    <Code className="w-4 h-4" />
+                    Export as JSON
+                </button>
 
-                        <button
-                            onClick={handleExportPDF}
-                            disabled={!messages.length}
-                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
-                        >
-                            <FileDown className="w-4 h-4" />
-                            Export as PDF
-                        </button>
+                <button
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleExportPDF();
+                    }}
+                    disabled={!messages.length}
+                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
+                >
+                    <FileDown className="w-4 h-4" />
+                    Export as PDF
+                </button>
 
-                        {!messages.length && (
-                            <div className="px-3 py-2 text-xs text-purple-400 text-center border-t border-purple-600/20 mt-1">
-                                No messages to export
-                            </div>
-                        )}
+                {!messages.length && (
+                    <div className="px-3 py-2 text-xs text-purple-400 text-center border-t border-purple-600/20 mt-1">
+                        No messages to export
                     </div>
-                </div>
-            )}
+                )}
+            </div>
+        </div>
+    );
+
+    return (
+        <>
+            <div className="relative" ref={menuRef}>
+                <Button
+                    ref={buttonRef}
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleToggleDropdown}
+                    onMouseEnter={handleMouseEnter}
+                    onMouseLeave={handleMouseLeave}
+                    className="p-2 rounded-lg hover:bg-purple-500/30 transition-colors text-purple-200"
+                    title="Share & Export"
+                >
+                    <Share2 className="w-5 h-5" />
+                </Button>
+            </div>
+
+            {/* Render dropdown in a portal to avoid clipping */}
+            {dropdownContent && createPortal(dropdownContent, document.body)}
 
             <ShareModal
                 open={showShareModal}
@@ -481,6 +555,6 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
                 itemType="chat"
                 itemTitle={chat?.title}
             />
-        </div>
+        </>
     );
 }

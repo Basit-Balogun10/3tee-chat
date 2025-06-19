@@ -9,34 +9,64 @@ export function WelcomeTour({ onComplete }: WelcomeTourProps) {
 
   const steps = [
     {
-      title: "Welcome to 3Tee Chat!",
-      content: "Your intelligent AI chat companion with advanced features and beautiful design.",
+      title: "Welcome to 3Tee Chat! 🚀",
+      content: "Your cross-platform AI chat experience, built from real community feedback. Chat with multiple AI models, organize projects, and export everything!",
       target: null,
     },
     {
-      title: "Create New Chats",
-      content: "Click the 'New Chat' button to start a conversation with AI. Each chat can use different models.",
-      target: "new-chat-button",
-    },
-    {
-      title: "Choose AI Models",
-      content: "Select from different AI models like GPT-4.1 Nano, GPT-4o Mini, Claude, and Gemini for varied responses.",
+      title: "🤖 Multi-Model AI Power",
+      content: "Switch between OpenAI GPT, Google Gemini, Anthropic Claude, and more. Each model brings unique strengths to your conversations.",
       target: "model-selector",
     },
     {
-      title: "Upload Files",
-      content: "Attach images, PDFs, and documents to your messages for AI analysis and discussion.",
+      title: "🎨 AI Image & Video Generation",
+      content: "Generate stunning images with DALL-E or create videos with AI models. Your creative companion for visual content creation.",
+      target: "ai-generation",
+    },
+    {
+      title: "🔍 Real-Time Web Search",
+      content: "Get up-to-date information with live web search integration. AI responses include current data with transparent source citations.",
+      target: "web-search",
+    },
+    {
+      title: "🎤 Smart Voice Features",
+      content: "Record voice messages with real-time transcription, upload images and PDFs, or use custom 'buzz words' to auto-send recordings.",
       target: "file-upload",
     },
     {
-      title: "Keyboard Shortcuts",
-      content: "Use Cmd/Ctrl + K to see all keyboard shortcuts. Cmd/Ctrl + N creates a new chat quickly.",
+      title: "⚡ Live Chat Streaming",
+      content: "Experience real-time AI responses with typing indicators and resumable streams. Never lose context, even after interruptions.",
+      target: "live-chat",
+    },
+    {
+      title: "🌿 Advanced Conversation Flow",
+      content: "Edit any message to create conversation branches. Fork entire chats or projects to explore different paths without losing original context.",
+      target: "message-list",
+    },
+    {
+      title: "🗺️ Chat Navigation & Outline",
+      content: "Navigate complex conversations with visual outlines. Jump between message threads and see conversation structure at a glance.",
+      target: "chat-navigator",
+    },
+    {
+      title: "📁 Project Forking & Organization",
+      content: "Fork projects to experiment safely. Toggle between Chat view and Project view (Ctrl+Shift+P) with hierarchical organization.",
+      target: "sidebar",
+    },
+    {
+      title: "🔗 Universal Sharing & Export",
+      content: "Generate shareable links, export to Markdown/JSON/PDF, or collaborate in real-time. Your data, your way.",
+      target: "share-menu",
+    },
+    {
+      title: "⌨️ Keyboard Power User Mode",
+      content: "Press Ctrl+K for shortcuts. Navigate chats with arrows, create branches, export files, and control everything without touching your mouse!",
       target: "help-button",
     },
     {
-      title: "Customize Settings",
-      content: "Access settings to change themes, set default models, and add your own API keys.",
-      target: "user-menu",
+      title: "🎨 Beautiful & Cross-Platform",
+      content: "Enjoy glassmorphism design, custom themes, and a responsive interface that works perfectly on web, desktop, and mobile.",
+      target: "theme-toggle",
     },
   ];
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { Dispatch, SetStateAction, useState, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -6,9 +6,10 @@ import { UserAvatar } from "./UserAvatar";
 import { SearchInput } from "./SearchInput";
 import { ProjectTree } from "./ProjectTree";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
 import {
     Plus,
-    Menu,
+    PanelLeft,
     ChevronRight,
     ChevronDown,
     Folder,
@@ -29,9 +30,10 @@ interface SidebarProps {
     chats: { starred: Chat[]; regular: Chat[] };
     selectedChatId: Id<"chats"> | null;
     onSelectChat: (chatId: Id<"chats">) => void;
-    onNewChat: () => void;
+    onNewChat: (projectId?: Id<"projects">) => void;
     onToggleCollapse: () => void;
     onOpenSettings?: () => void;
+    setIsOpen: Dispatch<SetStateAction<boolean>>;
     // Add shared content support for Phase 3.4
     sharedContent?: {
         sharedChats: Chat[];
@@ -46,6 +48,7 @@ export function Sidebar({
     onNewChat,
     onToggleCollapse,
     onOpenSettings,
+    setIsOpen,
     sharedContent, // Add shared content prop for Phase 3.4
 }: SidebarProps) {
     const [searchQuery, setSearchQuery] = useState("");
@@ -76,6 +79,9 @@ export function Sidebar({
 
     const searchInputRef = useRef<HTMLInputElement | null>(null);
 
+    // Use custom shortcuts hook
+    const { checkShortcutMatch } = useCustomShortcuts();
+
     // Handle keyboard shortcut events
     useEffect(() => {
         const handleDeleteCurrentChat = async (e: CustomEvent) => {
@@ -101,14 +107,11 @@ export function Sidebar({
             }
         };
 
-        // Handle project view toggle keyboard shortcut
+        // Handle project view toggle keyboard shortcut using custom shortcuts
         const handleToggleProjectView = (e: KeyboardEvent) => {
-            if (
-                (e.ctrlKey || e.metaKey) &&
-                e.altKey &&
-                e.key.toLowerCase() === "p"
-            ) {
+            if (checkShortcutMatch(e, "toggle-project-view")) {
                 e.preventDefault();
+                setIsOpen(true);
                 setIsProjectView(!isProjectView);
                 toast.success(
                     `Switched to ${!isProjectView ? "project" : "chat"} view`
@@ -146,6 +149,7 @@ export function Sidebar({
             document.removeEventListener("keydown", handleToggleProjectView);
         };
     }, [
+        checkShortcutMatch,
         deleteChat,
         toggleStar,
         chats,
@@ -267,7 +271,7 @@ export function Sidebar({
         <div
             key={chat._id}
             onClick={() => onSelectChat(chat._id)}
-            className={`group relative px-2 py-3 rounded-lg cursor-pointer transition-all duration-200 mb-2 ${
+            className={`group relative px-3 py-3 rounded-lg cursor-pointer transition-all duration-200 mb-2 ${
                 selectedChatId === chat._id
                     ? "bg-purple-500/20"
                     : "hover:bg-purple-500/10"
@@ -301,90 +305,75 @@ export function Sidebar({
                         </h3>
                     )}
                 </div>
-                <div className="absolute right-3 top-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 translate-x-6 group-hover:translate-x-0 transition-all duration-200 ease-out">
-                    <button
-                        onClick={(e) => void handleToggleStar(chat._id, e)}
-                        className="p-1 rounded hover:bg-purple-500/20 transition-colors"
-                        title={
-                            chat.isStarred
-                                ? "Remove from starred"
-                                : "Add to starred"
-                        }
-                    >
-                        <svg
-                            className={`w-4 h-4 ${
-                                chat.isStarred
-                                    ? "text-yellow-400 fill-current"
-                                    : "text-purple-400"
-                            }`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                            />
-                        </svg>
-                    </button>
-                    <button
-                        onClick={(e) => startEditing(chat, e)}
-                        className="p-1 rounded hover:bg-purple-500/20 transition-colors"
-                        title="Edit chat title"
-                    >
-                        <svg
-                            className="w-4 h-4 text-purple-400"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                            />
-                        </svg>
-                    </button>
-                    {/* Only show folder button for authenticated users */}
-                    {!isAnonymous && (
+                {!editingChatId && (
+                    <div className="absolute right-3 top-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 translate-x-6 group-hover:translate-x-0 transition-all duration-200 ease-out">
                         <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                // Placeholder for folder functionality - will be implemented later
-                                console.log(
-                                    "Folder action for chat:",
-                                    chat._id
-                                );
-                            }}
+                            onClick={(e) => void handleToggleStar(chat._id, e)}
                             className="p-1 rounded hover:bg-purple-500/20 transition-colors"
-                            title="Organize chat"
+                            title={
+                                chat.isStarred
+                                    ? "Remove from starred"
+                                    : "Add to starred"
+                            }
                         >
-                            <Folder className="w-4 h-4 text-purple-400" />
+                            <svg
+                                className={`w-4 h-4 ${
+                                    chat.isStarred
+                                        ? "text-yellow-400 fill-current"
+                                        : "text-purple-400"
+                                }`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+                                />
+                            </svg>
                         </button>
-                    )}
-                    <button
-                        onClick={(e) => handleDeleteChat(chat._id, e)}
-                        className="p-1 rounded hover:bg-red-500/20 transition-colors"
-                        title="Delete chat"
-                    >
-                        <svg
-                            className="w-4 h-4 text-red-400"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
+                        <button
+                            onClick={(e) => startEditing(chat, e)}
+                            className="p-1 rounded hover:bg-purple-500/20 transition-colors"
+                            title="Edit chat title"
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                        </svg>
-                    </button>
-                </div>
+                            <svg
+                                className="w-4 h-4 text-purple-400"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                />
+                            </svg>
+                        </button>
+                        <button
+                            onClick={(e) => handleDeleteChat(chat._id, e)}
+                            className="p-1 rounded hover:bg-red-500/20 transition-colors"
+                            title="Delete chat"
+                        >
+                            <svg
+                                className="w-4 h-4 text-red-400"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -397,9 +386,9 @@ export function Sidebar({
                     <div className="flex items-center gap-3">
                         <button
                             onClick={onToggleCollapse}
-                            className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-colors"
+                            className="p-2 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 transition-all duration-200"
                         >
-                            <Menu className="w-5 h-5 text-purple-200" />
+                            <PanelLeft className="w-5 h-5 text-purple-200" />
                         </button>
                         <h1 className="text-xl font-bold bg-gradient-to-r from-pink-400 to-purple-400 bg-clip-text text-transparent">
                             3Tee Chat
@@ -414,19 +403,9 @@ export function Sidebar({
                     </button>
                 </div>
 
-                <SearchInput
-                    ref={searchInputRef}
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    placeholder={
-                        isProjectView ? "Search projects..." : "Search chats..."
-                    }
-                    autoFocus={true}
-                />
-
                 {/* View Toggle Buttons */}
                 {!isAnonymous && (
-                    <div className="flex bg-purple-500/10 rounded-lg p-1 mt-3">
+                    <div className="flex bg-purple-500/10 rounded-lg p-1 mt-3 mb-4">
                         <button
                             onClick={() => setIsProjectView(false)}
                             className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
@@ -451,14 +430,25 @@ export function Sidebar({
                         </button>
                     </div>
                 )}
+
+                <SearchInput
+                    ref={searchInputRef}
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    placeholder={
+                        isProjectView ? "Search projects..." : "Search chats..."
+                    }
+                    autoFocus={true}
+                />
             </div>
 
             {/* Content Area - Chat List or Project Tree */}
             <div className="flex-1 overflow-y-scroll overflow-x-hidden">
                 {isProjectView && !isAnonymous ? (
                     /* Project Tree View */
-                    <div className="p-2">
+                    <div className="px-4">
                         <ProjectTree
+                            onCreateChat={onNewChat}
                             onSelectChat={onSelectChat}
                             selectedChatId={selectedChatId}
                             searchQuery={searchQuery}
@@ -474,7 +464,7 @@ export function Sidebar({
                                 No chats found
                             </div>
                         ) : (
-                            <div className="p-2">
+                            <div className="px-4 py-3">
                                 {/* Starred Chats - Collapsible */}
                                 {filteredChats.starred.length > 0 && (
                                     <div className="mb-2">

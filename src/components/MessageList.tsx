@@ -2,11 +2,13 @@ import { Dispatch, SetStateAction, useState, useRef, useEffect } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 import { AttachmentPreview } from "./AttachmentPreview";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { StreamingMessage } from "./StreamingMessage";
 import { ScrollToBottom } from "./ScrollToBottom";
 import { MessageBranchNavigator } from "./MessageBranchNavigator";
 import { Button } from "./ui/button";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { useResumableStreaming } from "../hooks/useResumableStreaming";
 import {
     Edit3,
     Copy,
@@ -24,6 +26,9 @@ import {
     Clock,
     Video,
     Palette,
+    RefreshCw,
+    Wifi,
+    WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -669,26 +674,26 @@ export function MessageList({
                                                     }
                                                 }}
                                             >
-                                                {messageRenderMode ===
-                                                "rendered" ? (
-                                                    <MarkdownRenderer
-                                                        content={
-                                                            message.content ||
-                                                            (message.isStreaming
-                                                                ? "..."
-                                                                : "")
-                                                        }
+                                                {/* Use StreamingMessage for streaming messages, regular MarkdownRenderer for static messages */}
+                                                {message.isStreaming ? (
+                                                    <StreamingMessage
+                                                        messageId={message._id}
+                                                        initialContent={message.content}
                                                         className="text-purple-100"
-                                                        isStreaming={
-                                                            message.isStreaming
-                                                        }
+                                                        onStreamingComplete={() => {
+                                                            // Force re-render when streaming completes
+                                                            // This will be handled by the parent component's query
+                                                        }}
+                                                    />
+                                                ) : messageRenderMode === "rendered" ? (
+                                                    <MarkdownRenderer
+                                                        content={message.content || ""}
+                                                        className="text-purple-100"
+                                                        isStreaming={false}
                                                     />
                                                 ) : (
                                                     <div className="whitespace-pre-wrap break-words font-mono text-sm rounded-lg p-3">
-                                                        {message.content ||
-                                                            (message.isStreaming
-                                                                ? "..."
-                                                                : "")}
+                                                        {message.content || ""}
                                                     </div>
                                                 )}
                                             </div>

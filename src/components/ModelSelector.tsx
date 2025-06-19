@@ -3,29 +3,27 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { SettingsModal } from "./SettingsModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs"; // Import Tabs components
+import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import {
     ChevronDown,
-    Zap,
-    Brain,
-    Sparkles,
     CheckCircle,
     Eye,
     Paperclip,
     Mic,
-    Code,
     FileText,
     Search,
     Globe,
     MessageSquare,
     X,
-    Key,
-    Crown,
+    Video,
+    Image,
+    Zap,
 } from "lucide-react";
 import {
     PROVIDER_CONFIGS,
     getAvailableModels,
     getProviderInfo,
+    ModelCapabilities,
 } from "../lib/modelConfig";
 
 // --- PROPS INTERFACE ---
@@ -47,7 +45,7 @@ export function ModelSelector({
     const [showSettings, setShowSettings] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCapability, setSelectedCapability] = useState<string>("all");
-    const [selectedProvider, setSelectedProvider] = useState<string>("all"); // NEW: State for provider tabs
+    const [selectedProvider, setSelectedProvider] = useState<string>("all");
 
     // --- DATA FETCHING & LOGIC ---
     const preferences = useQuery(api.preferences.getUserPreferences);
@@ -64,10 +62,80 @@ export function ModelSelector({
         [userApiKeys, userApiKeyPreferences]
     );
 
+    // Create capability tabs and icons based on actual capabilities from modelConfig
+    const capabilityIcons: Record<
+        keyof ModelCapabilities,
+        { icon: JSX.Element; label: string }
+    > = {
+        textGeneration: {
+            icon: <FileText className="w-3 h-3" />,
+            label: "Text",
+        },
+        imageGeneration: {
+            icon: <Image className="w-3 h-3" />,
+            label: "Image Gen",
+        },
+        videoGeneration: {
+            icon: <Video className="w-3 h-3" />,
+            label: "Video Gen",
+        },
+        vision: { icon: <Eye className="w-3 h-3" />, label: "Vision" },
+        files: { icon: <Paperclip className="w-3 h-3" />, label: "Files" },
+        webSearch: { icon: <Globe className="w-3 h-3" />, label: "Web Search" },
+        liveChat: { icon: <Mic className="w-3 h-3" />, label: "Live Chat" },
+        structuredOutput: {
+            icon: <Zap className="w-3 h-3" />,
+            label: "Structured",
+        },
+    };
+
+    const capabilityTabs = [
+        {
+            id: "all",
+            label: "All",
+            icon: <MessageSquare className="w-3 h-3" />,
+        },
+        {
+            id: "vision",
+            label: "Vision",
+            icon: capabilityIcons.vision.icon,
+        },
+        {
+            id: "files",
+            label: "Files",
+            icon: capabilityIcons.files.icon,
+        },
+        {
+            id: "liveChat",
+            label: "Voice",
+            icon: capabilityIcons.liveChat.icon,
+        },
+        {
+            id: "webSearch",
+            label: "Web",
+            icon: capabilityIcons.webSearch.icon,
+        },
+        {
+            id: "imageGeneration",
+            label: "Image Gen",
+            icon: capabilityIcons.imageGeneration.icon,
+        },
+        {
+            id: "videoGeneration",
+            label: "Video Gen",
+            icon: capabilityIcons.videoGeneration.icon,
+        },
+        {
+            id: "structuredOutput",
+            label: "Canvas",
+            icon: capabilityIcons.structuredOutput.icon,
+        },
+    ];
+
     // This is the core filtering logic, now with provider filtering
     const filteredModels = useMemo(() => {
         return availableModels.filter((model) => {
-            // NEW: Filter by selected provider tab
+            // Filter by selected provider tab
             if (
                 selectedProvider !== "all" &&
                 model.provider !== selectedProvider
@@ -86,53 +154,16 @@ export function ModelSelector({
                     .includes(searchQuery.toLowerCase()) ||
                 providerName.toLowerCase().includes(searchQuery.toLowerCase());
 
-            const capabilityMap: Record<
-                string,
-                keyof typeof model.capabilities
-            > = {
-                vision: "vision",
-                files: "files",
-                voice: "liveChat",
-                "web-search": "webSearch",
-                research: "structuredOutput",
-            };
-            const capabilityToCheck = capabilityMap[selectedCapability];
-
+            // Check capability filter - now using actual capability keys from ModelCapabilities
             const matchesCapability =
                 selectedCapability === "all" ||
-                (capabilityToCheck && model.capabilities[capabilityToCheck]);
+                model.capabilities[
+                    selectedCapability as keyof ModelCapabilities
+                ];
 
             return matchesSearch && matchesCapability;
         });
     }, [availableModels, searchQuery, selectedCapability, selectedProvider]);
-
-    // --- UI HELPER DATA ---
-    const capabilityIcons = {
-        text: { icon: <FileText className="w-3 h-3" />, label: "Text" },
-        vision: { icon: <Eye className="w-3 h-3" />, label: "Vision" },
-        files: { icon: <Paperclip className="w-3 h-3" />, label: "Files" },
-        voice: { icon: <Mic className="w-3 h-3" />, label: "Voice" },
-        "web-search": {
-            icon: <Globe className="w-3 h-3" />,
-            label: "Web Search",
-        },
-    };
-
-    const capabilityTabs = [
-        {
-            id: "all",
-            label: "All",
-            icon: <MessageSquare className="w-3 h-3" />,
-        },
-        { id: "vision", label: "Vision", icon: <Eye className="w-3 h-3" /> },
-        {
-            id: "files",
-            label: "Files",
-            icon: <Paperclip className="w-3 h-3" />,
-        },
-        { id: "voice", label: "Voice", icon: <Mic className="w-3 h-3" /> },
-        { id: "web-search", label: "Web", icon: <Globe className="w-3 h-3" /> },
-    ];
 
     // --- EVENT HANDLERS & DERIVED STATE ---
     const selectedModelInfo = availableModels.find(
@@ -184,10 +215,7 @@ export function ModelSelector({
     useEffect(() => {
         document.addEventListener("openModelSelector", handleOpenModal);
         return () =>
-            document.removeEventListener(
-                "openModelSelector",
-                handleOpenModal
-            );
+            document.removeEventListener("openModelSelector", handleOpenModal);
     }, []);
 
     const { title, subtitle } = getModalTitle();
@@ -225,7 +253,7 @@ export function ModelSelector({
             {/* Modal */}
             <Dialog open={showModal} onOpenChange={setShowModal}>
                 <DialogContent
-                    className="bg-transparent backdrop-blur-md border border-purple-600/30 text-purple-100 max-w-2xl max-h-[95vh] overflow-hidden p-0"
+                    className="bg-transparent backdrop-blur-md border border-purple-600/30 text-purple-100 max-w-2xl max-h-[95vh] overflow-y-scroll p-0"
                     hideCloseButton
                 >
                     <div className="p-6">
@@ -293,7 +321,7 @@ export function ModelSelector({
                             )}
                         </div>
 
-                        <div className="mb-6">
+                        <div className="mb-2">
                             <div className="flex flex-wrap gap-2 justify-center">
                                 {capabilityTabs.map((tab) => (
                                     <button
@@ -356,8 +384,7 @@ export function ModelSelector({
                                                             </h3>
                                                             {model.userKeyEnabled && (
                                                                 <span className="flex items-center gap-1 text-xs text-green-400 font-medium">
-                                                                        Personal
-                                                                        Key
+                                                                    Personal Key
                                                                 </span>
                                                             )}
                                                         </div>

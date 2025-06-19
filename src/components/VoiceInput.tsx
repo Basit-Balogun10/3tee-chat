@@ -323,7 +323,7 @@ export function VoiceInput({
         }
     };
 
-    const stopRecording = () => {
+    const stopRecording = (isCleanup: boolean = false) => {
         setIsInitializing(false);
         onRecordingChange(false);
 
@@ -353,7 +353,9 @@ export function VoiceInput({
             streamRef.current = null;
         }
 
-        toast.success("🎤 Voice recording stopped");
+        if (!isCleanup) {
+            toast.success("🎤 Voice recording stopped");
+        }
     };
 
     const handleToggleRecording = async () => {
@@ -367,14 +369,21 @@ export function VoiceInput({
     // Cleanup on unmount
     useEffect(() => {
         return () => {
-            stopRecording();
+            stopRecording(true);
         };
     }, []);
 
     useEffect(() => {
-        document.addEventListener('toggleVoiceRecording', handleToggleRecording);
-        return () => document.removeEventListener('toggleVoiceRecording', handleToggleRecording);
-    }, [])
+        document.addEventListener(
+            "toggleVoiceRecording",
+            handleToggleRecording
+        );
+        return () =>
+            document.removeEventListener(
+                "toggleVoiceRecording",
+                handleToggleRecording
+            );
+    }, []);
 
     const getButtonState = () => {
         if (isInitializing) {

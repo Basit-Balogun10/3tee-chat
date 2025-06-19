@@ -18,11 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-interface AuthComponentProps {
-    onSuccess?: () => void;
-}
-
-export function AuthComponent({ onSuccess }: AuthComponentProps) {
+export function AuthComponent() {
     const { signIn } = useAuthActions();
     const [isLoading, setIsLoading] = useState(false);
     const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
@@ -38,10 +34,6 @@ export function AuthComponent({ onSuccess }: AuthComponentProps) {
             setLoadingProvider(provider);
 
             await signIn(provider);
-            toast.success(
-                `Signed in with ${provider === "github" ? "GitHub" : "Google"}!`
-            );
-            onSuccess?.();
         } catch (error) {
             console.error(`${provider} sign in failed:`, error);
             toast.error(
@@ -60,7 +52,6 @@ export function AuthComponent({ onSuccess }: AuthComponentProps) {
 
             await signIn("anonymous");
             toast.success("Welcome! You're now chatting as a guest.");
-            onSuccess?.();
         } catch (error) {
             console.error("Anonymous sign in failed:", error);
             toast.error("Failed to continue as guest. Please try again.");
@@ -112,7 +103,6 @@ export function AuthComponent({ onSuccess }: AuthComponentProps) {
             await signIn("resend-otp", formData);
 
             toast.success("Successfully signed in!");
-            onSuccess?.();
         } catch (error) {
             console.error("Code verification failed:", error);
             toast.error("Invalid verification code. Please try again.");
@@ -314,7 +304,7 @@ export function AuthComponent({ onSuccess }: AuthComponentProps) {
 
             <div className="space-y-3">
                 {/* OAuth Providers */}
-                {/* <Button
+                <Button
                     onClick={() => handleOAuthSignIn("github")}
                     disabled={isLoading}
                     className="w-full bg-gray-800 hover:bg-gray-700 text-white border border-gray-600"
@@ -338,14 +328,14 @@ export function AuthComponent({ onSuccess }: AuthComponentProps) {
                         <Chrome className="w-5 h-5 mr-2" />
                     )}
                     Continue with Google
-                </Button> */}
+                </Button>
 
                 {/* Email Authentication */}
                 <Button
                     onClick={() => setAuthMode("email")}
                     disabled={isLoading}
                     variant="outline"
-                    className="w-full border-purple-600/30 text-purple-200 hover:bg-purple-500/10"
+                    className="w-full border-purple-600/30 text-purple-200 hover:bg-purple-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 ease-in-out"
                 >
                     <Mail className="w-5 h-5 mr-2" />
                     Continue with Email

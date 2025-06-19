@@ -12,7 +12,8 @@ import { ThemeToggle } from "./ThemeToggle";
 import { KeyboardShortcuts } from "./KeyboardShortcuts";
 import { WelcomeTour } from "./WelcomeTour";
 import { useLocalStorage } from "../hooks/useLocalStorage";
-import { Edit3, Menu, PanelRight } from "lucide-react";
+import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
+import { Edit3, PanelLeft, PanelRight } from "lucide-react";
 import { toast } from "sonner";
 
 export function ChatInterface() {
@@ -146,24 +147,33 @@ export function ChatInterface() {
         [setRightSidebarMode]
     );
 
-    const handleNewChat = useCallback(async () => {
-        const defaultModel = preferences?.defaultModel || "gpt-4o-mini";
+    const handleNewChat = useCallback(
+        async (projectId?: Id<"projects">) => {
+            const defaultModel = preferences?.defaultModel || "gpt-4o-mini";
 
-        const chatId = await createChat({
-            title: "New Chat",
-            model: defaultModel,
-        });
-        setSelectedChatId(chatId);
-        setLastSelectedChatId(chatId);
-        // Navigate to the new chat URL
-        void navigate(`/chat/${chatId}`);
-        return chatId;
-    }, [
-        preferences?.defaultModel,
-        createChat,
-        setLastSelectedChatId,
-        navigate,
-    ]);
+            const chatId = await createChat({
+                title: "New Chat",
+                model: defaultModel,
+                ...(projectId
+                    ? {
+                          projectId,
+                      }
+                    : {}),
+            });
+            setSelectedChatId(chatId);
+            setLastSelectedChatId(chatId);
+
+            if (projectId) {
+                toast.success("New chat created in project");
+            } else {
+                toast.success("New chat created");
+            }
+            // Navigate to the new chat URL
+            void navigate(`/chat/${chatId}`);
+            return chatId;
+        },
+        [preferences?.defaultModel, createChat, setLastSelectedChatId, navigate]
+    );
 
     // Update localStorage and URL when selectedChatId changes
     const handleSelectChat = useCallback(
@@ -254,6 +264,7 @@ export function ChatInterface() {
 
                         markdown += `## ${role} *(${time})*\n\n`;
 
+                        // Handle attachments
                         if (
                             message.attachments &&
                             message.attachments.length > 0
@@ -439,6 +450,9 @@ export function ChatInterface() {
         };
     }, [selectedChatId, selectedChat, messagesResult]);
 
+    // Use custom shortcuts hook
+    const { checkShortcutMatch } = useCustomShortcuts();
+
     // Comprehensive keyboard shortcuts (avoiding browser conflicts)
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -448,286 +462,228 @@ export function ChatInterface() {
                 e.target instanceof HTMLTextAreaElement ||
                 (e.target as HTMLElement)?.isContentEditable;
 
-            const hasModifier = e.metaKey || e.ctrlKey;
-
-            // Shift + modifier combinations for chat actions (memorable and safe)
-            if (hasModifier && e.shiftKey) {
-                switch (e.key) {
-                    case "B":
-                        // Cmd/Ctrl + Shift + B for toggle sidebar (B = Bar/sidebar)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setSidebarOpen(!sidebarOpen);
-                        return;
-
-                    case "F": {
-                        // Cmd/Ctrl + Shift + F for focus search (F = Find)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const focusSearchEvent = new CustomEvent(
-                            "focusSearch",
-                            {
-                                detail: { openSidebarFirst: !sidebarOpen },
-                            }
-                        );
-                        document.dispatchEvent(focusSearchEvent);
-                        return;
-                    }
-
-                    case "D": {
-                        // Cmd/Ctrl + Shift + D for dark mode toggle (D = Dark)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const toggleThemeEvent = new CustomEvent("toggleTheme");
-                        document.dispatchEvent(toggleThemeEvent);
-                        return;
-                    }
-
-                    case "E":
-                        // Cmd/Ctrl + Shift + E for export markdown (E = Export)
-                        if (selectedChatId) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const exportEvent = new CustomEvent(
-                                "exportMarkdown",
-                                {
-                                    detail: { chatId: selectedChatId },
-                                }
-                            );
-                            document.dispatchEvent(exportEvent);
-                        }
-                        return;
-
-                    case "J":
-                        // Cmd/Ctrl + Shift + J for export JSON (J = JSON)
-                        if (selectedChatId) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const exportEvent = new CustomEvent("exportJSON", {
-                                detail: { chatId: selectedChatId },
-                            });
-                            document.dispatchEvent(exportEvent);
-                        }
-                        return;
-
-                    case "S":
-                        // Cmd/Ctrl + Shift + S for share chat read-only (S = Share)
-                        if (selectedChatId) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const shareReadOnlyEvent = new CustomEvent(
-                                "shareReadOnly",
-                                {
-                                    detail: { chatId: selectedChatId },
-                                }
-                            );
-                            document.dispatchEvent(shareReadOnlyEvent);
-                        }
-                        return;
-                }
+            // Check custom shortcuts using the new system
+            if (checkShortcutMatch(e, "toggle-sidebar")) {
+                e.preventDefault();
+                e.stopPropagation();
+                setSidebarOpen(!sidebarOpen);
+                return;
             }
 
-            // Special key combinations
-            if (hasModifier && !e.shiftKey && !e.altKey) {
-                switch (e.key) {
-                    case "\\":
-                        // Cmd/Ctrl + \ for toggle right sidebar (\ = backslash, common for sidebars)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setRightSidebarOpen(!rightSidebarOpen);
-                        return;
-                }
+            if (checkShortcutMatch(e, "focus-search")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const focusSearchEvent = new CustomEvent("focusSearch", {
+                    detail: { openSidebarFirst: !sidebarOpen },
+                });
+                document.dispatchEvent(focusSearchEvent);
+                return;
             }
 
-            // Alt + modifier combinations for chat management (memorable)
-            if (hasModifier && e.altKey) {
-                switch (e.key) {
-                    case "c":
-                    case "C":
-                        // Cmd/Ctrl + Alt + C for share chat collaboration mode (C = Collaboration)
-                        if (selectedChatId) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const shareCollabEvent = new CustomEvent(
-                                "shareCollaboration",
-                                {
-                                    detail: { chatId: selectedChatId },
-                                }
-                            );
-                            document.dispatchEvent(shareCollabEvent);
-                        }
-                        return;
+            if (checkShortcutMatch(e, "toggle-theme")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const toggleThemeEvent = new CustomEvent("toggleTheme");
+                document.dispatchEvent(toggleThemeEvent);
+                return;
+            }
 
-                    case "t":
-                    case "T":
-                        // Cmd/Ctrl + Alt + T for rename current chat (T = Title)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (selectedChat && !isEditingTitle) {
-                            handleStartEditTitle();
-                        }
-                        return;
+            if (checkShortcutMatch(e, "export-markdown") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const exportEvent = new CustomEvent("exportMarkdown", {
+                    detail: { chatId: selectedChatId },
+                });
+                document.dispatchEvent(exportEvent);
+                return;
+            }
 
-                    case "f":
-                    case "F":
-                        // Cmd/Ctrl + Alt + F for fork current chat from last message (F = Fork)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (messagesResult && messagesResult.length > 0) {
-                            const forkEvent = new CustomEvent(
-                                "forkFromMessage",
-                                {
-                                    detail: {
-                                        messageId:
-                                            messagesResult[
-                                                messagesResult.length - 1
-                                            ]._id,
-                                    },
-                                }
-                            );
-                            document.dispatchEvent(forkEvent);
-                        }
-                        return;
+            if (checkShortcutMatch(e, "export-json") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const exportEvent = new CustomEvent("exportJSON", {
+                    detail: { chatId: selectedChatId },
+                });
+                document.dispatchEvent(exportEvent);
+                return;
+            }
 
-                    case "d":
-                    case "D":
-                        // Cmd/Ctrl + Alt + D for current chat deletion (D = Delete)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (selectedChatId) {
-                            const deleteChatEvent = new CustomEvent(
-                                "deleteCurrentChat",
-                                {
-                                    detail: { chatId: selectedChatId },
-                                }
-                            );
-                            document.dispatchEvent(deleteChatEvent);
-                        }
-                        return;
+            if (checkShortcutMatch(e, "share-chat") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const shareReadOnlyEvent = new CustomEvent("shareReadOnly", {
+                    detail: { chatId: selectedChatId },
+                });
+                document.dispatchEvent(shareReadOnlyEvent);
+                return;
+            }
 
-                    case "s":
-                    case "S":
-                        // Cmd/Ctrl + Alt + S for starring chat (S = Star)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (selectedChatId) {
-                            const starToggleEvent = new CustomEvent(
-                                "toggleCurrentChatStar",
-                                {
-                                    detail: { chatId: selectedChatId },
-                                }
-                            );
-                            document.dispatchEvent(starToggleEvent);
-                        }
-                        return;
+            if (checkShortcutMatch(e, "toggle-right-sidebar")) {
+                e.preventDefault();
+                e.stopPropagation();
+                setRightSidebarOpen(!rightSidebarOpen);
+                return;
+            }
 
-                    case "v":
-                    case "V":
-                        // Cmd/Ctrl + Alt + V for starting/stopping voice recorindg (V = Voice)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (selectedChatId) {
-                            const voiceRecordingToggleEvent = new CustomEvent(
-                                "focusMessageInput"
-                            );
-                            document.dispatchEvent(voiceRecordingToggleEvent);
-                        }
-                        return;
+            if (
+                checkShortcutMatch(e, "rename-chat") &&
+                selectedChat &&
+                !isEditingTitle
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleStartEditTitle();
+                return;
+            }
 
-                    case "i":
-                    case "I":
-                        // Cmd/Ctrl + Alt + I to focus message input (I = Input)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        {
-                            const focusInputEvent = new CustomEvent(
-                                "focusMessageInput"
-                            );
-                            document.dispatchEvent(focusInputEvent);
-                        }
-                        return;
+            if (checkShortcutMatch(e, "delete-chat") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const deleteChatEvent = new CustomEvent("deleteCurrentChat", {
+                    detail: { chatId: selectedChatId },
+                });
+                document.dispatchEvent(deleteChatEvent);
+                return;
+            }
 
-                    case "m":
-                    case "M":
-                        // Cmd/Ctrl + Alt + M to toggle message input visibility (M = Message input)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowMessageInput(!showMessageInput);
-                        return;
-
-                    case "h":
-                    case "H":
-                        // Cmd/Ctrl + Alt + H to toggle header visibility (H = Header)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowHeader(!showHeader);
-                        return;
-
-                    case "z":
-                    case "Z": {
-                        // Cmd/Ctrl + Alt + Z to toggle zen mode (Z = Zen)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const newZenMode = !zenMode;
-                        setZenMode(newZenMode);
-                        // In zen mode, hide sidebar, header and message input
-                        // When exiting zen mode, show all
-                        setShowHeader(!newZenMode);
-                        setShowMessageInput(!newZenMode);
-                        setSidebarOpen(!newZenMode);
-                        return;
+            if (checkShortcutMatch(e, "star-chat") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const starToggleEvent = new CustomEvent(
+                    "toggleCurrentChatStar",
+                    {
+                        detail: { chatId: selectedChatId },
                     }
-
-                    case "n":
-                    case "N":
-                        // Ctrl + Alt + N for new chat (N = New)
-                        if (e.altKey) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void handleNewChat();
-                        }
-                        return;
-                }
+                );
+                document.dispatchEvent(starToggleEvent);
+                return;
             }
 
-            // Global shortcuts
-            if (hasModifier) {
-                switch (e.key) {
-                    case "k":
-                    case "K":
-                        // Cmd/Ctrl + K for keyboard shortcuts modal (safe - not a browser shortcut)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowKeyboardShortcuts(true);
-                        return;
+            if (
+                checkShortcutMatch(e, "share-collaboration") &&
+                selectedChatId
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                const shareCollabEvent = new CustomEvent("shareCollaboration", {
+                    detail: { chatId: selectedChatId },
+                });
+                document.dispatchEvent(shareCollabEvent);
+                return;
+            }
 
-                    case ",":
-                        // Cmd/Ctrl + , for settings (standard OS pattern)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowSettings(true);
-                        return;
+            if (
+                checkShortcutMatch(e, "rename-chat") &&
+                selectedChat &&
+                !isEditingTitle
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                handleStartEditTitle();
+                return;
+            }
 
-                    case "m":
-                    case "M":
-                        // Cmd/Ctrl + M to open model selector (M = Model)
-                        e.preventDefault();
-                        e.stopPropagation();
-                        {
-                            const modelSelectorEvent = new CustomEvent(
-                                "openModelSelector"
-                            );
-                            document.dispatchEvent(modelSelectorEvent);
-                        }
-                        return;
-                }
+            if (checkShortcutMatch(e, "delete-chat") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const deleteChatEvent = new CustomEvent("deleteCurrentChat", {
+                    detail: { chatId: selectedChatId },
+                });
+                document.dispatchEvent(deleteChatEvent);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "star-chat") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const starToggleEvent = new CustomEvent(
+                    "toggleCurrentChatStar",
+                    {
+                        detail: { chatId: selectedChatId },
+                    }
+                );
+                document.dispatchEvent(starToggleEvent);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "voice-recording") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const voiceRecordingToggleEvent = new CustomEvent(
+                    "focusMessageInput"
+                );
+                document.dispatchEvent(voiceRecordingToggleEvent);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "focus-input")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const focusInputEvent = new CustomEvent("focusMessageInput");
+                document.dispatchEvent(focusInputEvent);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "toggle-message-input")) {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowMessageInput(!showMessageInput);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "toggle-header")) {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowHeader(!showHeader);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "toggle-zen-mode")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const newZenMode = !zenMode;
+                setZenMode(newZenMode);
+                // In zen mode, hide sidebar, header and message input
+                setShowHeader(!newZenMode);
+                setShowMessageInput(!newZenMode);
+                setSidebarOpen(!newZenMode);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "new-chat")) {
+                e.preventDefault();
+                e.stopPropagation();
+                void handleNewChat();
+                return;
+            }
+
+            if (checkShortcutMatch(e, "show-shortcuts")) {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowKeyboardShortcuts(true);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "open-settings")) {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowSettings(true);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "open-model-selector")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const modelSelectorEvent = new CustomEvent("openModelSelector");
+                document.dispatchEvent(modelSelectorEvent);
+                return;
             }
 
             // Skip other shortcuts if typing
             if (isTyping) return;
 
-            // Simple navigation shortcuts (no modifiers needed)
-            if (!hasModifier) {
+            // Simple navigation shortcuts (no modifiers needed) - these are not customizable
+            if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
                 const allChats = chats
                     ? [...chats.starred, ...chats.regular]
                     : [];
@@ -775,6 +731,7 @@ export function ChatInterface() {
                 capture: true,
             });
     }, [
+        checkShortcutMatch,
         handleNewChat,
         sidebarOpen,
         setSidebarOpen,
@@ -1006,27 +963,13 @@ export function ChatInterface() {
                     chats={chats || { starred: [], regular: [] }}
                     selectedChatId={selectedChatId}
                     onSelectChat={handleSelectChat}
-                    onNewChat={() => void handleNewChat()}
+                    onNewChat={handleNewChat}
                     onToggleCollapse={() => setSidebarOpen(!sidebarOpen)}
                     onOpenSettings={() => setShowSettings(true)}
+                    setIsOpen={setSidebarOpen}
                     // Add shared content support for Phase 3.4
                     sharedContent={sharedContent}
                 />
-            </div>
-
-            <div
-                className={`${sidebarOpen ? "w-80" : "w-0"} transition-all duration-300 overflow-hidden relative z-10`}
-            >
-                {/* <RightSidebar
-                    chats={chats || { starred: [], regular: [] }}
-                    selectedChatId={selectedChatId}
-                    onSelectChat={handleSelectChat}
-                    onNewChat={() => void handleNewChat()}
-                    onToggleCollapse={() => setSidebarOpen(!sidebarOpen)}
-                    onOpenSettings={() => setShowSettings(true)}
-                    // Add shared content support for Phase 3.4
-                    sharedContent={sharedContent}
-                /> */}
             </div>
 
             {/* Main Chat Area */}
@@ -1036,13 +979,13 @@ export function ChatInterface() {
                     <header
                         className={`transition-all duration-300 ease-in-out overflow-hidden ${showHeader ? "h-16 opacity-100" : "h-0 opacity-0"} flex items-center justify-between px-4 pt-2`}
                     >
-                        <div className="flex items-center gap-4 flex-1">
+                        <div className="flex items-center gap-4">
                             {!sidebarOpen && (
                                 <button
                                     onClick={() => setSidebarOpen(true)}
-                                    className="p-2 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-colors"
+                                    className="p-2 rounded-lg bg-purple-500/30 hover:bg-purple-500/40 transition-colors ease-in-out"
                                 >
-                                    <Menu className="w-5 h-5 text-purple-200" />
+                                    <PanelLeft className="w-5 h-5 text-purple-200" />
                                 </button>
                             )}
                         </div>
@@ -1065,7 +1008,7 @@ export function ChatInterface() {
                                                 onBlur={() =>
                                                     void handleSaveEditTitle()
                                                 }
-                                                className="flex-1 bg-purple-500/10 rounded-lg px-3 py-1 text-purple-100 font-medium focus:outline-none min-w-0 text-center"
+                                                className="flex-1 text-lg bg-purple-500/10 rounded-lg px-3 py-2 text-purple-100 font-medium focus:outline-none min-w-0 text-center"
                                                 placeholder="Enter chat title..."
                                                 maxLength={100}
                                                 autoFocus
@@ -1074,13 +1017,13 @@ export function ChatInterface() {
                                     ) : (
                                         <button
                                             onClick={handleStartEditTitle}
-                                            className="group flex items-center gap-2 justify-center hover:bg-purple-500/10 rounded-lg px-3 py-2 transition-colors max-w-full"
+                                            className="group flex items-center justify-center hover:bg-purple-500/10 rounded-lg px-3 py-2 transition-colors max-w-full"
                                             title="Click to edit title"
                                         >
                                             <h2 className="font-medium text-lg text-purple-100 truncate">
                                                 {selectedChat.title}
                                             </h2>
-                                            <Edit3 className="w-4 h-4 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                            <Edit3 className="w-0 h-4 text-purple-400 opacity-0 group-hover:w-4 group-hover:ml-2 group-hover:opacity-100 transition-all flex-shrink-0" />
                                         </button>
                                     )}
                                 </div>
@@ -1088,7 +1031,7 @@ export function ChatInterface() {
                         </div>
 
                         {/* Right side controls */}
-                        <div className="max-w-max p-2 rounded-lg flex items-center gap-3 flex-1 justify-end bg-purple-500/20">
+                        <div className="max-w-max px-2 py-1 rounded-lg flex items-center gap-3 flex-1 justify-end bg-purple-500/20">
                             <button
                                 onClick={() => setShowKeyboardShortcuts(true)}
                                 className="p-2 rounded-lg hover:bg-purple-500/30 transition-colors"
@@ -1111,6 +1054,9 @@ export function ChatInterface() {
                             {selectedChatId && (
                                 <ShareMenu chatId={selectedChatId} />
                             )}
+
+                            <ThemeToggle />
+
                             {/* Right Sidebar Toggle */}
                             <button
                                 onClick={() =>
@@ -1125,7 +1071,6 @@ export function ChatInterface() {
                             >
                                 <PanelRight className="w-5 h-5" />
                             </button>
-                            <ThemeToggle />
                         </div>
                     </header>
                 )}

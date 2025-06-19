@@ -23,7 +23,9 @@ interface ChatAreaProps {
 // Define commands in a single place to be shared
 const AICommands = [
     { command: "/image", label: "Image" },
+    { command: "/video", label: "Video" },
     { command: "/search", label: "Search" },
+    { command: "/canvas", label: "Canvas" },
 ];
 
 export function ChatArea({
@@ -36,6 +38,7 @@ export function ChatArea({
     const [activeCommands, setActiveCommands] = useState<string[]>([]);
     const [hoveredMessageId, setHoveredMessageId] =
         useState<Id<"messages"> | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -47,10 +50,9 @@ export function ChatArea({
     const branchFromMessage = useMutation(api.messages.branchFromMessage);
     const retryMessage = useAction(api.ai.retryMessage);
     const updateChatModel = useMutation(api.chats.updateChatModel);
-    const stopStreaming = useMutation(api.streaming.stopStreaming);
     const deleteMessage = useMutation(api.messages.deleteMessage);
 
-    // Check if any message is currently streaming
+    // Check if any message is currently streaming (for UI purposes)
     const isStreaming = messages.some((message) => message.isStreaming);
     const streamingMessage = messages.find((message) => message.isStreaming);
 
@@ -103,6 +105,7 @@ export function ChatArea({
                 return;
 
             try {
+                setIsLoading(true);
                 await sendMessage({
                     chatId,
                     content: content.trim(),
@@ -117,6 +120,8 @@ export function ChatArea({
             } catch (error) {
                 console.error("Failed to send message:", error);
                 toast.error("Failed to send message");
+            } finally {
+                setIsLoading(false);
             }
         },
         [chatId, selectedModel, activeCommands, sendMessage]
@@ -194,17 +199,21 @@ export function ChatArea({
         [retryMessage, selectedModel]
     );
 
+    // Simple stop streaming function that marks streaming as complete
     const handleStopStreaming = useCallback(async () => {
         if (streamingMessage) {
             try {
-                await stopStreaming({ messageId: streamingMessage._id });
+                // Use the new resumable streaming action to mark as complete
+                const markComplete = await import("convex/react").then(m => m.useAction);
+                const markStreamingComplete = markComplete(api.ai.markStreamingComplete);
+                await markStreamingComplete({ messageId: streamingMessage._id });
                 toast.success("Streaming stopped");
             } catch (error) {
                 console.error("Failed to stop streaming:", error);
                 toast.error("Failed to stop streaming");
             }
         }
-    }, [stopStreaming, streamingMessage]);
+    }, [streamingMessage]);
 
     const handleDeleteMessage = useCallback(
         async (messageId: Id<"messages">) => {

@@ -231,7 +231,6 @@ export function ShareModal({
         "Toggle public visibility on/off anytime",
         "Switch between read-only and collaboration modes freely",
         "Viewers can always fork content to their own workspace",
-        "Share link works from your browser URL bar too",
         itemType === "project"
             ? "Sharing includes all nested folders and chats"
             : "Individual messages remain private until shared",
@@ -239,7 +238,7 @@ export function ShareModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-md max-h-[85vh] overflow-hidden">
+            <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[85vh] overflow-y-scroll" hideCloseButton>
                 <DialogHeader>
                     <DialogTitle className="text-purple-100 flex items-center gap-2">
                         <Share2 className="w-5 h-5" />
@@ -248,7 +247,7 @@ export function ShareModal({
                             onClick={() => onOpenChange(false)}
                             className="ml-auto p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
                         >
-                            <X className="w-4 h-4 text-purple-300" />
+                            <X className="w-5 h-5 text-purple-300" />
                         </button>
                     </DialogTitle>
                     {itemTitle && (

@@ -13,6 +13,11 @@ import type {
   FilterApi,
   FunctionReference,
 } from "convex/server";
+import type * as ai_config from "../ai/config.js";
+import type * as ai_generation from "../ai/generation.js";
+import type * as ai_helpers from "../ai/helpers.js";
+import type * as ai_providers from "../ai/providers.js";
+import type * as ai_websearch from "../ai/websearch.js";
 import type * as ai from "../ai.js";
 import type * as aiHelpers from "../aiHelpers.js";
 import type * as anonymous from "../anonymous.js";
@@ -26,7 +31,6 @@ import type * as preferences from "../preferences.js";
 import type * as projects from "../projects.js";
 import type * as router from "../router.js";
 import type * as sharing from "../sharing.js";
-import type * as streaming from "../streaming.js";
 import type * as users from "../users.js";
 
 /**
@@ -38,6 +42,11 @@ import type * as users from "../users.js";
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  "ai/config": typeof ai_config;
+  "ai/generation": typeof ai_generation;
+  "ai/helpers": typeof ai_helpers;
+  "ai/providers": typeof ai_providers;
+  "ai/websearch": typeof ai_websearch;
   ai: typeof ai;
   aiHelpers: typeof aiHelpers;
   anonymous: typeof anonymous;
@@ -51,7 +60,6 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   router: typeof router;
   sharing: typeof sharing;
-  streaming: typeof streaming;
   users: typeof users;
 }>;
 export declare const api: FilterApi<

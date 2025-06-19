@@ -88,6 +88,8 @@ const applicationTables = {
         timestamp: v.number(),
         model: v.optional(v.string()),
         isStreaming: v.optional(v.boolean()),
+        // Simple resumable streaming support
+        streamPosition: v.optional(v.number()), // Total characters streamed by backend
         parentMessageId: v.optional(v.id("messages")),
         branchId: v.optional(v.string()),
         editHistory: v.optional(
@@ -158,6 +160,9 @@ const applicationTables = {
                 structuredOutput: v.optional(v.boolean()), // Indicates if this was a canvas/structured response
                 canvasIntro: v.optional(v.string()), // Intro text before artifacts
                 canvasSummary: v.optional(v.string()), // Summary text after artifacts
+                // Structured output schema and data
+                structuredData: v.optional(v.any()), // The actual parsed structured output
+                schema: v.optional(v.any()), // The JSON schema used for structured output
             })
         ),
         // Simple collaboration tracking - just track who contributed
@@ -211,6 +216,35 @@ const applicationTables = {
                 buzzWord: v.optional(v.string()),
             })
         ),
+        // Custom keyboard shortcuts
+        customShortcuts: v.optional(
+            v.object({
+                // Each key is the shortcut ID, value is the custom key combination
+                "toggle-sidebar": v.optional(v.string()),
+                "toggle-right-sidebar": v.optional(v.string()),
+                "new-chat": v.optional(v.string()),
+                "focus-search": v.optional(v.string()),
+                "rename-chat": v.optional(v.string()),
+                "star-chat": v.optional(v.string()),
+                "delete-chat": v.optional(v.string()),
+                "export-markdown": v.optional(v.string()),
+                "export-json": v.optional(v.string()),
+                "share-chat": v.optional(v.string()),
+                "share-collaboration": v.optional(v.string()),
+                "toggle-theme": v.optional(v.string()),
+                "open-settings": v.optional(v.string()),
+                "show-shortcuts": v.optional(v.string()),
+                "send-message": v.optional(v.string()),
+                "clear-input": v.optional(v.string()),
+                "open-model-selector": v.optional(v.string()),
+                "voice-recording": v.optional(v.string()),
+                "focus-input": v.optional(v.string()),
+                "toggle-message-input": v.optional(v.string()),
+                "toggle-header": v.optional(v.string()),
+                "toggle-zen-mode": v.optional(v.string()),
+                "toggle-project-view": v.optional(v.string()),
+            })
+        ),
     }).index("by_user", ["userId"]),
 
     anonymousUsage: defineTable({
@@ -219,38 +253,7 @@ const applicationTables = {
         lastUsed: v.number(),
     }).index("by_session", ["sessionId"]),
 
-    authVerificationCodes: defineTable({
-        email: v.string(),
-        accountId: v.id("users"),
-        code: v.string(),
-        expiresAt: v.number(),
-        createdAt: v.number(),
-        verified: v.optional(v.boolean()),
-    })
-        .index("by_email", ["email"])
-        .index("accountId", ["accountId"]),
-
-    streamingSessions: defineTable({
-        messageId: v.id("messages"),
-        userId: v.id("users"),
-        isStopped: v.boolean(),
-        createdAt: v.number(),
-        // Enhanced for resumable streams
-        sessionId: v.string(),
-        provider: v.string(), // google, openai, anthropic, deepseek, openrouter
-        modelId: v.string(),
-        isComplete: v.optional(v.boolean()),
-        lastChunkIndex: v.optional(v.number()),
-        resumeToken: v.optional(v.string()),
-        errorCount: v.optional(v.number()),
-        lastResumedAt: v.optional(v.number()),
-    })
-        .index("by_message", ["messageId"])
-        .index("by_user", ["userId"])
-        .index("by_session", ["sessionId"])
-        .index("by_user_active", ["userId", "isComplete"]),
-
-    // New table for canvas artifacts (separate from messages for better querying)
+    // Enhanced artifacts table with provider file tracking
     artifacts: defineTable({
         messageId: v.id("messages"),
         chatId: v.id("chats"),
@@ -265,12 +268,68 @@ const applicationTables = {
         updatedAt: v.number(),
         editCount: v.optional(v.number()),
         isPreviewable: v.optional(v.boolean()), // Can be previewed (HTML/JS/React/Markdown)
+
+        // Provider file tracking - for efficient re-use across conversations
+        providerFiles: v.optional(
+            v.object({
+                openai: v.optional(
+                    v.object({
+                        fileId: v.string(),
+                        uploadedAt: v.number(),
+                        lastUsedAt: v.number(),
+                        expiresAt: v.optional(v.number()),
+                    })
+                ),
+                anthropic: v.optional(
+                    v.object({
+                        fileId: v.string(),
+                        uploadedAt: v.number(),
+                        lastUsedAt: v.number(),
+                        expiresAt: v.optional(v.number()),
+                    })
+                ),
+                google: v.optional(
+                    v.object({
+                        fileId: v.string(),
+                        uploadedAt: v.number(),
+                        lastUsedAt: v.number(),
+                        expiresAt: v.optional(v.number()),
+                    })
+                ),
+                openrouter: v.optional(
+                    v.object({
+                        fileId: v.string(),
+                        uploadedAt: v.number(),
+                        lastUsedAt: v.number(),
+                        expiresAt: v.optional(v.number()),
+                    })
+                ),
+                deepseek: v.optional(
+                    v.object({
+                        fileId: v.string(),
+                        uploadedAt: v.number(),
+                        lastUsedAt: v.number(),
+                        expiresAt: v.optional(v.number()),
+                    })
+                ),
+            })
+        ),
+
+        // File metadata for upload optimization
+        fileSize: v.optional(v.number()),
+        mimeType: v.optional(v.string()),
+
+        // Usage tracking for caching decisions
+        usageCount: v.optional(v.number()),
+        lastReferencedAt: v.optional(v.number()),
     })
         .index("by_message", ["messageId"])
         .index("by_chat", ["chatId"])
         .index("by_user", ["userId"])
         .index("by_artifact_id", ["artifactId"])
-        .index("by_chat_created", ["chatId", "createdAt"]),
+        .index("by_chat_created", ["chatId", "createdAt"])
+        .index("by_usage", ["usageCount"])
+        .index("by_last_referenced", ["lastReferencedAt"]),
 
     // Local storage backup for local-first users
     localBackups: defineTable({

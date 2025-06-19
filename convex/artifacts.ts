@@ -7,6 +7,21 @@ import {
 } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
+// Internal version for use in other functions - this is needed for AI generation
+export const getArtifactByIdInternal = internalQuery({
+    args: { artifactId: v.string() },
+    handler: async (ctx, args) => {
+        const artifact = await ctx.db
+            .query("artifacts")
+            .withIndex("by_artifact_id", (q) =>
+                q.eq("artifactId", args.artifactId)
+            )
+            .first();
+
+        return artifact;
+    },
+});
+
 // Internal version for use in other functions
 export const getArtifactInternal = internalQuery({
     args: { artifactId: v.string() },
@@ -313,5 +328,157 @@ export const markBackupAsRestored = mutation({
 
         await ctx.db.patch(args.backupId, { isRestored: true });
         return args.backupId;
+    },
+});
+
+// Enhanced artifact operations with provider file tracking
+export const updateArtifactProviderFile = internalMutation({
+    args: {
+        artifactId: v.string(),
+        provider: v.string(),
+        fileId: v.string(),
+        uploadedAt: v.optional(v.number()),
+        expiresAt: v.optional(v.number()),
+    },
+    handler: async (ctx, args) => {
+        const artifact = await ctx.db
+            .query("artifacts")
+            .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.artifactId))
+            .first();
+
+        if (!artifact) {
+            throw new Error(`Artifact ${args.artifactId} not found`);
+        }
+
+        const now = Date.now();
+        const currentProviderFiles = artifact.providerFiles || {};
+
+        // Update the specific provider's file info
+        const updatedProviderFiles = {
+            ...currentProviderFiles,
+            [args.provider]: {
+                fileId: args.fileId,
+                uploadedAt: args.uploadedAt || now,
+                lastUsedAt: now,
+                expiresAt: args.expiresAt,
+            },
+        };
+
+        await ctx.db.patch(artifact._id, {
+            providerFiles: updatedProviderFiles,
+            usageCount: (artifact.usageCount || 0) + 1,
+            lastReferencedAt: now,
+        });
+
+        return artifact._id;
+    },
+});
+
+// Get cached provider file for an artifact
+export const getCachedProviderFile = internalQuery({
+    args: {
+        artifactId: v.string(),
+        provider: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const artifact = await ctx.db
+            .query("artifacts")
+            .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.artifactId))
+            .first();
+
+        if (!artifact?.providerFiles) {
+            return null;
+        }
+
+        const providerFile = (artifact.providerFiles as any)[args.provider];
+        if (!providerFile) {
+            return null;
+        }
+        
+        // Check if file has expired
+        if (providerFile.expiresAt && providerFile.expiresAt < Date.now()) {
+            return null;
+        }
+
+        return {
+            artifactId: args.artifactId,
+            provider: args.provider,
+            fileId: providerFile.fileId,
+            uploadedAt: providerFile.uploadedAt,
+            lastUsedAt: providerFile.lastUsedAt,
+            expiresAt: providerFile.expiresAt,
+            artifact,
+        };
+    },
+});
+
+// Update usage timestamp for cached file
+export const updateProviderFileUsage = internalMutation({
+    args: {
+        artifactId: v.string(),
+        provider: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const artifact = await ctx.db
+            .query("artifacts")
+            .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.artifactId))
+            .first();
+
+        if (!artifact?.providerFiles?.[args.provider]) {
+            return;
+        }
+
+        const now = Date.now();
+        const currentProviderFiles = artifact.providerFiles;
+        const updatedProviderFiles = {
+            ...currentProviderFiles,
+            [args.provider]: {
+                ...currentProviderFiles[args.provider],
+                lastUsedAt: now,
+            },
+        };
+
+        await ctx.db.patch(artifact._id, {
+            providerFiles: updatedProviderFiles,
+            usageCount: (artifact.usageCount || 0) + 1,
+            lastReferencedAt: now,
+        });
+    },
+});
+
+// Clean up expired provider files
+export const cleanupExpiredProviderFiles = internalMutation({
+    args: {},
+    handler: async (ctx, args) => {
+        const now = Date.now();
+        const artifacts = await ctx.db.query("artifacts").collect();
+
+        let cleanedCount = 0;
+
+        for (const artifact of artifacts) {
+            if (!artifact.providerFiles) continue;
+
+            const updatedProviderFiles = { ...artifact.providerFiles };
+            let hasChanges = false;
+
+            // Check each provider's file for expiration
+            for (const [provider, fileInfo] of Object.entries(updatedProviderFiles)) {
+                if (fileInfo?.expiresAt && fileInfo.expiresAt < now) {
+                    delete updatedProviderFiles[provider];
+                    hasChanges = true;
+                    cleanedCount++;
+                }
+            }
+
+            if (hasChanges) {
+                await ctx.db.patch(artifact._id, {
+                    providerFiles: Object.keys(updatedProviderFiles).length > 0
+                        ? updatedProviderFiles
+                        : undefined,
+                });
+            }
+        }
+
+        return { cleanedCount };
     },
 });

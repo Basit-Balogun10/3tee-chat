@@ -1,42 +1,32 @@
-import { useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthLoading, Authenticated, Unauthenticated } from "convex/react";
 import { ChatInterface } from "./components/ChatInterface";
-import { LandingPage } from "./components/LandingPage";
 import { AuthComponent } from "./components/AuthComponent";
 import { ThemeProvider } from "./components/ThemeProvider";
-import { LocalFirstManager } from "./components/LocalFirstManager";
 import { ShareLinkHandler } from "./components/ShareLinkHandler";
 import { Toaster } from "sonner";
 
 function App() {
-    const [showAuth, setShowAuth] = useState(false);
 
     return (
         <ThemeProvider>
-            <LocalFirstManager>
                 <BrowserRouter>
                     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-pink-900">
                         <AuthLoading>
                             <></>
                         </AuthLoading>
                         <Unauthenticated>
-                            {/* {!showAuth ? (
-                                <LandingPage
-                                    onGetStarted={() => setShowAuth(true)}
-                                />
-                            ) : ( */}
-                                <AuthComponent
-                                    onSuccess={() => window.location.reload()}
-                                />
-                            {/* )} */}
+                            <AuthComponent />
                         </Unauthenticated>
 
                         <Authenticated>
                             <ShareLinkHandler>
                                 <Routes>
                                     {/* Default route */}
-                                    <Route path="/" element={<ChatInterface />} />
+                                    <Route
+                                        path="/"
+                                        element={<ChatInterface />}
+                                    />
                                     {/* Chat-specific routes */}
                                     <Route
                                         path="/chat/:chatId"
@@ -112,7 +102,6 @@ function App() {
                         </div>
                     </div>
                 </BrowserRouter>
-            </LocalFirstManager>
         </ThemeProvider>
     );
 }

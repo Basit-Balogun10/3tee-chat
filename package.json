@@ -7,6 +7,8 @@
     "dev": "npm-run-all --parallel dev:frontend dev:backend",
     "dev:frontend": "vite --open",
     "dev:backend": "convex dev",
+    "build": "vite build",
+    "tauri": "tauri",
     "lint": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false && convex dev --once && vite build"
   },
   "dependencies": {
@@ -56,6 +58,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
+    "@tauri-apps/cli": "^2.5.0",
     "@types/debug": "^4.1.12",
     "@types/estree": "^1.0.8",
     "@types/estree-jsx": "^1.0.5",

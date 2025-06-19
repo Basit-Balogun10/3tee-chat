@@ -25,22 +25,20 @@ export const getChatHistory = internalQuery({
 export const updateMessageContent = internalMutation({
     args: {
         messageId: v.id("messages"),
-        content: v.string(),
+        content: v.optional(v.string()),
         metadata: v.optional(v.any()),
         isStreaming: v.optional(v.boolean()),
+        streamPosition: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
-        const updates: any = { content: args.content };
-
-        if (args.metadata !== undefined) {
-            updates.metadata = args.metadata;
-        }
-
-        if (args.isStreaming !== undefined) {
-            updates.isStreaming = args.isStreaming;
-        }
-
-        await ctx.db.patch(args.messageId, updates);
+        const updates: any = {};
+        
+        if (args.content !== undefined) updates.content = args.content;
+        if (args.metadata !== undefined) updates.metadata = args.metadata;
+        if (args.isStreaming !== undefined) updates.isStreaming = args.isStreaming;
+        if (args.streamPosition !== undefined) updates.streamPosition = args.streamPosition;
+        
+        return await ctx.db.patch(args.messageId, updates);
     },
 });
 

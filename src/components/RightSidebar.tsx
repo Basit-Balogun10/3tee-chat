@@ -69,7 +69,7 @@ export function RightSidebar({
 
             const newWidth = window.innerWidth - e.clientX;
             const minWidth = 300;
-            const maxWidth = window.innerWidth * 0.7;
+            const maxWidth = window.innerWidth;
 
             const clampedWidth = Math.max(
                 minWidth,
@@ -117,7 +117,7 @@ export function RightSidebar({
 
     const renderNavigationContent = () => (
         <div className="flex-1 overflow-y-scroll overflow-x-hidden">
-            <div className="px-4 py-2">
+            <div className="px-4">
                 <div className="mb-4">
                     <SearchInput
                         ref={searchInputRef}
@@ -176,25 +176,23 @@ export function RightSidebar({
         </div>
     );
 
-    if (!isOpen) return null;
-
     const sidebarWidth = mode === "canvas" ? canvasWidth : 400;
     const hasArtifacts = realArtifacts.length > 0;
 
     return (
         <>
-            {/* Backdrop for mobile */}
-            {isOpen && (
-                <div
-                    className="fixed inset-0 bg-black/20 backdrop-blur-md lg:hidden z-40"
-                    onClick={onClose}
-                />
-            )}
+            {/* Backdrop for mobile - only show when open */}
+            <div
+                className={`fixed inset-0 bg-black/20 backdrop-blur-md lg:hidden z-40 transition-opacity duration-300 ${
+                    isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+                }`}
+                onClick={onClose}
+            />
 
-            {/* Sidebar */}
+            {/* Sidebar - always rendered but translated off-screen when closed */}
             <div
                 ref={sidebarRef}
-                className={`fixed right-0 top-0 h-full bg-black/20 backdrop-blur-md border-l border-purple-600/10 z-50 transition-all duration-200 ease-out ${
+                className={`fixed right-0 top-0 h-full bg-black/20 backdrop-blur-md border-l border-purple-600/10 z-50 transform transition-transform duration-300 ease-in-out ${
                     isOpen ? "translate-x-0" : "translate-x-full"
                 }`}
                 style={{ width: sidebarWidth }}
@@ -225,23 +223,23 @@ export function RightSidebar({
                         </div>
 
                         {/* Mode Tabs - only show if there are artifacts */}
-                        {hasArtifacts && (
+                        {!hasArtifacts && (
                             <Tabs
                                 value={mode}
                                 onValueChange={onModeChange}
-                                className="w-full"
+                                className="w-full mt-3 py-1 "
                             >
-                                <TabsList className="grid w-full grid-cols-2 bg-purple-600/20  space-x-2">
+                                <TabsList className="grid w-full grid-cols-2 bg-purple-500/10 space-x-2 rounded-lg">
                                     <TabsTrigger
                                         value="navigation"
-                                        className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                                        className="py-2 text-purple-200 data-[state=active]:bg-purple-500/30 transition-colors rounded-md"
                                     >
                                         <MessageSquare className="w-4 h-4 mr-2" />
                                         Navigate
                                     </TabsTrigger>
                                     <TabsTrigger
                                         value="canvas"
-                                        className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                                        className="py-2 text-purple-200 data-[state=active]:bg-purple-500/30 transition-colors rounded-md"
                                     >
                                         <Palette className="w-4 h-4 mr-2" />
                                         Canvas

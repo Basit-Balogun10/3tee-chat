@@ -30,6 +30,7 @@ import {
     Folder,
     MessageSquare,
     Globe,
+    X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Id } from "../../convex/_generated/dataModel";
@@ -51,10 +52,7 @@ const generateTextExport = (data: any) => {
     if (data.userSettings) {
         text += `USER SETTINGS\n${"-".repeat(20)}\n`;
         text += `Default Model: ${data.userSettings.defaultModel}\n`;
-        text += `Theme: ${data.userSettings.theme}\n`;
-        text += `Local First: ${
-            data.userSettings.localFirst ? "Yes" : "No"
-        }\n\n`;
+        text += `Theme: ${data.userSettings.theme}\n\n`;
     }
 
     const formatChat = (chat: any, prefix = "") => {
@@ -121,10 +119,7 @@ const generateMarkdownExport = (data: any) => {
     if (data.userSettings) {
         markdown += `## User Settings\n\n`;
         markdown += `- **Default Model:** ${data.userSettings.defaultModel}\n`;
-        markdown += `- **Theme:** ${data.userSettings.theme}\n`;
-        markdown += `- **Local First:** ${
-            data.userSettings.localFirst ? "Yes" : "No"
-        }\n\n`;
+        markdown += `- **Theme:** ${data.userSettings.theme}\n\n`;
     }
 
     data.chats.forEach((chat: any, index: number) => {
@@ -233,9 +228,6 @@ const generatePDFExport = async (data: any) => {
             const settingsLines = [
                 `Default Model: ${data.userSettings.defaultModel}`,
                 `Theme: ${data.userSettings.theme}`,
-                `Local First: ${
-                    data.userSettings.localFirst ? "Enabled" : "Disabled"
-                }`,
                 `Voice Auto-play: ${
                     data.userSettings.voiceSettings?.autoPlay
                         ? "Enabled"
@@ -423,7 +415,6 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     const [settings, setSettings] = useState({
         defaultModel: "gpt-4o-mini",
         theme: "dark" as "light" | "dark" | "system",
-        localFirst: false,
         voiceSettings: {
             autoPlay: false,
             voice: "alloy",
@@ -439,7 +430,6 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                 theme:
                     (preferences.theme as "light" | "dark" | "system") ||
                     "dark",
-                localFirst: preferences.localFirst || false,
                 voiceSettings: {
                     autoPlay: preferences.voiceSettings?.autoPlay || false,
                     voice: preferences.voiceSettings?.voice || "alloy",
@@ -882,7 +872,7 @@ filename = `chat-export-${timestamp}.csv`;
 
         return (
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+                <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-4xl max-h-[85vh] overflow-hidden flex flex-col" hideCloseButton>
                     <DialogHeader>
                         <DialogTitle className="text-purple-100 flex items-center gap-2">
                             <button
@@ -1155,7 +1145,7 @@ filename = `chat-export-${timestamp}.csv`;
 
         return (
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-md">
+                <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-md" hideCloseButton>
                     <DialogHeader>
                         <DialogTitle className="text-purple-100 flex items-center gap-2">
                             <button
@@ -1230,11 +1220,22 @@ filename = `chat-export-${timestamp}.csv`;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-hidden">
+            <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-y-scroll" hideCloseButton>
                 <DialogHeader>
-                    <DialogTitle className="text-purple-100 flex items-center gap-2">
-                        <Zap className="w-5 h-5" />
-                        Settings
+                    <DialogTitle className="flex items-center justify-between mb-4">
+                        <div className="flex items-center space-x-2">
+                            <Zap className="w-5 h-5" />
+                            <h2 className="text-lg font-semibold text-purple-100">
+                                Settings
+                            </h2>
+                        </div>
+
+                        <button
+                            onClick={() => onOpenChange(false)}
+                            className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
+                        >
+                            <X className="w-5 h-5 text-purple-300" />
+                        </button>
                     </DialogTitle>
                 </DialogHeader>
 
@@ -1495,27 +1496,6 @@ filename = `chat-export-${timestamp}.csv`;
                                     onModelChange={handleModelChange}
                                 />
                             </div>
-
-                            <div className="flex items-center justify-between p-4 bg-purple-600/10 rounded-lg border border-purple-600/20">
-                                <div>
-                                    <Label className="text-purple-200">
-                                        Local-First Processing
-                                    </Label>
-                                    <p className="text-sm text-purple-400/80">
-                                        Process data locally when possible for
-                                        privacy
-                                    </p>
-                                </div>
-                                <Switch
-                                    checked={settings.localFirst}
-                                    onCheckedChange={(checked) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            localFirst: checked,
-                                        }))
-                                    }
-                                />
-                            </div>
                         </div>
                     </TabsContent>
 
@@ -1570,105 +1550,6 @@ filename = `chat-export-${timestamp}.csv`;
 
                     <TabsContent value="voice" className="space-y-4">
                         <div className="mt-6 space-y-4 border-purple-600/30">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <Label className="text-purple-200">
-                                        Auto-play AI Responses
-                                    </Label>
-                                    <p className="text-sm text-purple-400/80">
-                                        Hear responses automatically
-                                    </p>
-                                </div>
-                                <Switch
-                                    checked={settings.voiceSettings.autoPlay}
-                                    onCheckedChange={(checked) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            voiceSettings: {
-                                                ...prev.voiceSettings,
-                                                autoPlay: checked,
-                                            },
-                                        }))
-                                    }
-                                />
-                            </div>
-
-                            <div>
-                                <Label className="text-purple-200">
-                                    Voice Selection
-                                </Label>
-                                <p className="text-sm text-purple-400/80 mb-2">
-                                    Choose your preferred AI voice
-                                </p>
-                                <Select
-                                    value={settings.voiceSettings.voice}
-                                    onValueChange={(value) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            voiceSettings: {
-                                                ...prev.voiceSettings,
-                                                voice: value,
-                                            },
-                                        }))
-                                    }
-                                >
-                                    <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="glass border border-purple-600/30">
-                                        {voices.map((voice) => (
-                                            <SelectItem
-                                                key={voice.id}
-                                                value={voice.id}
-                                                className="text-purple-100"
-                                            >
-                                                {voice.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div>
-                                <Label className="text-purple-200">
-                                    Speech Speed
-                                </Label>
-                                <p className="text-sm text-purple-400/80 mb-2">
-                                    Adjust playback speed
-                                </p>
-                                <div className="flex items-center gap-4">
-                                    <span className="text-sm text-purple-400/80">
-                                        0.5x
-                                    </span>
-                                    <input
-                                        type="range"
-                                        min="0.5"
-                                        max="2"
-                                        step="0.1"
-                                        value={settings.voiceSettings.speed}
-                                        onChange={(e) =>
-                                            setSettings((prev) => ({
-                                                ...prev,
-                                                voiceSettings: {
-                                                    ...prev.voiceSettings,
-                                                    speed: parseFloat(
-                                                        e.target.value
-                                                    ),
-                                                },
-                                            }))
-                                        }
-                                        className="flex-1 accent-purple-500"
-                                    />
-                                    <span className="text-sm text-purple-400/80">
-                                        2x
-                                    </span>
-                                </div>
-                                <div className="text-center text-sm text-purple-300 mt-2 font-medium">
-                                    Current: {settings.voiceSettings.speed}x
-                                </div>
-                            </div>
-
-                            <div>
                                 <Label className="text-purple-200">
                                     Voice Recording End Word
                                 </Label>
@@ -1715,7 +1596,6 @@ filename = `chat-export-${timestamp}.csv`;
                                         </li>
                                     </ul>
                                 </div>
-                            </div>
                         </div>
                     </TabsContent>
                 </Tabs>

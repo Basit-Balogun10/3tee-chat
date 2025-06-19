@@ -4,7 +4,7 @@ import { alphabet, generateRandomString } from "oslo/crypto";
 
 export const ResendOTP = Email({
     id: "resend-otp",
-    apiKey: process.env.AUTH_RESEND_KEY,
+    apiKey: process.env.CONVEX_RESEND_API_KEY,
     maxAge: 60 * 20,
     async generateVerificationToken() {
         return generateRandomString(8, alphabet("0-9"));

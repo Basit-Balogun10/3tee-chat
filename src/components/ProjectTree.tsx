@@ -13,6 +13,7 @@ import {
     Trash2,
     Edit3,
     MessageSquare,
+    Palette,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -41,12 +42,43 @@ interface ProjectTreeProps {
     onSelectChat: (chatId: Id<"chats">) => void;
     selectedChatId: Id<"chats"> | null;
     searchQuery: string;
+    onCreateChat: (projectId: Id<"projects">) => void;
 }
+
+// Beautiful color palette for projects
+const PROJECT_COLORS = [
+    "#8b5cf6", // Purple
+    "#ec4899", // Pink
+    "#f59e0b", // Amber
+    "#10b981", // Emerald
+    "#3b82f6", // Blue
+    "#ef4444", // Red
+    "#8b5a3c", // Brown
+    "#06b6d4", // Cyan
+    "#84cc16", // Lime
+    "#a855f7", // Violet
+    "#f97316", // Orange
+    "#14b8a6", // Teal
+    "#6366f1", // Indigo
+    "#eab308", // Yellow
+    "#22c55e", // Green
+    "#e11d48", // Rose
+    "#64748b", // Slate
+    "#7c3aed", // Purple variant
+    "#db2777", // Pink variant
+    "#059669", // Emerald variant
+];
+
+// Generate a random beautiful color
+const getRandomColor = () => {
+    return PROJECT_COLORS[Math.floor(Math.random() * PROJECT_COLORS.length)];
+};
 
 export function ProjectTree({
     onSelectChat,
     selectedChatId,
     searchQuery,
+    onCreateChat,
 }: ProjectTreeProps) {
     const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
         new Set()
@@ -62,6 +94,10 @@ export function ProjectTree({
     const [showShareModal, setShowShareModal] = useState(false);
     const [shareItemId, setShareItemId] = useState<Id<"projects"> | null>(null);
     const [shareItemTitle, setShareItemTitle] = useState<string>("");
+
+    // Color picker state
+    const [showColorPicker, setShowColorPicker] = useState(false);
+    const [colorPickerProjectId, setColorPickerProjectId] = useState<Id<"projects"> | null>(null);
 
     // Drag & Drop state
     const [activeId, setActiveId] = useState<string | null>(null);
@@ -104,7 +140,7 @@ export function ProjectTree({
                 const projectId = await createProject({
                     name: "New Project",
                     description: "A new project",
-                    color: "#8b5cf6",
+                    color: getRandomColor(), // Use random color instead of static
                     parentId,
                 });
 
@@ -123,6 +159,18 @@ export function ProjectTree({
         [createProject]
     );
 
+    const handleCreateChat = useCallback(
+        async (projectId: Id<"projects">) => {
+            try {
+                onCreateChat(projectId);
+            } catch (error) {
+                console.error("Failed to create chat:", error);
+                toast.error("Failed to create chat");
+            }
+        },
+        [onCreateChat]
+    );
+
     const handleUpdateProject = useCallback(async () => {
         if (editingProjectId && editName.trim()) {
             try {
@@ -139,6 +187,22 @@ export function ProjectTree({
             }
         }
     }, [editingProjectId, editName, updateProject]);
+
+    const handleUpdateProjectColor = useCallback(
+        async (projectId: Id<"projects">, color: string) => {
+            try {
+                await updateProject({
+                    projectId,
+                    color,
+                });
+                toast.success("Project color updated");
+            } catch (error) {
+                console.error("Failed to update project color:", error);
+                toast.error("Failed to update project color");
+            }
+        },
+        [updateProject]
+    );
 
     const handleDeleteProject = useCallback(
         async (projectId: Id<"projects">, projectName: string) => {
@@ -228,8 +292,8 @@ export function ProjectTree({
                         onMouseLeave={() => setHoveredProject(null)}
                     >
                         {/* Expand/Collapse Icon */}
-                        <div className="flex items-center justify-center w-4 h-4 mr-2">
                             {(hasChildren || hasChats) && (
+                        <div className="flex items-center justify-center w-4 h-4 mr-2">
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation();
@@ -238,25 +302,31 @@ export function ProjectTree({
                                     className="text-purple-300 hover:text-purple-100 transition-colors"
                                 >
                                     {isExpanded ? (
-                                        <ChevronDown className="w-3 h-3" />
+                                        <ChevronDown className="w-4 h-4" />
                                     ) : (
-                                        <ChevronRight className="w-3 h-3" />
+                                        <ChevronRight className="w-4 h-4" />
                                     )}
                                 </button>
-                            )}
                         </div>
+                            )}
 
-                        {/* Folder Icon */}
+                        {/* Folder Icon with project color */}
                         <div className="mr-2">
                             {isExpanded ? (
-                                <FolderOpen className="w-4 h-4 text-purple-400" />
+                                <FolderOpen 
+                                    className="w-4 h-4" 
+                                    style={{ color: project.color || "#c4b5fd" }}
+                                />
                             ) : (
-                                <Folder className="w-4 h-4 text-purple-400" />
+                                <Folder 
+                                    className="w-4 h-4" 
+                                    style={{ color: project.color || "#c4b5fd" }}
+                                />
                             )}
                         </div>
 
-                        {/* Project Name */}
-                        <div className="flex-1 min-w-0">
+                        {/* Project Name with animated truncation */}
+                        <div className={`flex-1 min-w-0 ${ !editingProjectId ? 'group-hover:pr-36' : ''} transition-all duration-200`}>
                             {editingProjectId === project._id ? (
                                 <input
                                     value={editName}
@@ -277,7 +347,7 @@ export function ProjectTree({
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             ) : (
-                                <span
+                                <h3
                                     className="text-purple-100 font-medium truncate"
                                     style={{
                                         color: project.color || "#c4b5fd",
@@ -286,16 +356,16 @@ export function ProjectTree({
                                 >
                                     {project.name}
                                     {project.isDefault && (
-                                        <span className="ml-2 text-xs text-purple-400">
+                                        <span className="ml-2 text-sm text-purple-400">
                                             (Default)
                                         </span>
                                     )}
-                                </span>
+                                </h3>
                             )}
                         </div>
 
                         {/* Chat Count Badge */}
-                        {project.chats.length > 0 && (
+                        {project.chats.length > 0 && !isHovered && (
                             <span className="ml-2 px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded-full">
                                 {project.chats.length}
                             </span>
@@ -304,7 +374,7 @@ export function ProjectTree({
                         {/* Action Buttons */}
                         <div
                             className={`absolute right-2 flex items-center gap-1 transition-all duration-200 ${
-                                isHovered
+                                isHovered && !editingProjectId
                                     ? "opacity-100 translate-x-0"
                                     : "opacity-0 translate-x-2"
                             }`}
@@ -312,7 +382,7 @@ export function ProjectTree({
                             <button
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    void handleCreateProject(project._id);
+                                    void handleCreateChat(project._id);
                                 }}
                                 className="p-1 rounded hover:bg-purple-500/20 transition-colors"
                                 title="Create new chat"
@@ -333,6 +403,18 @@ export function ProjectTree({
 
                             {!project.isDefault && (
                                 <>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setColorPickerProjectId(project._id);
+                                            setShowColorPicker(true);
+                                        }}
+                                        className="p-1 rounded hover:bg-purple-500/20 transition-colors"
+                                        title="Change color"
+                                    >
+                                        <Palette className="w-3 h-3 text-purple-400" />
+                                    </button>
+
                                     <button
                                         onClick={(e) =>
                                             startEditing(project, e)
@@ -377,23 +459,24 @@ export function ProjectTree({
                     {/* Expanded Content */}
                     {isExpanded && (
                         <div className="ml-4">
-                            {/* Child Projects */}
+                            {/* Child Projects - Fix: Remove extra indentation */}
                             {project.children.map((child) =>
                                 renderProject(child, depth + 1)
                             )}
 
-                            {/* Chats in Project */}
+                            {/* Chats in Project - Fix: Use same base indentation as child projects */}
                             {project.chats.map((chat) => (
                                 <div
                                     key={chat._id}
                                     onClick={() => onSelectChat(chat._id)}
-                                    className={`group relative flex items-center px-3 py-2 ml-4 rounded-lg cursor-pointer transition-all duration-200 ${
+                                    className={`group relative flex items-center px-3 py-2 rounded-lg cursor-pointer transition-all duration-200 ${
                                         selectedChatId === chat._id
                                             ? "bg-purple-500/20"
                                             : "hover:bg-purple-500/10"
                                     }`}
+                                    style={{ paddingLeft: `${8 + (depth + 1) * 16}px` }}
                                 >
-                                    <MessageSquare className="w-3 h-3 text-purple-400 mr-2 flex-shrink-0" />
+                                    <MessageSquare className="w-4 h-4 text-purple-400 mr-2 flex-shrink-0" />
                                     <span
                                         className="text-purple-100 text-sm truncate flex-1"
                                         title={chat.title}
@@ -423,6 +506,7 @@ export function ProjectTree({
             selectedChatId,
             toggleExpanded,
             handleCreateProject,
+            handleCreateChat,
             handleUpdateProject,
             handleDeleteProject,
             startEditing,
@@ -561,6 +645,43 @@ export function ProjectTree({
                         {filteredProjects.map((project) =>
                             renderProject(project)
                         )}
+                    </div>
+                )}
+
+                {/* Color Picker Modal */}
+                {showColorPicker && colorPickerProjectId && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                        <div className="bg-gray-900 rounded-lg p-6 border max-w-sm w-full mx-4">
+                            <h3 className="text-center font-semibold text-purple-200 mb-4">
+                                Choose Project Color
+                            </h3>
+                            <div className="grid grid-cols-5 gap-2 mb-4">
+                                {PROJECT_COLORS.map((color) => (
+                                    <button
+                                        key={color}
+                                        onClick={() => {
+                                            void handleUpdateProjectColor(colorPickerProjectId, color);
+                                            setShowColorPicker(false);
+                                            setColorPickerProjectId(null);
+                                        }}
+                                        className="w-8 h-8 rounded-full border-2 border-gray-600 hover:border-purple-400 transition-colors"
+                                        style={{ backgroundColor: color }}
+                                        title={color}
+                                    />
+                                ))}
+                            </div>
+                            <div className="flex justify-end gap-2">
+                                <button
+                                    onClick={() => {
+                                        setShowColorPicker(false);
+                                        setColorPickerProjectId(null);
+                                    }}
+                                    className="px-4 py-2 text-sm bg-purple-600/30 hover:bg-purple-600/50 text-gray-300 rounded-md transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
 
