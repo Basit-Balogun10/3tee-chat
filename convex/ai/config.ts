@@ -1,3 +1,5 @@
+"use node";
+
 // Simple provider configurations mirrored from modelConfig.ts (without UI fields)
 type ProviderConfig = {
     userKeyField: string;

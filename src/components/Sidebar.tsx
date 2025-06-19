@@ -109,7 +109,7 @@ export function Sidebar({
 
         // Handle project view toggle keyboard shortcut using custom shortcuts
         const handleToggleProjectView = (e: KeyboardEvent) => {
-            if (checkShortcutMatch(e, "toggle-project-view")) {
+            if (checkShortcutMatch(e, "toggleProjectView")) {
                 e.preventDefault();
                 setIsOpen(true);
                 setIsProjectView(!isProjectView);

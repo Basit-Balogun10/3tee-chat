@@ -1,3 +1,5 @@
+"use node";
+
 // Enhanced web search with provider-specific implementations and real citations
 export async function performProviderWebSearch(
     query: string,

@@ -1,3 +1,5 @@
+"use node";
+
 import { getMimeType } from "./helpers";
 import { internal } from "../_generated/api";
 

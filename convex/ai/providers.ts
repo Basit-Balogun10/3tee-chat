@@ -1,3 +1,5 @@
+"use node";
+
 import OpenAI, { AzureOpenAI } from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicVertex } from "@anthropic-ai/vertex-sdk";

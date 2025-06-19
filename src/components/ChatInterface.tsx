@@ -463,14 +463,14 @@ export function ChatInterface() {
                 (e.target as HTMLElement)?.isContentEditable;
 
             // Check custom shortcuts using the new system
-            if (checkShortcutMatch(e, "toggle-sidebar")) {
+            if (checkShortcutMatch(e, "toggleSidebar")) {
                 e.preventDefault();
                 e.stopPropagation();
                 setSidebarOpen(!sidebarOpen);
                 return;
             }
 
-            if (checkShortcutMatch(e, "focus-search")) {
+            if (checkShortcutMatch(e, "focusSearch")) {
                 e.preventDefault();
                 e.stopPropagation();
                 const focusSearchEvent = new CustomEvent("focusSearch", {
@@ -480,7 +480,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "toggle-theme")) {
+            if (checkShortcutMatch(e, "toggleTheme")) {
                 e.preventDefault();
                 e.stopPropagation();
                 const toggleThemeEvent = new CustomEvent("toggleTheme");
@@ -488,7 +488,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "export-markdown") && selectedChatId) {
+            if (checkShortcutMatch(e, "exportMarkdown") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const exportEvent = new CustomEvent("exportMarkdown", {
@@ -498,7 +498,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "export-json") && selectedChatId) {
+            if (checkShortcutMatch(e, "exportJson") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const exportEvent = new CustomEvent("exportJSON", {
@@ -508,7 +508,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "share-chat") && selectedChatId) {
+            if (checkShortcutMatch(e, "shareChat") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const shareReadOnlyEvent = new CustomEvent("shareReadOnly", {
@@ -518,7 +518,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "toggle-right-sidebar")) {
+            if (checkShortcutMatch(e, "toggleRightSidebar")) {
                 e.preventDefault();
                 e.stopPropagation();
                 setRightSidebarOpen(!rightSidebarOpen);
@@ -526,7 +526,7 @@ export function ChatInterface() {
             }
 
             if (
-                checkShortcutMatch(e, "rename-chat") &&
+                checkShortcutMatch(e, "renameChat") &&
                 selectedChat &&
                 !isEditingTitle
             ) {
@@ -536,7 +536,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "delete-chat") && selectedChatId) {
+            if (checkShortcutMatch(e, "deleteChat") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const deleteChatEvent = new CustomEvent("deleteCurrentChat", {
@@ -546,7 +546,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "star-chat") && selectedChatId) {
+            if (checkShortcutMatch(e, "starChat") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const starToggleEvent = new CustomEvent(
@@ -559,10 +559,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (
-                checkShortcutMatch(e, "share-collaboration") &&
-                selectedChatId
-            ) {
+            if (checkShortcutMatch(e, "shareCollaboration") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const shareCollabEvent = new CustomEvent("shareCollaboration", {
@@ -573,7 +570,7 @@ export function ChatInterface() {
             }
 
             if (
-                checkShortcutMatch(e, "rename-chat") &&
+                checkShortcutMatch(e, "renameChat") &&
                 selectedChat &&
                 !isEditingTitle
             ) {
@@ -583,7 +580,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "delete-chat") && selectedChatId) {
+            if (checkShortcutMatch(e, "deleteChat") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const deleteChatEvent = new CustomEvent("deleteCurrentChat", {
@@ -593,7 +590,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "star-chat") && selectedChatId) {
+            if (checkShortcutMatch(e, "starChat") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const starToggleEvent = new CustomEvent(
@@ -606,7 +603,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "voice-recording") && selectedChatId) {
+            if (checkShortcutMatch(e, "voiceRecording") && selectedChatId) {
                 e.preventDefault();
                 e.stopPropagation();
                 const voiceRecordingToggleEvent = new CustomEvent(
@@ -616,7 +613,7 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "focus-input")) {
+            if (checkShortcutMatch(e, "focusInput")) {
                 e.preventDefault();
                 e.stopPropagation();
                 const focusInputEvent = new CustomEvent("focusMessageInput");
@@ -624,21 +621,21 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "toggle-message-input")) {
+            if (checkShortcutMatch(e, "toggleMessageInput")) {
                 e.preventDefault();
                 e.stopPropagation();
                 setShowMessageInput(!showMessageInput);
                 return;
             }
 
-            if (checkShortcutMatch(e, "toggle-header")) {
+            if (checkShortcutMatch(e, "toggleHeader")) {
                 e.preventDefault();
                 e.stopPropagation();
                 setShowHeader(!showHeader);
                 return;
             }
 
-            if (checkShortcutMatch(e, "toggle-zen-mode")) {
+            if (checkShortcutMatch(e, "toggleZenMode")) {
                 e.preventDefault();
                 e.stopPropagation();
                 const newZenMode = !zenMode;
@@ -650,28 +647,28 @@ export function ChatInterface() {
                 return;
             }
 
-            if (checkShortcutMatch(e, "new-chat")) {
+            if (checkShortcutMatch(e, "newChat")) {
                 e.preventDefault();
                 e.stopPropagation();
                 void handleNewChat();
                 return;
             }
 
-            if (checkShortcutMatch(e, "show-shortcuts")) {
+            if (checkShortcutMatch(e, "showShortcuts")) {
                 e.preventDefault();
                 e.stopPropagation();
                 setShowKeyboardShortcuts(true);
                 return;
             }
 
-            if (checkShortcutMatch(e, "open-settings")) {
+            if (checkShortcutMatch(e, "openSettings")) {
                 e.preventDefault();
                 e.stopPropagation();
                 setShowSettings(true);
                 return;
             }
 
-            if (checkShortcutMatch(e, "open-model-selector")) {
+            if (checkShortcutMatch(e, "openModelSelector")) {
                 e.preventDefault();
                 e.stopPropagation();
                 const modelSelectorEvent = new CustomEvent("openModelSelector");

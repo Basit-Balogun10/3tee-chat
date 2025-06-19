@@ -1,3 +1,5 @@
+"use node";
+
 import { internal } from "../_generated/api";
 
 // Helper function to get user preferences and API keys

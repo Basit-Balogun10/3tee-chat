@@ -39,8 +39,8 @@ export function KeyboardShortcuts({
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Check if the pressed keys match the show-shortcuts combination
-            if (checkShortcutMatch(e, "show-shortcuts")) {
+            // Check if the pressed keys match the showShortcuts combination
+            if (checkShortcutMatch(e, "showShortcuts")) {
                 e.preventDefault();
                 onOpenChange(true);
             }
@@ -116,7 +116,9 @@ export function KeyboardShortcuts({
             document.removeEventListener("keydown", handleKeyDown, {
                 capture: true,
             });
-            document.removeEventListener("keyup", handleKeyUp, { capture: true });
+            document.removeEventListener("keyup", handleKeyUp, {
+                capture: true,
+            });
         };
     }, [isListening, editingShortcutId]);
 
@@ -274,7 +276,8 @@ export function KeyboardShortcuts({
     const handleResetShortcut = async (shortcutId: string) => {
         try {
             const currentCustomShortcuts = preferences?.customShortcuts || {};
-            const { [shortcutId]: removed, ...remaining } = currentCustomShortcuts;
+            const { [shortcutId]: removed, ...remaining } =
+                currentCustomShortcuts;
 
             await updatePreferences({
                 customShortcuts: remaining,
@@ -353,9 +356,10 @@ export function KeyboardShortcuts({
                                 <>
                                     Press{" "}
                                     <kbd className="px-1 py-0.5 bg-purple-500/20 rounded text-purple-300">
-                                        {getShortcut("show-shortcuts")}
+                                        {getShortcut("showShortcuts")}
                                     </kbd>{" "}
-                                    anytime to show this dialog • Click any shortcut key to customize it
+                                    anytime to show this dialog • Click any
+                                    shortcut key to customize it
                                 </>
                             )}
                         </p>
@@ -409,7 +413,9 @@ export function KeyboardShortcuts({
                                                         <div className="flex items-center gap-2">
                                                             <input
                                                                 type="text"
-                                                                value={editValue}
+                                                                value={
+                                                                    editValue
+                                                                }
                                                                 onChange={(e) =>
                                                                     setEditValue(
                                                                         e.target
@@ -421,7 +427,9 @@ export function KeyboardShortcuts({
                                                                 }
                                                                 className="w-32 px-2 py-1 bg-purple-500/20 border border-purple-500/50 rounded text-xs text-purple-100 font-mono text-center focus:outline-none focus:border-purple-400"
                                                                 placeholder="e.g. Ctrl + K"
-                                                                disabled={isListening}
+                                                                disabled={
+                                                                    isListening
+                                                                }
                                                             />
                                                             <button
                                                                 onClick={() =>
@@ -448,7 +456,9 @@ export function KeyboardShortcuts({
                                                                 onClick={() =>
                                                                     void handleSaveShortcut()
                                                                 }
-                                                                disabled={isListening}
+                                                                disabled={
+                                                                    isListening
+                                                                }
                                                                 className="px-2 py-1 bg-green-500/20 text-green-300 rounded text-xs hover:bg-green-500/30 disabled:opacity-50"
                                                             >
                                                                 Save
@@ -464,17 +474,22 @@ export function KeyboardShortcuts({
                                                         </div>
                                                         {validationError && (
                                                             <div className="text-xs text-red-300 max-w-40 text-center">
-                                                                {validationError}
+                                                                {
+                                                                    validationError
+                                                                }
                                                             </div>
                                                         )}
-                                                        {!validationError && isListening &&
+                                                        {!validationError &&
+                                                            isListening &&
                                                             detectedKeys.size >
                                                                 0 && (
                                                                 <div className="text-xs text-green-300 max-w-40 text-center">
                                                                     Detected:{" "}
-                                                                    {Array.from(
-                                                                        detectedKeys
-                                                                    )[0]}
+                                                                    {
+                                                                        Array.from(
+                                                                            detectedKeys
+                                                                        )[0]
+                                                                    }
                                                                 </div>
                                                             )}
                                                     </div>

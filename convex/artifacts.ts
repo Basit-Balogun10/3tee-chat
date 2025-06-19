@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { Id } from "../../convex/_generated/dataModel";
 import {
     mutation,
     query,
