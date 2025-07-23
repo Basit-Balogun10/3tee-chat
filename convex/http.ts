@@ -2,6 +2,7 @@ import { auth } from "./auth";
 import router from "./router";
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 
 const http = router;
@@ -101,23 +102,32 @@ http.route({
 
 // OpenAI Realtime API ephemeral key generation (per appendix.md)
 export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
-    // Verify user authentication
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-        });
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const authHeader = request.headers.get("Authorization");
+    const token = authHeader?.replace("Bearer ", "");
+
+    if (!token) {
+        return new Response("Not authenticated", { status: 401 });
     }
 
     try {
-        // Check if user has OpenAI API key configured
-        const user = await ctx.runQuery(internal.users.getUserById, { userId: identity.subject });
-        const preferences = await ctx.runQuery(internal.preferences.getUserPreferences, { userId: identity.subject });
-        
+        const identity = await ctx.auth.getUserIdentity();
+
+        if (!identity) {
+            return new Response("Invalid token", { status: 401 });
+        }
+
+        //   const userId = identity.subject;
+        const preferences = (await ctx.runQuery(
+            internal.preferences.getUserPreferencesInternal,
+            { userId: userId as any }
+        )) as any;
+
         const userOpenAIKey = preferences?.apiKeys?.openai;
         const useOurKeys = !userOpenAIKey;
-        
+
         let ephemeralKey;
         let endpoint;
 
@@ -125,14 +135,14 @@ export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
             // Use our Azure OpenAI for ephemeral key generation
             const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
             const azureApiKey = process.env.AZURE_OPENAI_API_KEY;
-            
+
             if (!azureEndpoint || !azureApiKey) {
                 throw new Error("Azure OpenAI credentials not configured");
             }
 
             // Generate ephemeral key using Azure OpenAI sessions endpoint per appendix.md
             const sessionsUrl = `${azureEndpoint}/openai/realtimeapi/sessions?api-version=2025-04-01-preview`;
-            
+
             const response = await fetch(sessionsUrl, {
                 method: "POST",
                 headers: {
@@ -142,8 +152,9 @@ export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
                 body: JSON.stringify({
                     model: "gpt-4o-realtime-preview", // or deployment name
                     modalities: ["text", "audio"],
-                    instructions: "You are a helpful AI assistant responding in natural, engaging language.",
-                    voice: "alloy",
+                    instructions:
+                        "You are a helpful AI assistant responding in natural, engaging language.",
+                    voice: "aoede",
                     input_audio_format: "pcm16",
                     output_audio_format: "pcm16",
                     turn_detection: {
@@ -152,8 +163,8 @@ export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
                         prefix_padding_ms: 300,
                         silence_duration_ms: 200,
                         create_response: true,
-                        interrupt_response: true
-                    }
+                        interrupt_response: true,
+                    },
                 }),
             });
 
@@ -168,36 +179,39 @@ export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
 
             const sessionData = await response.json();
             ephemeralKey = sessionData.client_secret?.value;
-            
+
             // Determine region-specific WebRTC endpoint per appendix.md
             const azureRegion = process.env.AZURE_OPENAI_REGION || "eastus2";
             endpoint = `https://${azureRegion}.realtimeapi-preview.ai.azure.com/v1/realtimertc`;
-            
         } else {
             // Use user's OpenAI API key to generate ephemeral key
-            const openaiResponse = await fetch("https://api.openai.com/v1/realtime/sessions", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${userOpenAIKey}`,
-                },
-                body: JSON.stringify({
-                    model: "gpt-4o-realtime-preview-2024-10-01",
-                    modalities: ["text", "audio"],
-                    instructions: "You are a helpful AI assistant responding in natural, engaging language.",
-                    voice: "alloy",
-                    input_audio_format: "pcm16",
-                    output_audio_format: "pcm16",
-                    turn_detection: {
-                        type: "server_vad",
-                        threshold: 0.5,
-                        prefix_padding_ms: 300,
-                        silence_duration_ms: 200,
-                        create_response: true,
-                        interrupt_response: true
-                    }
-                }),
-            });
+            const openaiResponse = await fetch(
+                "https://api.openai.com/v1/realtime/sessions",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${userOpenAIKey}`,
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-4o-realtime-preview-2024-10-01",
+                        modalities: ["text", "audio"],
+                        instructions:
+                            "You are a helpful AI assistant responding in natural, engaging language.",
+                        voice: "aoede",
+                        input_audio_format: "pcm16",
+                        output_audio_format: "pcm16",
+                        turn_detection: {
+                            type: "server_vad",
+                            threshold: 0.5,
+                            prefix_padding_ms: 300,
+                            silence_duration_ms: 200,
+                            create_response: true,
+                            interrupt_response: true,
+                        },
+                    }),
+                }
+            );
 
             if (!openaiResponse.ok) {
                 const errorText = await openaiResponse.text();
@@ -205,7 +219,9 @@ export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
                     status: openaiResponse.status,
                     body: errorText,
                 });
-                throw new Error(`Failed to create OpenAI session: ${openaiResponse.status}`);
+                throw new Error(
+                    `Failed to create OpenAI session: ${openaiResponse.status}`
+                );
             }
 
             const sessionData = await openaiResponse.json();
@@ -218,87 +234,99 @@ export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
         }
 
         // Return ephemeral key and WebRTC endpoint per appendix.md
-        return new Response(JSON.stringify({
-            ephemeral_key: ephemeralKey,
-            webrtc_endpoint: endpoint,
-            expires_at: Date.now() + 60000, // 1 minute expiry
-            provider: useOurKeys ? "azure" : "openai"
-        }), {
-            status: 200,
-            headers: { 
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            },
-        });
-
+        return new Response(
+            JSON.stringify({
+                ephemeral_key: ephemeralKey,
+                webrtc_endpoint: endpoint,
+                expires_at: Date.now() + 60000, // 1 minute expiry
+                provider: useOurKeys ? "azure" : "openai",
+            }),
+            {
+                status: 200,
+                headers: {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers":
+                        "Content-Type, Authorization",
+                },
+            }
+        );
     } catch (error) {
         console.error("Ephemeral key generation error:", error);
-        return new Response(JSON.stringify({
-            error: error instanceof Error ? error.message : "Failed to generate ephemeral key"
-        }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+            JSON.stringify({
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to generate ephemeral key",
+            }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
     }
 });
 
 // Google Gemini Live ephemeral key generation
 export const geminiLiveEphemeralKey = httpAction(async (ctx, request) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-        });
-    }
-
     try {
-        const preferences = await ctx.runQuery(internal.preferences.getUserPreferences, { userId: identity.subject });
-        const userGeminiKey = preferences?.apiKeys?.gemini;
-        
-        // For Gemini Live, we'll use the GoogleGenAI SDK approach from appendix.md
-        // Note: Gemini Live uses a different authentication flow than OpenAI
-        
-        if (!userGeminiKey && !process.env.GEMINI_API_KEY) {
-            throw new Error("No Gemini API key available");
+        const userId = await getAuthUserId(ctx);
+        console.log("userId: ", userId);
+
+        if (!userId) {
+            return new Response(
+                JSON.stringify({
+                    error: "Authentication required",
+                }),
+                {
+                    status: 401,
+                    headers: { "Content-Type": "application/json" },
+                }
+            );
         }
 
-        const apiKey = userGeminiKey || process.env.GEMINI_API_KEY;
+        // Call the Node.js action to generate the key
+        // const result = await ctx.runAction(
+        //     internal.geminiActions.generateGeminiLiveKey,
+        //     {
+        //         userId,
+        //     }
+        // );
+        const result = {}
 
-        // Return the API key and WebRTC configuration for Gemini Live
-        // Note: Gemini Live uses a different WebRTC setup than OpenAI
-        return new Response(JSON.stringify({
-            api_key: apiKey, // Gemini uses direct API key, not ephemeral
-            webrtc_endpoint: "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService/BidiGenerateContent",
-            expires_at: Date.now() + 3600000, // 1 hour for Gemini
-            provider: "gemini"
-        }), {
+        return new Response(JSON.stringify(result), {
             status: 200,
-            headers: { 
+            headers: {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
                 "Access-Control-Allow-Headers": "Content-Type, Authorization",
             },
         });
-
     } catch (error) {
         console.error("Gemini Live key generation error:", error);
-        return new Response(JSON.stringify({
-            error: error instanceof Error ? error.message : "Failed to get Gemini Live credentials"
-        }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+            JSON.stringify({
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : "Failed to get Gemini Live credentials",
+                details: error instanceof Error ? error.stack : undefined,
+            }),
+            {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+            }
+        );
     }
 });
 
 // OpenAI Realtime API ephemeral key endpoint
 http.route({
     path: "/api/openai-realtime-key",
-    method: "POST",
+    method: "GET",
     handler: openaiRealtimeEphemeralKey,
 });
 
@@ -320,7 +348,7 @@ http.route({
 // Google Gemini Live key endpoint
 http.route({
     path: "/api/gemini-live-key",
-    method: "POST",
+    method: "GET",
     handler: geminiLiveEphemeralKey,
 });
 

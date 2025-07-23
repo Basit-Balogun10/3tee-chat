@@ -1,10 +1,10 @@
 "use node";
-
 import { getMimeType } from "./helpers";
 import { internal } from "../_generated/api";
+import { Type } from "@google/genai";
 
 // Provider-specific file management with caching
-class ProviderFileManager {
+class _ProviderFileManager {
     private fileCache: Map<string, Map<string, string>> = new Map(); // storageId -> provider -> fileId
 
     // Get cached file ID for a provider, or upload if not cached
@@ -43,14 +43,14 @@ class ProviderFileManager {
         // Cache in Convex if context is available
         if (ctx) {
             try {
-                await ctx.runMutation(internal.files.cacheProviderFile, {
-                    originalId: storageId,
-                    provider,
-                    providerFileId: fileId,
-                    fileName,
-                    mimeType,
-                    fileSize: fileBlob.size,
-                });
+                // await ctx.runMutation(internal.files.cacheProviderFile, {
+                //     originalId: storageId,
+                //     provider,
+                //     providerFileId: fileId,
+                //     fileName,
+                //     mimeType,
+                //     fileSize: fileBlob.size,
+                // });
             } catch (error) {
                 console.error("Failed to cache provider file:", error);
                 // Continue even if caching fails
@@ -172,16 +172,20 @@ class ProviderFileManager {
     }
 
     // Get cached provider file
-    async getCachedProviderFile(ctx: any, originalId: string, provider: string) {
-        return await ctx.runQuery(internal.files.getCachedProviderFile, {
-            originalId,
+    async getCachedProviderFile(
+        ctx: any,
+        originalId: string,
+        provider: string
+    ) {
+        return await ctx.runQuery(internal.artifacts.getCachedProviderFile, {
+            artifactId: originalId,
             provider,
         });
     }
 
     // Clean up expired provider files
     async cleanupExpiredFiles(ctx: any) {
-        await ctx.runMutation(internal.files.cleanupExpiredProviderFiles);
+        await ctx.runMutation(internal.artifacts.cleanupExpiredProviderFiles);
     }
 }
 
@@ -378,8 +382,6 @@ class StructuredOutputManager {
 
     // Helper methods for schema conversion and streaming
     private convertToGoogleSchema(schema: any): any {
-        const { Type } = require("@google/genai");
-
         const convertType = (schemaNode: any): any => {
             switch (schemaNode.type) {
                 case "string":
@@ -408,7 +410,7 @@ class StructuredOutputManager {
                         items: convertType(schemaNode.items),
                         nullable: schemaNode.nullable || false,
                     };
-                case "object":
+                case "object": {
                     const properties: any = {};
                     if (schemaNode.properties) {
                         for (const [key, value] of Object.entries(
@@ -424,6 +426,7 @@ class StructuredOutputManager {
                         required: schemaNode.required || [],
                         nullable: schemaNode.nullable || false,
                     };
+                }
                 default:
                     return {
                         type: Type.STRING,
@@ -793,6 +796,54 @@ class StructuredOutputManager {
 
         return input;
     }
+
+    // Add the missing Google contents format conversion method
+    private convertToGoogleContentsFormat(messages: any[]): any[] {
+        const contents = [];
+
+        for (const message of messages) {
+            if (message.role === "system") {
+                // Skip system messages for Google format or handle separately
+                continue;
+            }
+
+            if (typeof message.content === "string") {
+                contents.push({
+                    role: message.role === "assistant" ? "model" : "user",
+                    parts: [{ text: message.content }],
+                });
+            } else if (Array.isArray(message.content)) {
+                const parts = [];
+                for (const part of message.content) {
+                    if (part.type === "text") {
+                        parts.push({ text: part.text });
+                    } else if (part.type === "image_url") {
+                        if (part.image_url.url.startsWith("data:")) {
+                            parts.push({
+                                inlineData: {
+                                    mimeType: "image/jpeg", // or determine from data URL
+                                    data: part.image_url.url.split(",")[1], // Remove data:image/jpeg;base64, prefix
+                                },
+                            });
+                        } else {
+                            parts.push({
+                                fileData: {
+                                    fileUri: part.image_url.url,
+                                    mimeType: "image/jpeg",
+                                },
+                            });
+                        }
+                    }
+                }
+                contents.push({
+                    role: message.role === "assistant" ? "model" : "user",
+                    parts,
+                });
+            }
+        }
+
+        return contents;
+    }
 }
 
 // Real image generation with provider-specific implementations following appendix.md exactly
@@ -812,7 +863,8 @@ class ImageGenerationManager {
                 // Additional Google-specific options
                 aspectRatio: options.aspectRatio || "1:1",
                 personGeneration: options.personGeneration || "allow_adult",
-                safetyFilterLevel: options.safetyFilterLevel || "block_some",
+                safetyFilterLevel:
+                    options.safetyFilterLevel || "block_low_and_above",
             },
         });
 
@@ -909,19 +961,141 @@ class ImageGenerationManager {
         provider: string,
         client: any,
         prompt: string,
-        options: any = {}
+        options: any = {},
+        ctx?: any // Add Convex context for file upload
     ): Promise<string> {
+        let dataUrl: string;
+
         switch (provider) {
             case "google":
-                return await this.generateGoogleImage(client, prompt, options);
+                dataUrl = await this.generateGoogleImage(
+                    client,
+                    prompt,
+                    options
+                );
+                break;
 
             case "openai":
-                return await this.generateOpenAIImage(client, prompt, options);
+                dataUrl = await this.generateOpenAIImage(
+                    client,
+                    prompt,
+                    options
+                );
+                break;
 
             default:
                 throw new Error(
                     `Image generation not supported for provider: ${provider}`
                 );
+        }
+
+        // Upload the generated image data URL to Convex storage
+        if (ctx && dataUrl) {
+            try {
+                return await this.uploadDataUrlToConvex(
+                    dataUrl,
+                    ctx,
+                    `generated_image_${Date.now()}.png`
+                );
+            } catch (error) {
+                console.error(
+                    "Failed to upload generated image to Convex:",
+                    error
+                );
+                // Return the original data URL as fallback
+                return dataUrl;
+            }
+        }
+
+        return dataUrl;
+    }
+
+    // Helper method to upload data URL to Convex storage
+    private async uploadDataUrlToConvex(
+        dataUrl: string,
+        ctx: any,
+        filename: string
+    ): Promise<string> {
+        try {
+            console.log(`📤 Uploading generated image to Convex: ${filename}`);
+
+            // Log complete data URL for debugging (first 200 chars + length)
+            console.log(`🔍 Data URL preview: ${dataUrl.substring(0, 200)}...`);
+            console.log(
+                `📊 Data URL total length: ${dataUrl.length} characters`
+            );
+
+            // Helper function to convert data URL to blob (from Convex docs)
+            function dataURLtoBlob(dataurl: string) {
+                const arr = dataurl.split(",");
+                const mimeMatch = arr[0].match(/:(.*?);/);
+                if (!mimeMatch) {
+                    throw new Error("Invalid data URL format");
+                }
+                const mime = mimeMatch[1];
+                const bstr = atob(arr[1]);
+                let n = bstr.length;
+                const u8arr = new Uint8Array(n);
+                while (n--) {
+                    u8arr[n] = bstr.charCodeAt(n);
+                }
+                return new Blob([u8arr], { type: mime });
+            }
+
+            // Convert data URL to blob
+            const blob = dataURLtoBlob(dataUrl);
+            console.log(
+                `📊 Blob info: type=${blob.type}, size=${blob.size} bytes`
+            );
+
+            // Generate upload URL
+            const uploadUrl = ctx.storage.generateUploadUrl();
+            console.log(
+                `🔗 Generated upload URL: ${uploadUrl ? "Success" : "Failed"}`
+            );
+
+            if (!uploadUrl) {
+                throw new Error("Failed to generate upload URL from Convex");
+            }
+
+            // Upload the blob
+            const uploadResult = await fetch(uploadUrl, {
+                method: "POST",
+                headers: { "Content-Type": blob.type },
+                body: blob,
+            });
+
+            if (!uploadResult.ok) {
+                const errorText = await uploadResult.text();
+                console.error(
+                    `❌ Upload failed: ${uploadResult.status} - ${errorText}`
+                );
+                throw new Error(
+                    `Failed to upload image to Convex storage: ${uploadResult.status}`
+                );
+            }
+
+            const { storageId } = await uploadResult.json();
+            console.log(`💾 Upload successful: storageId=${storageId}`);
+
+            // Get the Convex URL for the uploaded file
+            const convexUrl = await ctx.storage.getUrl(storageId);
+
+            if (!convexUrl) {
+                console.warn(
+                    "⚠️ Failed to generate Convex URL, using original data URL as fallback"
+                );
+                return dataUrl;
+            }
+
+            console.log(
+                `✅ Generated image uploaded to Convex: ${filename} -> ${storageId}`
+            );
+            console.log(`🌐 Convex URL: ${convexUrl}`);
+            return convexUrl;
+        } catch (error) {
+            console.error("❌ Failed to upload data URL to Convex:", error);
+            return dataUrl; // Fallback to original
         }
     }
 }
@@ -969,10 +1143,11 @@ class VideoGenerationManager {
 
         // Use the video data to get the actual video URL according to appendix.md
         const video = videos[0];
-        
+
         // Download the video URL from the operation response
         const videoUrl = video.uri || `google_video_${Date.now()}.mp4`;
-        const thumbnailUrl = video.thumbnailUri || `google_thumb_${Date.now()}.jpg`;
+        const thumbnailUrl =
+            video.thumbnailUri || `google_thumb_${Date.now()}.jpg`;
 
         return {
             videoUrl: videoUrl,
@@ -1107,20 +1282,124 @@ class VideoGenerationManager {
         provider: string,
         client: any,
         prompt: string,
-        options: any = {}
+        options: any = {},
+        ctx?: any // Add Convex context for file upload
     ): Promise<any> {
+        let videoData: any;
+
         switch (provider) {
             case "google":
-                return await this.generateGoogleVideo(client, prompt, options);
+                videoData = await this.generateGoogleVideo(
+                    client,
+                    prompt,
+                    options
+                );
+                break;
 
             case "openai":
-                return await this.generateOpenAIVideo(client, prompt, options);
+                videoData = await this.generateOpenAIVideo(
+                    client,
+                    prompt,
+                    options
+                );
+                break;
 
             default:
                 throw new Error(
                     `Video generation not supported for provider: ${provider}`
                 );
         }
+
+        // Upload the generated video to Convex storage if context is provided
+        if (ctx && videoData.videoUrl) {
+            try {
+                const filename = `generated_video_${Date.now()}.mp4`;
+                console.log(
+                    `📤 Uploading generated video to Convex: ${filename}`
+                );
+                console.log(
+                    `🔗 Video URL preview: ${videoData.videoUrl.substring(0, 200)}...`
+                );
+
+                const uploadedVideoUrl = await this.uploadVideoToConvex(
+                    videoData.videoUrl,
+                    ctx,
+                    filename
+                );
+                videoData.videoUrl = uploadedVideoUrl;
+
+                // Also upload thumbnail if available
+                if (videoData.thumbnailUrl) {
+                    try {
+                        const thumbnailFilename = `generated_thumb_${Date.now()}.jpg`;
+                        const uploadedThumbnailUrl =
+                            await this.uploadVideoToConvex(
+                                videoData.thumbnailUrl,
+                                ctx,
+                                thumbnailFilename
+                            );
+                        videoData.thumbnailUrl = uploadedThumbnailUrl;
+                    } catch (thumbError) {
+                        console.error(
+                            "Failed to upload video thumbnail to Convex:",
+                            thumbError
+                        );
+                        // Keep original thumbnail URL as fallback
+                    }
+                }
+
+                console.log(`✅ Generated video uploaded to Convex storage`);
+            } catch (error) {
+                console.error(
+                    "Failed to upload generated video to Convex:",
+                    error
+                );
+                // Return the original video data as fallback
+            }
+        }
+
+        return videoData;
+    }
+
+    // Helper method to upload video URL to Convex storage
+    private async uploadVideoToConvex(
+        videoUrl: string,
+        ctx: any,
+        filename: string
+    ): Promise<string> {
+        // Download the video from the provider's URL
+        const response = await fetch(videoUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to download video from ${videoUrl}`);
+        }
+
+        console.log("videoUrl: ", videoUrl);
+
+        const blob = await response.blob();
+
+        // Generate upload URL
+        const uploadUrl = ctx.storage.generateUploadUrl();
+
+        // Upload the blob
+        const uploadResult = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": blob.type },
+            body: blob,
+        });
+
+        if (!uploadResult.ok) {
+            throw new Error("Failed to upload video to Convex storage");
+        }
+
+        const { storageId } = await uploadResult.json();
+
+        // Get the Convex URL for the uploaded file
+        const convexUrl = await ctx.storage.getUrl(storageId);
+
+        console.log(
+            `✅ Generated video uploaded to Convex: ${filename} -> ${storageId}`
+        );
+        return convexUrl || videoUrl; // Fallback to original if URL generation fails
     }
 }
 
@@ -1137,19 +1416,27 @@ export const fileManager = {
         ctx?: any // Convex context for caching
     ): Promise<string> {
         // Check cache first if we have context and this is an artifactId
-        if (ctx && originalId.startsWith('artifact_')) {
-            const cached = await ctx.runQuery(internal.artifacts.getCachedProviderFile, {
-                artifactId: originalId,
-                provider,
-            });
-            
-            if (cached && cached.fileId) {
-                // Update last used timestamp
-                await ctx.runMutation(internal.artifacts.updateProviderFileUsage, {
+        if (ctx && originalId.startsWith("artifact_")) {
+            const cached = await ctx.runQuery(
+                internal.artifacts.getCachedProviderFile,
+                {
                     artifactId: originalId,
                     provider,
-                });
-                console.log(`📋 Using cached ${provider} file ID: ${cached.fileId} for artifact: ${originalId}`);
+                }
+            );
+
+            if (cached && cached.fileId) {
+                // Update last used timestamp
+                await ctx.runMutation(
+                    internal.artifacts.updateProviderFileUsage,
+                    {
+                        artifactId: originalId,
+                        provider,
+                    }
+                );
+                console.log(
+                    `📋 Using cached ${provider} file ID: ${cached.fileId} for artifact: ${originalId}`
+                );
                 return cached.fileId;
             }
         }
@@ -1157,9 +1444,9 @@ export const fileManager = {
         // Upload to provider and cache result
         let providerFileId: string;
         let expiresAt: number | undefined;
-        
+
         console.log(`📤 Uploading ${fileName} to ${provider} file API...`);
-        
+
         switch (provider) {
             case "openai":
             case "openrouter":
@@ -1170,7 +1457,7 @@ export const fileManager = {
                     purpose: "assistants",
                 });
                 providerFileId = response.id;
-                
+
                 // OpenAI files don't expire automatically
                 expiresAt = undefined;
                 break;
@@ -1180,9 +1467,9 @@ export const fileManager = {
                 // Anthropic handles files differently - inline content
                 // For artifacts, we create a reference ID and store inline
                 providerFileId = `anthropic_artifact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                
+
                 // Anthropic doesn't have persistent file storage, so short expiry
-                expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+                expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
                 break;
             }
 
@@ -1200,7 +1487,7 @@ export const fileManager = {
                 let uploadedFile = await client.files.get({
                     name: response.name,
                 });
-                
+
                 let attempts = 0;
                 while (uploadedFile.state === "PROCESSING" && attempts < 30) {
                     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1215,27 +1502,34 @@ export const fileManager = {
                 }
 
                 providerFileId = response.name; // Google uses name as file ID
-                
+
                 // Google files expire after some time (check their docs)
-                expiresAt = Date.now() + (7 * 24 * 60 * 60 * 1000); // 7 days estimated
+                expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days estimated
                 break;
             }
 
             default:
-                throw new Error(`File upload not supported for provider: ${provider}`);
+                throw new Error(
+                    `File upload not supported for provider: ${provider}`
+                );
         }
 
         // Cache the result if we have context and this is an artifact
-        if (ctx && originalId.startsWith('artifact_') && providerFileId) {
+        if (ctx && originalId.startsWith("artifact_") && providerFileId) {
             try {
-                await ctx.runMutation(internal.artifacts.updateArtifactProviderFile, {
-                    artifactId: originalId,
-                    provider,
-                    fileId: providerFileId,
-                    uploadedAt: Date.now(),
-                    expiresAt,
-                });
-                console.log(`💾 Cached ${provider} file ID: ${providerFileId} for artifact: ${originalId}`);
+                await ctx.runMutation(
+                    internal.artifacts.updateArtifactProviderFile,
+                    {
+                        artifactId: originalId,
+                        provider,
+                        fileId: providerFileId,
+                        uploadedAt: Date.now(),
+                        expiresAt,
+                    }
+                );
+                console.log(
+                    `💾 Cached ${provider} file ID: ${providerFileId} for artifact: ${originalId}`
+                );
             } catch (error) {
                 console.error("Failed to cache provider file:", error);
                 // Continue even if caching fails
@@ -1254,13 +1548,13 @@ export const fileManager = {
         ctx: any
     ): Promise<{ fileId: string; fileName: string; mimeType: string }> {
         // Create blob from artifact content
-        const artifactBlob = new Blob([artifact.content], { 
-            type: "text/plain" 
+        const artifactBlob = new Blob([artifact.content], {
+            type: "text/plain",
         });
-        
+
         const fileName = `${artifact.filename}.${artifact.language}`;
         const mimeType = "text/plain";
-        
+
         // Upload to provider's file API with caching
         const fileId = await this.getProviderFileId(
             artifactId,
@@ -1271,7 +1565,7 @@ export const fileManager = {
             client,
             ctx
         );
-        
+
         return {
             fileId,
             fileName,
@@ -1285,12 +1579,17 @@ export const fileManager = {
         provider: string,
         client: any,
         ctx: any
-    ): Promise<{ type: string; fileId: string; name: string; mimeType: string }> {
+    ): Promise<{
+        type: string;
+        fileId: string;
+        name: string;
+        mimeType: string;
+    }> {
         const fileBlob = await ctx.storage.get(attachment.storageId);
         if (!fileBlob) {
             throw new Error(`File not found: ${attachment.name}`);
         }
-        
+
         const mimeType = getMimeType(attachment.name, attachment.type);
         const fileId = await this.getProviderFileId(
             attachment.storageId,
@@ -1301,11 +1600,11 @@ export const fileManager = {
             client,
             ctx
         );
-        
+
         let attachmentType: string = attachment.type;
-        if (attachment.type === 'image') attachmentType = 'image_file';
-        if (attachment.type === 'pdf') attachmentType = 'pdf_file';
-        
+        if (attachment.type === "image") attachmentType = "image_file";
+        if (attachment.type === "pdf") attachmentType = "pdf_file";
+
         return {
             type: attachmentType,
             fileId,

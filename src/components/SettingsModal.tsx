@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Button } from "./ui/button";
@@ -14,8 +14,13 @@ import {
 } from "./ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import { ModelSelector } from "./ModelSelector";
+import { DefaultPasswordModal } from "./DefaultPasswordModal";
+import { NotificationSounds } from "../lib/utils";
 import {
+    AlertTriangle,
+    Clock,
     Eye,
     EyeOff,
     Key,
@@ -30,7 +35,9 @@ import {
     Folder,
     MessageSquare,
     Globe,
+    Volume2,
     X,
+    Shield,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Id } from "../../convex/_generated/dataModel";
@@ -40,307 +47,6 @@ interface SettingsModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }
-
-// Helper functions moved to the top level for clarity and to fix syntax errors
-const generateTextExport = (data: any) => {
-    let text = `DATA EXPORT\n${"=".repeat(50)}\n\n`;
-    text += `Exported on: ${new Date(
-        data.exportInfo.timestamp
-    ).toLocaleString()}\n`;
-    text += `Format: ${data.exportInfo.format.toUpperCase()}\n\n`;
-
-    if (data.userSettings) {
-        text += `USER SETTINGS\n${"-".repeat(20)}\n`;
-        text += `Default Model: ${data.userSettings.defaultModel}\n`;
-        text += `Theme: ${data.userSettings.theme}\n\n`;
-    }
-
-    const formatChat = (chat: any, prefix = "") => {
-        let chatText = `${prefix}${chat.title}\n`;
-        chatText += `${prefix}Model: ${chat.model} | Created: ${new Date(
-            chat.createdAt
-        ).toLocaleDateString()}\n`;
-        chatText += `${prefix}${"-".repeat(40)}\n`;
-
-        chat.messages.forEach((message: any) => {
-            const role = message.role === "user" ? "YOU" : "ASSISTANT";
-            const time = new Date(message.timestamp).toLocaleTimeString();
-            chatText += `${prefix}[${time}] ${role}:\n${message.content}\n\n`;
-        });
-        return chatText + `\n${prefix}${"=".repeat(50)}\n\n`;
-    };
-
-    if (data.project) {
-        text += `PROJECT: ${data.project.name}\n${"-".repeat(30)}\n`;
-        text += `Description: ${
-            data.project.description || "No description"
-        }\n`;
-        text += `Created: ${new Date(
-            data.project.createdAt
-        ).toLocaleString()}\n`;
-        text += `Total Chats: ${data.project.chats.length}\n\n`;
-        data.project.chats.forEach((chat: any) => {
-            text += formatChat(chat);
-        });
-    } else if (data.workspace) {
-        text += `WORKSPACE EXPORT\nTotal Projects: ${
-            data.workspace.projects.length
-        }\nTotal Unorganized Chats: ${
-            data.workspace.unorganizedChats.length
-        }\n\n`;
-        data.workspace.projects.forEach((project: any) => {
-            text += `PROJECT: ${project.name}\n${"=".repeat(30)}\n`;
-            project.chats.forEach((chat: any) => {
-                text += formatChat(chat, "  ");
-            });
-        });
-        if (data.workspace.unorganizedChats.length > 0) {
-            text += `UNORGANIZED CHATS\n${"=".repeat(30)}\n`;
-            data.workspace.unorganizedChats.forEach((chat: any) => {
-                text += formatChat(chat);
-            });
-        }
-    } else {
-        data.chats.forEach((chat: any) => {
-            text += formatChat(chat);
-        });
-    }
-
-    return text;
-};
-
-const generateMarkdownExport = (data: any) => {
-    let markdown = `# Chat Export\n\n`;
-    markdown += `**Exported on:** ${new Date(
-        data.exportInfo.timestamp
-    ).toLocaleString()}\n`;
-    markdown += `**Total Chats:** ${data.exportInfo.totalChats}\n\n`;
-
-    if (data.userSettings) {
-        markdown += `## User Settings\n\n`;
-        markdown += `- **Default Model:** ${data.userSettings.defaultModel}\n`;
-        markdown += `- **Theme:** ${data.userSettings.theme}\n\n`;
-    }
-
-    data.chats.forEach((chat: any, index: number) => {
-        markdown += `## ${index + 1}. ${chat.title}\n\n`;
-        markdown += `**Model:** ${chat.model} | **Created:** ${new Date(
-            chat.createdAt
-        ).toLocaleDateString()}\n\n`;
-
-        chat.messages.forEach((message: any) => {
-            const role =
-                message.role === "user" ? "👤 **You**" : "🤖 **Assistant**";
-            const time = new Date(message.timestamp).toLocaleTimeString();
-            markdown += `### ${role} *(${time})*\n\n`;
-            markdown += `${message.content}\n\n`;
-        });
-
-        markdown += `---\n\n`;
-    });
-
-    return markdown;
-};
-
-const generateCSVExport = (data: any) => {
-    let csv =
-        "Chat ID,Chat Title,Message Role,Message Content,Timestamp,Model,Project ID,Project Name\n";
-    const processChat = (chat: any, projectId = "", projectName = "") => {
-        chat.messages.forEach((message: any) => {
-            const escapedContent = `"${message.content.replace(/"/g, '""')}"`;
-            const escapedTitle = `"${chat.title.replace(/"/g, '""')}"`;
-            const escapedProjectName = `"${projectName.replace(/"/g, '""')}"`;
-            csv += `${chat.id},${escapedTitle},${message.role},${escapedContent},${new Date(
-                message.timestamp
-            ).toISOString()},${message.model || chat.model},${projectId},${escapedProjectName}\n`;
-        });
-    };
-
-    if (data.project) {
-        data.project.chats.forEach((chat: any) => processChat(chat, data.project.id, data.project.name));
-    } else if (data.workspace) {
-        data.workspace.projects.forEach((project: any) => {
-            project.chats.forEach((chat: any) =>
-                processChat(chat, project.id, project.name)
-            );
-        });
-        data.workspace.unorganizedChats.forEach((chat: any) =>
-            processChat(chat)
-        );
-    } else {
-        data.chats.forEach((chat: any) => processChat(chat));
-    }
-    return csv;
-};
-
-const generatePDFExport = async (data: any) => {
-    try {
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-        const margin = 20;
-        const maxLineWidth = pageWidth - 2 * margin;
-        let yPosition = margin;
-
-        const checkNewPage = (neededHeight: number) => {
-            if (yPosition > pageHeight - neededHeight) {
-                doc.addPage();
-                yPosition = margin;
-            }
-        };
-
-        // Title Page
-        doc.setFontSize(24);
-        doc.setFont("helvetica", "bold");
-        doc.text("Chat Export", pageWidth / 2, yPosition, {
-            align: "center",
-        });
-        yPosition += 20;
-
-        // Metadata
-        doc.setFontSize(12);
-        doc.setFont("helvetica", "normal");
-        const metadataLines = [
-            `Exported on: ${new Date(
-                data.exportInfo.timestamp
-            ).toLocaleString()}`,
-            `Export Format: PDF`,
-            `Includes Settings: ${
-                data.exportInfo.includesSettings ? "Yes" : "No"
-            }`,
-        ];
-
-        metadataLines.forEach((line) => {
-            doc.text(line, pageWidth / 2, yPosition, { align: "center" });
-            yPosition += 8;
-        });
-
-        if (data.userSettings) {
-            checkNewPage(80);
-            yPosition += 20;
-            doc.setFontSize(16);
-            doc.setFont("helvetica", "bold");
-            doc.text("User Settings", margin, yPosition);
-            yPosition += 15;
-
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            const settingsLines = [
-                `Default Model: ${data.userSettings.defaultModel}`,
-                `Theme: ${data.userSettings.theme}`,
-                `Voice Auto-play: ${
-                    data.userSettings.voiceSettings?.autoPlay
-                        ? "Enabled"
-                        : "Disabled"
-                }`,
-                `Voice: ${data.userSettings.voiceSettings?.voice || "alloy"}`,
-                `Speech Speed: ${
-                    data.userSettings.voiceSettings?.speed || 1.0
-                }x`,
-            ];
-
-            settingsLines.forEach((line) => {
-                doc.text(line, margin, yPosition);
-                yPosition += 6;
-            });
-        }
-
-        doc.addPage();
-        yPosition = margin;
-
-        const drawChat = (chat: any, chatIndex: number) => {
-            checkNewPage(80);
-
-            // Chat header
-            doc.setFontSize(14);
-            doc.setFont("helvetica", "bold");
-            doc.setTextColor(0, 100, 200);
-            doc.text(`${chatIndex + 1}. ${chat.title}`, margin, yPosition);
-            yPosition += 10;
-
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-            doc.setTextColor(100, 100, 100);
-            const chatMetadata = [
-                `Model: ${chat.model}`,
-                `Created: ${new Date(chat.createdAt).toLocaleString()}`,
-                `Last Updated: ${new Date(chat.updatedAt).toLocaleString()}`,
-                `Messages: ${chat.messages.length}`,
-                `Starred: ${chat.isStarred ? "Yes" : "No"}`,
-            ];
-
-            chatMetadata.forEach((line) => {
-                checkNewPage(20);
-                doc.text(line, margin, yPosition);
-                yPosition += 6;
-            });
-
-            yPosition += 10;
-
-            chat.messages.forEach((message: any, msgIndex: number) => {
-                const role =
-                    message.role === "user" ? "👤 You" : "🤖 Assistant";
-                const timestamp = new Date(
-                    message.timestamp
-                ).toLocaleString();
-
-                checkNewPage(60);
-
-                doc.setFontSize(12);
-                doc.setFont("helvetica", "bold");
-                if (message.role === "user") {
-                    doc.setTextColor(0, 100, 200);
-                } else {
-                    doc.setTextColor(150, 0, 150);
-                }
-                doc.text(`${role} - ${timestamp}`, margin, yPosition);
-                yPosition += 10;
-
-                doc.setFont("helvetica", "normal");
-                doc.setTextColor(0, 0, 0);
-
-                const lines = doc.splitTextToSize(
-                    message.content,
-                    maxLineWidth
-                );
-                lines.forEach((line: string) => {
-                    checkNewPage(20);
-                    doc.text(line, margin, yPosition);
-                    yPosition += 6;
-                });
-
-                if (msgIndex < chat.messages.length - 1) {
-                    yPosition += 8;
-                    checkNewPage(20);
-                    doc.setDrawColor(200, 200, 200);
-                    doc.line(
-                        margin,
-                        yPosition - 4,
-                        pageWidth - margin,
-                        yPosition - 4
-                    );
-                }
-            });
-
-            yPosition += 15;
-        };
-
-        if (data.project) {
-            // ... (Project PDF Logic)
-        } else if (data.workspace) {
-            // ... (Workspace PDF Logic)
-        } else {
-            data.chats.forEach(drawChat);
-        }
-
-        const pdfBlob = doc.output("blob");
-        // Returning blob URL, not the blob itself
-        return URL.createObjectURL(pdfBlob);
-    } catch (error) {
-        console.error("PDF generation error:", error);
-        throw new Error("Failed to generate PDF");
-    }
-};
 
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     const preferences = useQuery(api.preferences.getUserPreferences);
@@ -383,9 +89,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
     const getSelectedProjectData = useQuery(
         api.projects.getProjectWithAllChats,
-        currentPage === "export" &&
-            exportMode === "projects" &&
-            selectedProject
+        currentPage === "export" && exportMode === "projects" && selectedProject
             ? { projectId: selectedProject as Id<"projects"> }
             : "skip"
     );
@@ -412,41 +116,144 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
         deepseek: false,
         openrouter: false,
     });
+    const [showDefaultPasswordModal, setShowDefaultPasswordModal] = useState(false);
     const [settings, setSettings] = useState({
-        defaultModel: "gpt-4o-mini",
+        defaultModel: "gemini-2.0-flash",
         theme: "dark" as "light" | "dark" | "system",
+        chatTitleGeneration: "first-message" as
+            | "first-message"
+            | "ai-generated",
+        temporaryChatsSettings: {
+            defaultToTemporary: false,
+            defaultLifespanHours: 24,
+            showExpirationWarnings: true,
+            autoCleanup: true,
+        },
         voiceSettings: {
             autoPlay: false,
-            voice: "alloy",
+            voice: "aoede",
             speed: 1.0,
             buzzWord: "",
+            language: "en-US",
         },
+        // Add Phase 2 settings
+        notificationSettings: {
+            soundEnabled: false,
+            soundOnlyWhenUnfocused: true,
+            soundVolume: 0.5,
+            soundType: "subtle",
+        },
+        chatLifecycleSettings: {
+            autoDeleteEnabled: false,
+            autoDeleteDays: 30,
+            autoArchiveEnabled: false,
+            autoArchiveDays: 30,
+        },
+        aiSettings: {
+            temperature: 0.7,
+            maxTokens: undefined,
+            systemPrompt: "",
+            responseMode: "balanced",
+            promptEnhancement: false,
+            contextWindow: undefined,
+            topP: 0.9,
+            frequencyPenalty: 0,
+            presencePenalty: 0,
+        },
+        passwordSettings: {
+            useDefaultPassword: false,
+            sessionTimeoutEnabled: true,
+            autoLockTimeout: 30,
+            defaultLockNewChats: false, // <-- add this
+        }
     });
 
     useEffect(() => {
         if (preferences) {
             setSettings({
-                defaultModel: preferences.defaultModel || "gpt-4o-mini",
+                defaultModel: preferences.defaultModel || "gemini-2.0-flash",
                 theme:
                     (preferences.theme as "light" | "dark" | "system") ||
                     "dark",
+                chatTitleGeneration:
+                    preferences.chatTitleGeneration || "first-message",
+                temporaryChatsSettings: {
+                    defaultToTemporary:
+                        preferences.temporaryChatsSettings
+                            ?.defaultToTemporary || false,
+                    defaultLifespanHours:
+                        preferences.temporaryChatsSettings
+                            ?.defaultLifespanHours || 24,
+                    showExpirationWarnings:
+                        preferences.temporaryChatsSettings
+                            ?.showExpirationWarnings ?? true,
+                    autoCleanup:
+                        preferences.temporaryChatsSettings?.autoCleanup ?? true,
+                },
                 voiceSettings: {
                     autoPlay: preferences.voiceSettings?.autoPlay || false,
-                    voice: preferences.voiceSettings?.voice || "alloy",
+                    voice: preferences.voiceSettings?.voice || "aoede",
                     speed: preferences.voiceSettings?.speed || 1.0,
                     buzzWord: preferences.voiceSettings?.buzzWord || "",
+                    language: preferences.voiceSettings?.language || "en-US", // Add this
                 },
+                notificationSettings: {
+                    soundEnabled:
+                        preferences.notificationSettings?.soundEnabled || false,
+                    soundOnlyWhenUnfocused:
+                        preferences.notificationSettings
+                            ?.soundOnlyWhenUnfocused ?? true,
+                    soundVolume:
+                        preferences.notificationSettings?.soundVolume || 0.5,
+                    soundType:
+                        preferences.notificationSettings?.soundType || "subtle",
+                },
+                chatLifecycleSettings: {
+                    autoDeleteEnabled:
+                        preferences.chatLifecycleSettings?.autoDeleteEnabled ||
+                        false,
+                    autoDeleteDays:
+                        preferences.chatLifecycleSettings?.autoDeleteDays || 30,
+                    autoArchiveEnabled:
+                        preferences.chatLifecycleSettings?.autoArchiveEnabled ||
+                        false,
+                    autoArchiveDays:
+                        preferences.chatLifecycleSettings?.autoArchiveDays ||
+                        30,
+                },
+                aiSettings: {
+                    temperature: preferences.aiSettings?.temperature || 0.7,
+                    maxTokens: preferences.aiSettings?.maxTokens || undefined,
+                    systemPrompt: preferences.aiSettings?.systemPrompt || "",
+                    responseMode:
+                        preferences.aiSettings?.responseMode || "balanced",
+                    promptEnhancement:
+                        preferences.aiSettings?.promptEnhancement || false,
+                    contextWindow:
+                        preferences.aiSettings?.contextWindow || undefined,
+                    topP: preferences.aiSettings?.topP || 0.9,
+                    frequencyPenalty:
+                        preferences.aiSettings?.frequencyPenalty || 0,
+                    presencePenalty:
+                        preferences.aiSettings?.presencePenalty || 0,
+                },
+                passwordSettings: {
+                    useDefaultPassword: preferences.passwordSettings?.useDefaultPassword ?? false,
+                    sessionTimeoutEnabled: preferences.passwordSettings?.sessionTimeoutEnabled ?? true,
+                    autoLockTimeout: preferences.passwordSettings?.autoLockTimeout ?? 30,
+                    defaultLockNewChats: preferences.passwordSettings?.defaultLockNewChats ?? false, // <-- add this
+                }
             });
             if (
                 preferences.apiKeys &&
                 typeof preferences.apiKeys === "object"
             ) {
                 setApiKeys({
-                    openai: (preferences.apiKeys as any).openai || "",
-                    anthropic: (preferences.apiKeys as any).anthropic || "",
-                    gemini: (preferences.apiKeys as any).gemini || "",
-                    deepseek: (preferences.apiKeys as any).deepseek || "",
-                    openrouter: (preferences.apiKeys as any).openrouter || "",
+                    openai: preferences.apiKeys.openai || "",
+                    anthropic: preferences.apiKeys.anthropic || "",
+                    gemini: preferences.apiKeys.gemini || "",
+                    deepseek: preferences.apiKeys.deepseek || "",
+                    openrouter: preferences.apiKeys.openrouter || "",
                 });
             }
             if (
@@ -454,36 +261,20 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                 typeof preferences.apiKeyPreferences === "object"
             ) {
                 setApiKeyPreferences({
-                    openai:
-                        (preferences.apiKeyPreferences as any).openai ?? true,
-                    anthropic:
-                        (preferences.apiKeyPreferences as any).anthropic ??
-                        true,
-                    gemini:
-                        (preferences.apiKeyPreferences as any).gemini ?? true,
-                    deepseek:
-                        (preferences.apiKeyPreferences as any).deepseek ?? true,
+                    openai: preferences.apiKeyPreferences.openai ?? true,
+                    anthropic: preferences.apiKeyPreferences.anthropic ?? true,
+                    gemini: preferences.apiKeyPreferences.gemini ?? true,
+                    deepseek: preferences.apiKeyPreferences.deepseek ?? true,
                     openrouter:
-                        (preferences.apiKeyPreferences as any).openrouter ??
-                        true,
+                        preferences.apiKeyPreferences.openrouter ?? true,
                 });
             }
         }
     }, [preferences]);
 
-    useEffect(() => {
-        if (!open) {
-            setCurrentPage("main");
-            setSelectedChats([]);
-            setSelectedProject(null);
-            setDeleteConfirmation("");
-            setShowDeleteDropdown(false);
-        }
-    }, [open]);
-
-    const handleSave = async () => {
+    const handleSave = useCallback(async () => {
         try {
-            const currentApiKeys = (preferences?.apiKeys as any) || {};
+            const currentApiKeys = preferences?.apiKeys || {};
             const newApiKeyPreferences = { ...apiKeyPreferences };
 
             Object.entries(apiKeys).forEach(([provider, key]) => {
@@ -507,7 +298,42 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
         } catch (error) {
             toast.error("Failed to save settings");
         }
-    };
+    }, [
+        settings,
+        apiKeys,
+        apiKeyPreferences,
+        preferences?.apiKeys,
+        updatePreferences,
+        onOpenChange,
+    ]);
+
+    // Add keyboard shortcut for saving settings
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                handleSave();
+            }
+        };
+
+        if (open) {
+            document.addEventListener("keydown", handleKeyDown);
+        }
+
+        return () => {
+            document.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [open, handleSave]);
+
+    useEffect(() => {
+        if (!open) {
+            setCurrentPage("main");
+            setSelectedChats([]);
+            setSelectedProject(null);
+            setDeleteConfirmation("");
+            setShowDeleteDropdown(false);
+        }
+    }, [open]);
 
     const handleModelChange = (model: string) => {
         setSettings((prev) => ({ ...prev, defaultModel: model }));
@@ -532,7 +358,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
     };
-    
+
     const generateExportData = (chatsData: any[], settings: any) => {
         const timestamp = new Date().toISOString();
         const exportData = {
@@ -606,8 +432,12 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
     const generateWorkspaceExportData = (workspaceData: any, settings: any) => {
         const timestamp = new Date().toISOString();
-        const totalChats = workspaceData.projects.reduce((total: number, project: any) => total + project.chats.length, 0) + workspaceData.unorganizedChats.length;
-        
+        const totalChats =
+            workspaceData.projects.reduce(
+                (total: number, project: any) => total + project.chats.length,
+                0
+            ) + workspaceData.unorganizedChats.length;
+
         const exportData = {
             exportInfo: {
                 timestamp,
@@ -643,29 +473,32 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                         })),
                     })),
                 })),
-                unorganizedChats: workspaceData.unorganizedChats.map((chat: any) => ({
-                    id: chat._id,
-                    title: chat.title,
-                    model: chat.model,
-                    createdAt: chat._creationTime,
-                    updatedAt: chat.updatedAt,
-                    isStarred: chat.isStarred,
-                    messages: chat.messages.map((msg: any) => ({
-                        id: msg._id,
-                        role: msg.role,
-                        content: msg.content,
-                        timestamp: msg.timestamp,
-                        model: msg.model,
-                        attachments: msg.attachments,
-                        metadata: msg.metadata,
-                    })),
-                })),
+                unorganizedChats: workspaceData.unorganizedChats.map(
+                    (chat: any) => ({
+                        id: chat._id,
+                        title: chat.title,
+                        model: chat.model,
+                        createdAt: chat._creationTime,
+                        updatedAt: chat.updatedAt,
+                        isStarred: chat.isStarred,
+                        messages: chat.messages.map((msg: any) => ({
+                            id: msg._id,
+                            role: msg.role,
+                            content: msg.content,
+                            timestamp: msg.timestamp,
+                            model: msg.model,
+                            attachments: msg.attachments,
+                            metadata: msg.metadata,
+                        })),
+                    })
+                ),
             },
         };
 
         return exportData;
     };
 
+    // PHASE 6 FIX: Enhanced Export System for Branched Conversations
     const handleExport = async () => {
         if (exportMode === "chats" && selectedChats.length === 0) {
             toast.error("Please select at least one chat to export");
@@ -684,7 +517,8 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
             if (exportMode === "chats") {
                 const chatsData = getSelectedChatsData || [];
-                exportData = generateExportData(
+                // PHASE 6 FIX: Enhanced export data with branching support
+                exportData = generateEnhancedExportData(
                     chatsData,
                     exportSettings ? settings : null
                 );
@@ -693,10 +527,13 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             } else if (exportMode === "projects") {
                 const projectData = getSelectedProjectData;
                 if (!projectData) {
-                    toast.error("Could not fetch project data. Please try again.");
+                    toast.error(
+                        "Could not fetch project data. Please try again."
+                    );
                     return;
                 }
-                exportData = generateProjectExportData(
+                // PHASE 6 FIX: Enhanced project export with branching
+                exportData = generateEnhancedProjectExportData(
                     projectData,
                     exportSettings ? settings : null
                 );
@@ -705,10 +542,13 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             } else if (exportMode === "workspace") {
                 const workspaceData = fullWorkspaceData;
                 if (!workspaceData) {
-                    toast.error("Could not fetch workspace data. Please try again.");
+                    toast.error(
+                        "Could not fetch workspace data. Please try again."
+                    );
                     return;
                 }
-                exportData = generateWorkspaceExportData(
+                // PHASE 6 FIX: Enhanced workspace export with branching
+                exportData = generateEnhancedWorkspaceExportData(
                     workspaceData,
                     exportSettings ? settings : null
                 );
@@ -723,39 +563,41 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             let mimeType = "";
             let isBlob = false;
 
-            if (exportFormat === 'pdf') {
-                const pdfUrl = await generatePDFExport(exportData);
+            if (exportFormat === "pdf") {
+                const pdfUrl = await generateEnhancedPDFExport(exportData);
                 const response = await fetch(pdfUrl);
                 content = await response.blob();
-                filename = `chat-export-${timestamp}.pdf`;
+                filename = `chat-export-branched-${timestamp}.pdf`;
                 mimeType = "application/pdf";
                 isBlob = true;
             } else {
                 switch (exportFormat) {
                     case "json":
                         content = JSON.stringify(exportData, null, 2);
-                        filename = `chat-export-${timestamp}.json`;
+                        filename = `chat-export-branched-${timestamp}.json`;
                         mimeType = "application/json";
                         break;
                     case "markdown":
-                        content = generateMarkdownExport(exportData);
-                        filename = `chat-export-${timestamp}.md`;
+                        content = generateEnhancedMarkdownExport(exportData);
+                        filename = `chat-export-branched-${timestamp}.md`;
                         mimeType = "text/markdown";
                         break;
                     case "csv":
-                        content = generateCSVExport(exportData);
-filename = `chat-export-${timestamp}.csv`;
+                        content = generateEnhancedCSVExport(exportData);
+                        filename = `chat-export-branched-${timestamp}.csv`;
                         mimeType = "text/csv";
                         break;
                     case "txt":
-                        content = generateTextExport(exportData);
-                        filename = `chat-export-${timestamp}.txt`;
+                        content = generateEnhancedTextExport(exportData);
+                        filename = `chat-export-branched-${timestamp}.txt`;
                         mimeType = "text/plain";
                         break;
                 }
             }
-            
-            const finalContent = isBlob ? content as Blob : new Blob([content], { type: mimeType });
+
+            const finalContent = isBlob
+                ? (content as Blob)
+                : new Blob([content], { type: mimeType });
             const url = URL.createObjectURL(finalContent);
             const link = document.createElement("a");
             link.href = url;
@@ -765,8 +607,14 @@ filename = `chat-export-${timestamp}.csv`;
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
 
+            // PHASE 6 FIX: Enhanced success message with branch information
+            const branchInfo =
+                exportData.exportInfo.branchCount > 0
+                    ? ` including ${exportData.exportInfo.branchCount} conversation branches`
+                    : "";
+
             toast.success(
-                `Exported ${exportType === 'workspace' ? 'your workspace' : `${exportMode === 'chats' ? selectedChats.length : 1} ${exportType}${exportMode === 'chats' && selectedChats.length > 1 ? 's' : ''}`} as ${exportFormat.toUpperCase()}`
+                `Exported ${exportType === "workspace" ? "your workspace" : `${exportMode === "chats" ? selectedChats.length : 1} ${exportType}${exportMode === "chats" && selectedChats.length > 1 ? "s" : ""}`} as ${exportFormat.toUpperCase()}${branchInfo}`
             );
             setCurrentPage("main");
         } catch (error) {
@@ -829,12 +677,45 @@ filename = `chat-export-${timestamp}.csv`;
     };
 
     const voices = [
-        { id: "alloy", name: "Alloy" },
-        { id: "echo", name: "Echo" },
-        { id: "fable", name: "Fable" },
-        { id: "onyx", name: "Onyx" },
-        { id: "nova", name: "Nova" },
-        { id: "shimmer", name: "Shimmer" },
+        { id: "aoede", name: "Aoede" },
+        { id: "puck", name: "Puck" },
+        { id: "Fenrir", name: "Fenrir" },
+        { id: "kore", name: "Kore" },
+        { id: "charon", name: "Charon" },
+    ];
+
+    // Add this after the voices array:
+    const supportedLanguages = [
+        { code: "en-US", name: "English (US)", flag: "🇺🇸" },
+        { code: "en-GB", name: "English (UK)", flag: "🇬🇧" },
+        { code: "en-AU", name: "English (Australia)", flag: "🇦🇺" },
+        { code: "en-IN", name: "English (India)", flag: "🇮🇳" },
+        { code: "es-US", name: "Spanish (US)", flag: "🇺🇸" },
+        { code: "es-ES", name: "Spanish (Spain)", flag: "🇪🇸" },
+        { code: "fr-FR", name: "French (France)", flag: "🇫🇷" },
+        { code: "fr-CA", name: "French (Canada)", flag: "🇨🇦" },
+        { code: "de-DE", name: "German (Germany)", flag: "🇩🇪" },
+        { code: "it-IT", name: "Italian (Italy)", flag: "🇮🇹" },
+        { code: "pt-BR", name: "Portuguese (Brazil)", flag: "🇧🇷" },
+        { code: "ja-JP", name: "Japanese (Japan)", flag: "🇯🇵" },
+        { code: "ko-KR", name: "Korean (South Korea)", flag: "🇰🇷" },
+        { code: "cmn-CN", name: "Mandarin Chinese (China)", flag: "🇨🇳" },
+        { code: "hi-IN", name: "Hindi (India)", flag: "🇮🇳" },
+        { code: "ar-XA", name: "Arabic (Generic)", flag: "🌍" },
+        { code: "ru-RU", name: "Russian (Russia)", flag: "🇷🇺" },
+        { code: "th-TH", name: "Thai (Thailand)", flag: "🇹🇭" },
+        { code: "vi-VN", name: "Vietnamese (Vietnam)", flag: "🇻🇳" },
+        { code: "id-ID", name: "Indonesian (Indonesia)", flag: "🇮🇩" },
+        { code: "tr-TR", name: "Turkish (Turkey)", flag: "🇹🇷" },
+        { code: "nl-NL", name: "Dutch (Netherlands)", flag: "🇳🇱" },
+        { code: "pl-PL", name: "Polish (Poland)", flag: "🇵🇱" },
+        { code: "bn-IN", name: "Bengali (India)", flag: "🇮🇳" },
+        { code: "gu-IN", name: "Gujarati (India)", flag: "🇮🇳" },
+        { code: "kn-IN", name: "Kannada (India)", flag: "🇮🇳" },
+        { code: "mr-IN", name: "Marathi (India)", flag: "🇮🇳" },
+        { code: "ml-IN", name: "Malayalam (India)", flag: "🇮🇳" },
+        { code: "ta-IN", name: "Tamil (India)", flag: "🇮🇳" },
+        { code: "te-IN", name: "Telugu (India)", flag: "🇮🇳" },
     ];
 
     const exportFormats = [
@@ -853,7 +734,7 @@ filename = `chat-export-${timestamp}.csv`;
         const getExportButtonText = () => {
             switch (exportMode) {
                 case "chats":
-                    return `Export (${selectedChats.length} chat${selectedChats.length !== 1 ? 's' : ''})`;
+                    return `Export (${selectedChats.length} chat${selectedChats.length !== 1 ? "s" : ""})`;
                 case "projects":
                     return `Export Project`;
                 case "workspace":
@@ -866,13 +747,16 @@ filename = `chat-export-${timestamp}.csv`;
         const isExportDisabled = () => {
             if (exportMode === "chats") return selectedChats.length === 0;
             if (exportMode === "projects") return !selectedProject;
-            if (exportMode === 'workspace') return !fullWorkspaceData;
+            if (exportMode === "workspace") return !fullWorkspaceData;
             return true;
         };
 
         return (
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-4xl max-h-[85vh] overflow-hidden flex flex-col" hideCloseButton>
+                <DialogContent
+                    className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-4xl max-h-[85vh] overflow-hidden flex flex-col"
+                    hideCloseButton
+                >
                     <DialogHeader>
                         <DialogTitle className="text-purple-100 flex items-center gap-2">
                             <button
@@ -991,10 +875,22 @@ filename = `chat-export-${timestamp}.csv`;
                                                 key={chat._id}
                                                 className="flex items-center gap-3 p-2 rounded hover:bg-purple-500/10 transition-colors cursor-pointer"
                                                 onClick={() => {
-                                                    const newSelection = selectedChats.includes(chat._id)
-                                                        ? selectedChats.filter(id => id !== chat._id)
-                                                        : [...selectedChats, chat._id];
-                                                    setSelectedChats(newSelection);
+                                                    const newSelection =
+                                                        selectedChats.includes(
+                                                            chat._id
+                                                        )
+                                                            ? selectedChats.filter(
+                                                                  (id) =>
+                                                                      id !==
+                                                                      chat._id
+                                                              )
+                                                            : [
+                                                                  ...selectedChats,
+                                                                  chat._id,
+                                                              ];
+                                                    setSelectedChats(
+                                                        newSelection
+                                                    );
                                                 }}
                                             >
                                                 <input
@@ -1043,14 +939,19 @@ filename = `chat-export-${timestamp}.csv`;
                                             <div
                                                 key={project._id}
                                                 className="flex items-center gap-3 p-2 rounded hover:bg-purple-500/10 transition-colors cursor-pointer"
-                                                onClick={() => setSelectedProject(project._id)}
+                                                onClick={() =>
+                                                    setSelectedProject(
+                                                        project._id
+                                                    )
+                                                }
                                             >
                                                 <input
                                                     type="radio"
                                                     name="project-select"
                                                     readOnly
                                                     checked={
-                                                        selectedProject === project._id
+                                                        selectedProject ===
+                                                        project._id
                                                     }
                                                     className="form-radio h-4 w-4 accent-purple-500 bg-gray-900 border-gray-600 pointer-events-none"
                                                 />
@@ -1099,12 +1000,13 @@ filename = `chat-export-${timestamp}.csv`;
                                             <span>
                                                 {fullWorkspaceData.projects.reduce(
                                                     (total: number, p: any) =>
-                                                        total + p.chats.length,
+                                                        total +
+                                                        (p.chats?.length || 0),
                                                     0
                                                 ) +
-                                                    fullWorkspaceData
+                                                    (fullWorkspaceData
                                                         .unorganizedChats
-                                                        .length}{" "}
+                                                        ?.length || 0)}{" "}
                                                 Chats
                                             </span>
                                         </div>
@@ -1145,7 +1047,10 @@ filename = `chat-export-${timestamp}.csv`;
 
         return (
             <Dialog open={open} onOpenChange={onOpenChange}>
-                <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-md" hideCloseButton>
+                <DialogContent
+                    className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-md"
+                    hideCloseButton
+                >
                     <DialogHeader>
                         <DialogTitle className="text-purple-100 flex items-center gap-2">
                             <button
@@ -1218,9 +1123,590 @@ filename = `chat-export-${timestamp}.csv`;
         );
     }
 
+    // PHASE 6 FIX: Enhanced export functions for branched conversations
+    const generateEnhancedExportData = (chatsData: any[], settings: any) => {
+        const timestamp = new Date().toISOString();
+        let totalBranches = 0;
+        let branchedConversations = 0;
+
+        const enhancedChats = chatsData.map(({ chat, messages }) => {
+            const chatBranches = messages.reduce((count: number, msg: any) => {
+                if (msg.branches && msg.branches.length > 1) {
+                    return count + msg.branches.length;
+                }
+                return count;
+            }, 0);
+
+            if (chatBranches > 0) branchedConversations++;
+            totalBranches += chatBranches;
+
+            return {
+                id: chat._id,
+                title: chat.title,
+                model: chat.model,
+                createdAt: chat._creationTime,
+                updatedAt: chat.updatedAt,
+                isStarred: chat.isStarred,
+                // PHASE 6 FIX: Include branching metadata
+                activeBranchId: chat.activeBranchId,
+                baseMessages: chat.baseMessages || [],
+                hasBranches: chatBranches > 0,
+                messages: messages.map((msg: any) => ({
+                    id: msg._id,
+                    role: msg.role,
+                    content: msg.content,
+                    timestamp: msg.timestamp,
+                    model: msg.model,
+                    attachments: msg.attachments,
+                    metadata: msg.metadata,
+                    // PHASE 6 FIX: Include branch information
+                    branchId: msg.branchId,
+                    branches: msg.branches || [],
+                    activeBranchId: msg.activeBranchId,
+                    hasBranches: msg.branches && msg.branches.length > 1,
+                })),
+            };
+        });
+
+        return {
+            exportInfo: {
+                version: "2.0.0", // Updated for branching system
+                timestamp,
+                totalChats: chatsData.length,
+                format: exportFormat,
+                includesSettings: exportSettings,
+                // PHASE 6 FIX: Enhanced metadata
+                branchingSystemVersion: "1.0.0",
+                branchCount: totalBranches,
+                branchedConversations,
+            },
+            ...(exportSettings && { userSettings: settings }),
+            chats: enhancedChats,
+            // PHASE 6 FIX: Branching metadata
+            branchingMetadata: {
+                totalBranches,
+                branchedConversations,
+                exportNote:
+                    "This export includes conversation branches and message versions",
+            },
+        };
+    };
+
+    const generateEnhancedProjectExportData = (
+        projectData: any,
+        settings: any
+    ) => {
+        // Similar enhanced structure for projects...
+        const timestamp = new Date().toISOString();
+        let totalBranches = 0;
+        let branchedConversations = 0;
+
+        const enhancedChats = projectData.chats.map((chat: any) => {
+            const chatBranches = chat.messages.reduce(
+                (count: number, msg: any) => {
+                    if (msg.branches && msg.branches.length > 1) {
+                        return count + msg.branches.length;
+                    }
+                    return count;
+                },
+                0
+            );
+
+            if (chatBranches > 0) branchedConversations++;
+            totalBranches += chatBranches;
+
+            return {
+                ...chat,
+                hasBranches: chatBranches > 0,
+                messages: chat.messages.map((msg: any) => ({
+                    ...msg,
+                    hasBranches: msg.branches && msg.branches.length > 1,
+                })),
+            };
+        });
+
+        return {
+            exportInfo: {
+                version: "2.0.0",
+                timestamp,
+                totalChats: projectData.chats.length,
+                format: exportFormat,
+                includesSettings: exportSettings,
+                branchingSystemVersion: "1.0.0",
+                branchCount: totalBranches,
+                branchedConversations,
+            },
+            ...(exportSettings && { userSettings: settings }),
+            project: {
+                ...projectData,
+                chats: enhancedChats,
+            },
+            branchingMetadata: {
+                totalBranches,
+                branchedConversations,
+                exportNote:
+                    "This export includes conversation branches and message versions",
+            },
+        };
+    };
+
+    const generateEnhancedWorkspaceExportData = (
+        workspaceData: any,
+        settings: any
+    ) => {
+        const timestamp = new Date().toISOString();
+        let totalBranches = 0;
+        let branchedConversations = 0;
+
+        // Process all projects
+        const enhancedProjects = workspaceData.projects.map((project: any) => {
+            const enhancedChats = project.chats.map((chat: any) => {
+                const chatBranches = chat.messages.reduce(
+                    (count: number, msg: any) => {
+                        if (msg.branches && msg.branches.length > 1) {
+                            return count + msg.branches.length;
+                        }
+                        return count;
+                    },
+                    0
+                );
+
+                if (chatBranches > 0) branchedConversations++;
+                totalBranches += chatBranches;
+
+                return {
+                    ...chat,
+                    hasBranches: chatBranches > 0,
+                    messages: chat.messages.map((msg: any) => ({
+                        ...msg,
+                        hasBranches: msg.branches && msg.branches.length > 1,
+                    })),
+                };
+            });
+
+            return {
+                ...project,
+                chats: enhancedChats,
+            };
+        });
+
+        // Process unorganized chats
+        const enhancedUnorganizedChats = workspaceData.unorganizedChats.map(
+            (chat: any) => {
+                const chatBranches = chat.messages.reduce(
+                    (count: number, msg: any) => {
+                        if (msg.branches && msg.branches.length > 1) {
+                            return count + msg.branches.length;
+                        }
+                        return count;
+                    },
+                    0
+                );
+
+                if (chatBranches > 0) branchedConversations++;
+                totalBranches += chatBranches;
+
+                return {
+                    ...chat,
+                    hasBranches: chatBranches > 0,
+                    messages: chat.messages.map((msg: any) => ({
+                        ...msg,
+                        hasBranches: msg.branches && msg.branches.length > 1,
+                    })),
+                };
+            }
+        );
+
+        const totalChats =
+            enhancedProjects.reduce(
+                (total: number, project: any) => total + project.chats.length,
+                0
+            ) + enhancedUnorganizedChats.length;
+
+        return {
+            exportInfo: {
+                version: "2.0.0",
+                timestamp,
+                totalProjects: enhancedProjects.length,
+                totalChats,
+                unorganizedChats: enhancedUnorganizedChats.length,
+                format: exportFormat,
+                includesSettings: exportSettings,
+                branchingSystemVersion: "1.0.0",
+                branchCount: totalBranches,
+                branchedConversations,
+            },
+            ...(exportSettings && { userSettings: settings }),
+            workspace: {
+                projects: enhancedProjects,
+                unorganizedChats: enhancedUnorganizedChats,
+            },
+            branchingMetadata: {
+                totalBranches,
+                branchedConversations,
+                exportNote:
+                    "This export includes conversation branches and message versions",
+            },
+        };
+    };
+
+    // PHASE 6 FIX: Enhanced text export with branch information
+    const generateEnhancedTextExport = (data: any) => {
+        let text = `ADVANCED CHAT EXPORT (with Branching Support)\n${"=".repeat(60)}\n\n`;
+        text += `Exported on: ${new Date(data.exportInfo.timestamp).toLocaleString()}\n`;
+        text += `Format: ${data.exportInfo.format.toUpperCase()}\n`;
+        text += `Branching System Version: ${data.exportInfo.branchingSystemVersion}\n`;
+        text += `Total Branches: ${data.exportInfo.branchCount}\n`;
+        text += `Conversations with Branches: ${data.exportInfo.branchedConversations}\n\n`;
+
+        // Add the existing text export logic but with branch information
+        const formatChatWithBranches = (chat: any, prefix = "") => {
+            let chatText = `${prefix}${chat.title}\n`;
+            chatText += `${prefix}Model: ${chat.model} | Created: ${new Date(chat.createdAt).toLocaleDateString()}\n`;
+            if (chat.hasBranches) {
+                chatText += `${prefix}🌿 This conversation contains branches\n`;
+            }
+            chatText += `${prefix}${"-".repeat(40)}\n`;
+
+            chat.messages.forEach((message: any) => {
+                const role = message.role === "user" ? "YOU" : "ASSISTANT";
+                const time = new Date(message.timestamp).toLocaleTimeString();
+                chatText += `${prefix}[${time}] ${role}`;
+
+                if (message.hasBranches) {
+                    chatText += ` 🌿 (${message.branches.length} branches)`;
+                }
+                chatText += `:\n${message.content}\n\n`;
+            });
+            return chatText + `\n${prefix}${"=".repeat(50)}\n\n`;
+        };
+
+        if (data.project) {
+            text += `PROJECT: ${data.project.name}\n${"-".repeat(30)}\n`;
+            data.project.chats.forEach((chat: any) => {
+                text += formatChatWithBranches(chat);
+            });
+        } else {
+            data.chats.forEach((chat: any) => {
+                text += formatChatWithBranches(chat);
+            });
+        }
+
+        return text;
+    };
+
+    // PHASE 6 FIX: Enhanced markdown export with branch information
+    const generateEnhancedMarkdownExport = (data: any) => {
+        let markdown = `# Advanced Chat Export (with Branching Support)\n\n`;
+        markdown += `**Exported on:** ${new Date(data.exportInfo.timestamp).toLocaleString()}\n`;
+        markdown += `**Total Chats:** ${data.exportInfo.totalChats}\n`;
+        markdown += `**Branching System:** v${data.exportInfo.branchingSystemVersion}\n`;
+        markdown += `**Total Branches:** ${data.exportInfo.branchCount}\n`;
+        markdown += `**Conversations with Branches:** ${data.exportInfo.branchedConversations}\n\n`;
+
+        data.chats.forEach((chat: any, index: number) => {
+            markdown += `## ${index + 1}. ${chat.title}`;
+            if (chat.hasBranches) {
+                markdown += ` 🌿`;
+            }
+            markdown += `\n\n`;
+
+            markdown += `**Model:** ${chat.model} | **Created:** ${new Date(chat.createdAt).toLocaleDateString()}\n\n`;
+
+            chat.messages.forEach((message: any) => {
+                const role =
+                    message.role === "user" ? "👤 **You**" : "🤖 **Assistant**";
+                const time = new Date(message.timestamp).toLocaleTimeString();
+                markdown += `### ${role} *(${time})*`;
+
+                if (message.hasBranches) {
+                    markdown += ` 🌿 *[${message.branches.length} branches]*`;
+                }
+                markdown += `\n\n`;
+
+                markdown += `${message.content}\n\n`;
+            });
+
+            markdown += `---\n\n`;
+        });
+
+        return markdown;
+    };
+
+    // PHASE 6 FIX: Enhanced CSV export with branch information
+    const generateEnhancedCSVExport = (data: any) => {
+        let csv =
+            "Chat ID,Chat Title,Message Role,Message Content,Timestamp,Model,Project ID,Project Name,Has Branches,Branch Count,Branch ID,Active Branch\n";
+
+        const processChat = (chat: any, projectId = "", projectName = "") => {
+            chat.messages.forEach((message: any) => {
+                const escapedContent = `"${message.content.replace(/"/g, '""')}"`;
+                const escapedTitle = `"${chat.title.replace(/"/g, '""')}"`;
+                const escapedProjectName = `"${projectName.replace(/"/g, '""')}"`;
+                const branchCount = message.branches
+                    ? message.branches.length
+                    : 0;
+                const hasBranches = message.hasBranches ? "Yes" : "No";
+                const branchId = message.branchId || "";
+                const activeBranchId = message.activeBranchId || "";
+
+                csv += `${chat.id},${escapedTitle},${message.role},${escapedContent},${new Date(
+                    message.timestamp
+                ).toISOString()},${message.model || chat.model},${projectId},${escapedProjectName},${hasBranches},${branchCount},${branchId},${activeBranchId}\n`;
+            });
+        };
+
+        if (data.project) {
+            data.project.chats.forEach((chat: any) =>
+                processChat(chat, data.project.id, data.project.name)
+            );
+        } else if (data.workspace) {
+            data.workspace.projects.forEach((project: any) => {
+                project.chats.forEach((chat: any) =>
+                    processChat(chat, project.id, project.name)
+                );
+            });
+            data.workspace.unorganizedChats.forEach((chat: any) =>
+                processChat(chat)
+            );
+        } else {
+            data.chats.forEach((chat: any) => processChat(chat));
+        }
+
+        return csv;
+    };
+
+    // PHASE 6 FIX: Enhanced PDF export with branch information
+    const generateEnhancedPDFExport = async (data: any) => {
+        try {
+            const doc = new jsPDF();
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 20;
+            const maxLineWidth = pageWidth - 2 * margin;
+            let yPosition = margin;
+
+            const checkNewPage = (neededHeight: number) => {
+                if (yPosition > pageHeight - neededHeight) {
+                    doc.addPage();
+                    yPosition = margin;
+                }
+            };
+
+            // Enhanced Title Page with Branch Info
+            doc.setFontSize(24);
+            doc.setFont("helvetica", "bold");
+            doc.text("Advanced Chat Export", pageWidth / 2, yPosition, {
+                align: "center",
+            });
+            yPosition += 15;
+
+            doc.setFontSize(14);
+            doc.setTextColor(100, 100, 200);
+            doc.text("(with Branching Support)", pageWidth / 2, yPosition, {
+                align: "center",
+            });
+            yPosition += 20;
+
+            // Enhanced Metadata with Branch Stats
+            doc.setFontSize(12);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(0, 0, 0);
+            const metadataLines = [
+                `Exported on: ${new Date(data.exportInfo.timestamp).toLocaleString()}`,
+                `Export Format: Enhanced PDF v${data.exportInfo.version}`,
+                `Branching System: v${data.exportInfo.branchingSystemVersion}`,
+                `Total Branches: ${data.exportInfo.branchCount}`,
+                `Conversations with Branches: ${data.exportInfo.branchedConversations}`,
+                `Includes Settings: ${data.exportInfo.includesSettings ? "Yes" : "No"}`,
+            ];
+
+            metadataLines.forEach((line) => {
+                doc.text(line, pageWidth / 2, yPosition, { align: "center" });
+                yPosition += 8;
+            });
+
+            // Branch Summary Box
+            if (data.exportInfo.branchCount > 0) {
+                checkNewPage(40);
+                yPosition += 10;
+                doc.setDrawColor(0, 100, 200);
+                doc.setFillColor(240, 248, 255);
+                doc.rect(margin, yPosition - 5, maxLineWidth, 25, "FD");
+
+                doc.setFontSize(10);
+                doc.setTextColor(0, 100, 200);
+                doc.text(
+                    "🌿 This export contains conversation branches - look for branch indicators throughout the document",
+                    pageWidth / 2,
+                    yPosition + 8,
+                    { align: "center" }
+                );
+                yPosition += 30;
+            }
+
+            if (data.userSettings) {
+                checkNewPage(80);
+                yPosition += 20;
+                doc.setFontSize(16);
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(0, 0, 0);
+                doc.text("User Settings", margin, yPosition);
+                yPosition += 15;
+
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "normal");
+                const settingsLines = [
+                    `Default Model: ${data.userSettings.defaultModel}`,
+                    `Theme: ${data.userSettings.theme}`,
+                    `Voice Auto-play: ${data.userSettings.voiceSettings?.autoPlay ? "Enabled" : "Disabled"}`,
+                    `Voice: ${data.userSettings.voiceSettings?.voice || "aoede"}`,
+                    `Speech Speed: ${data.userSettings.voiceSettings?.speed || 1.0}x`,
+                ];
+
+                settingsLines.forEach((line) => {
+                    doc.text(line, margin, yPosition);
+                    yPosition += 6;
+                });
+            }
+
+            doc.addPage();
+            yPosition = margin;
+
+            const drawChatWithBranches = (chat: any, chatIndex: number) => {
+                checkNewPage(80);
+
+                // Enhanced Chat header with branch indicator
+                doc.setFontSize(14);
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(0, 100, 200);
+                let title = `${chatIndex + 1}. ${chat.title}`;
+                if (chat.hasBranches) {
+                    title += " 🌿";
+                }
+                doc.text(title, margin, yPosition);
+                yPosition += 10;
+
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "normal");
+                doc.setTextColor(100, 100, 100);
+                const chatMetadata = [
+                    `Model: ${chat.model}`,
+                    `Created: ${new Date(chat.createdAt).toLocaleString()}`,
+                    `Last Updated: ${new Date(chat.updatedAt).toLocaleString()}`,
+                    `Messages: ${chat.messages.length}`,
+                    `Starred: ${chat.isStarred ? "Yes" : "No"}`,
+                ];
+
+                if (chat.hasBranches) {
+                    chatMetadata.push("🌿 Contains conversation branches");
+                }
+
+                chatMetadata.forEach((line) => {
+                    checkNewPage(20);
+                    doc.text(line, margin, yPosition);
+                    yPosition += 6;
+                });
+
+                yPosition += 10;
+
+                chat.messages.forEach((message: any, msgIndex: number) => {
+                    const role =
+                        message.role === "user" ? "👤 You" : "🤖 Assistant";
+                    const timestamp = new Date(
+                        message.timestamp
+                    ).toLocaleString();
+
+                    checkNewPage(60);
+
+                    doc.setFontSize(12);
+                    doc.setFont("helvetica", "bold");
+                    if (message.role === "user") {
+                        doc.setTextColor(0, 100, 200);
+                    } else {
+                        doc.setTextColor(150, 0, 150);
+                    }
+
+                    let messageHeader = `${role} - ${timestamp}`;
+                    if (message.hasBranches) {
+                        messageHeader += ` 🌿 (${message.branches.length} branches)`;
+                    }
+                    doc.text(messageHeader, margin, yPosition);
+                    yPosition += 10;
+
+                    doc.setFont("helvetica", "normal");
+                    doc.setTextColor(0, 0, 0);
+
+                    const lines = doc.splitTextToSize(
+                        message.content,
+                        maxLineWidth
+                    );
+                    lines.forEach((line: string) => {
+                        checkNewPage(20);
+                        doc.text(line, margin, yPosition);
+                        yPosition += 6;
+                    });
+
+                    if (msgIndex < chat.messages.length - 1) {
+                        yPosition += 8;
+                        checkNewPage(20);
+                        doc.setDrawColor(200, 200, 200);
+                        doc.line(
+                            margin,
+                            yPosition - 4,
+                            pageWidth - margin,
+                            yPosition - 4
+                        );
+                    }
+                });
+
+                yPosition += 15;
+            };
+
+            if (data.project) {
+                data.project.chats.forEach(drawChatWithBranches);
+            } else if (data.workspace) {
+                data.workspace.projects.forEach((project: any) => {
+                    checkNewPage(60);
+                    doc.setFontSize(18);
+                    doc.setFont("helvetica", "bold");
+                    doc.setTextColor(0, 150, 0);
+                    doc.text(`📁 Project: ${project.name}`, margin, yPosition);
+                    yPosition += 15;
+
+                    project.chats.forEach(drawChatWithBranches);
+                });
+
+                if (data.workspace.unorganizedChats.length > 0) {
+                    checkNewPage(60);
+                    doc.setFontSize(18);
+                    doc.setFont("helvetica", "bold");
+                    doc.setTextColor(150, 150, 0);
+                    doc.text("📄 Unorganized Chats", margin, yPosition);
+                    yPosition += 15;
+
+                    data.workspace.unorganizedChats.forEach(
+                        drawChatWithBranches
+                    );
+                }
+            } else {
+                data.chats.forEach(drawChatWithBranches);
+            }
+
+            const pdfBlob = doc.output("blob");
+            return URL.createObjectURL(pdfBlob);
+        } catch (error) {
+            console.error("Enhanced PDF generation error:", error);
+            throw new Error("Failed to generate enhanced PDF");
+        }
+    };
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-y-scroll" hideCloseButton>
+            <DialogContent
+                className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-y-scroll"
+                hideCloseButton
+            >
                 <DialogHeader>
                     <DialogTitle className="flex items-center justify-between mb-4">
                         <div className="flex items-center space-x-2">
@@ -1265,6 +1751,25 @@ filename = `chat-export-${timestamp}.csv`;
                         >
                             Voice
                         </TabsTrigger>
+                        <TabsTrigger value="chats">Chats</TabsTrigger>
+                        <TabsTrigger
+                            value="notifications"
+                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                        >
+                            Notifications
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="ai"
+                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                        >
+                            AI Settings
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="security"
+                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                        >
+                            Security
+                        </TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="account" className="space-y-4">
@@ -1283,8 +1788,8 @@ filename = `chat-export-${timestamp}.csv`;
                                     hasKey && isEnabled
                                         ? "opacity-100"
                                         : hasKey
-                                        ? "opacity-60"
-                                        : "opacity-100";
+                                          ? "opacity-60"
+                                          : "opacity-100";
 
                                 return (
                                     <div
@@ -1391,7 +1896,8 @@ filename = `chat-export-${timestamp}.csv`;
                                                 Export Data
                                             </div>
                                             <div className="text-xs text-purple-400/80">
-                                                Download chats, projects, or workspace
+                                                Download chats, projects, or
+                                                workspace
                                             </div>
                                         </div>
                                     </Button>
@@ -1546,56 +2052,1267 @@ filename = `chat-export-${timestamp}.csv`;
                                 </Select>
                             </div>
                         </div>
+
+                        <div>
+                            <Label className="text-purple-200 flex items-center gap-2">
+                                <MessageSquare className="w-4 h-4" />
+                                Chat Title Generation
+                            </Label>
+                            <p className="text-sm text-purple-400/80 mb-2">
+                                Choose how new chat titles are created
+                            </p>
+                            <Select
+                                value={settings.chatTitleGeneration}
+                                onValueChange={(
+                                    value: "first-message" | "ai-generated"
+                                ) =>
+                                    setSettings((prev) => ({
+                                        ...prev,
+                                        chatTitleGeneration: value,
+                                    }))
+                                }
+                            >
+                                <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="glass border border-purple-600/30">
+                                    <SelectItem
+                                        value="first-message"
+                                        className="text-purple-100"
+                                    >
+                                        📝 Use First Message
+                                    </SelectItem>
+                                    <SelectItem
+                                        value="ai-generated"
+                                        className="text-purple-100"
+                                    >
+                                        🤖 AI Generated Title
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <div className="mt-2 p-3 bg-blue-600/10 rounded-lg border border-blue-600/20">
+                                <h4 className="text-sm font-medium text-blue-200 mb-1">
+                                    💡 How it works
+                                </h4>
+                                <ul className="text-xs text-blue-300 space-y-1">
+                                    {settings.chatTitleGeneration ===
+                                    "first-message" ? (
+                                        <>
+                                            <li>
+                                                • Chat titles will be based on
+                                                your first message content
+                                            </li>
+                                            <li>
+                                                • Faster title generation with
+                                                no additional AI calls
+                                            </li>
+                                            <li>
+                                                • Titles are created immediately
+                                                when you send your first message
+                                            </li>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <li>
+                                                • AI will create contextually
+                                                appropriate titles for your
+                                                chats
+                                            </li>
+                                            <li>
+                                                • More descriptive and relevant
+                                                titles based on conversation
+                                                content
+                                            </li>
+                                            <li>
+                                                • May take a moment longer as it
+                                                requires an additional AI call
+                                            </li>
+                                        </>
+                                    )}
+                                </ul>
+                            </div>
+                        </div>
                     </TabsContent>
 
                     <TabsContent value="voice" className="space-y-4">
                         <div className="mt-6 space-y-4 border-purple-600/30">
-                                <Label className="text-purple-200">
-                                    Voice Recording End Word
-                                </Label>
-                                <p className="text-sm text-purple-400/80 mb-2">
-                                    Say this word to automatically end recording
-                                    and send your message
-                                </p>
-                                <Input
-                                    type="text"
-                                    value={settings.voiceSettings.buzzWord}
-                                    onChange={(e) =>
+                            <Label className="text-purple-200">
+                                Voice Recording End Word
+                            </Label>
+                            <p className="text-sm text-purple-400/80 mb-2">
+                                Say this word to automatically end recording and
+                                send your message
+                            </p>
+                            <Input
+                                type="text"
+                                value={settings.voiceSettings.buzzWord}
+                                onChange={(e) =>
+                                    setSettings((prev) => ({
+                                        ...prev,
+                                        voiceSettings: {
+                                            ...prev.voiceSettings,
+                                            buzzWord: e.target.value,
+                                        },
+                                    }))
+                                }
+                                placeholder="e.g., 'send now', 'submit', 'done'"
+                                className="bg-gray-900/60 border-purple-600/30 text-purple-100 placeholder-purple-300/60"
+                            />
+                            <div className="mt-2 p-3 bg-blue-600/10 rounded-lg border border-blue-600/20">
+                                <h4 className="text-sm font-medium text-blue-200 mb-1">
+                                    💡 How it works
+                                </h4>
+                                <ul className="text-xs text-blue-300 space-y-1">
+                                    <li>
+                                        • Choose a simple, unique word that you
+                                        don't use often in conversation
+                                    </li>
+                                    <li>
+                                        • When this word is detected in your
+                                        speech, recording will stop
+                                        automatically
+                                    </li>
+                                    <li>
+                                        • Your message will be sent immediately
+                                        after detection
+                                    </li>
+                                    <li>
+                                        • Leave empty to manually control
+                                        recording start/stop
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div className="border-purple-600/30">
+                            <Label className="text-purple-200">
+                                Voice Selection
+                            </Label>
+                            <p className="text-sm text-purple-400/80 mb-2">
+                                Choose your preferred AI voice during live chat
+                            </p>
+                            <Select
+                                value={settings.voiceSettings.voice}
+                                onValueChange={(value) =>
+                                    setSettings((prev) => ({
+                                        ...prev,
+                                        voiceSettings: {
+                                            ...prev.voiceSettings,
+                                            voice: value,
+                                        },
+                                    }))
+                                }
+                            >
+                                <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                    <SelectValue placeholder="Select a voice">
+                                        {voices.find(
+                                            (v) =>
+                                                v.id ===
+                                                settings.voiceSettings.voice
+                                        )?.name || "Select a voice"}
+                                    </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent className="glass border border-purple-600/30">
+                                    {voices.map((voice) => (
+                                        <SelectItem
+                                            key={voice.id}
+                                            value={voice.id}
+                                            className="text-purple-100"
+                                        >
+                                            {voice.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="border-purple-600/30">
+                            <Label className="text-purple-200">Language</Label>
+                            <p className="text-sm text-purple-400/80 mb-2">
+                                Choose AI's language during live chat
+                            </p>
+                            <Select
+                                value={settings.voiceSettings.language}
+                                onValueChange={(value) =>
+                                    setSettings((prev) => ({
+                                        ...prev,
+                                        voiceSettings: {
+                                            ...prev.voiceSettings,
+                                            language: value,
+                                        },
+                                    }))
+                                }
+                            >
+                                <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="glass border border-purple-600/30 max-h-64 overflow-y-auto">
+                                    {supportedLanguages.map((lang) => (
+                                        <SelectItem
+                                            key={lang.code}
+                                            value={lang.code}
+                                            className="text-purple-100"
+                                        >
+                                            {lang.flag} {lang.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="chats" className="space-y-4">
+                        <div className="mt-6 space-y-4">
+                            <div className="flex items-center justify-between p-4 bg-orange-600/10 rounded-lg border border-orange-600/20">
+                                <div>
+                                    <Label className="text-purple-200">
+                                        Default to Temporary Chats
+                                    </Label>
+                                    <p className="text-sm text-purple-400/80">
+                                        New chats will be temporary by default
+                                        and auto-expire
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={
+                                        settings.temporaryChatsSettings
+                                            .defaultToTemporary
+                                    }
+                                    onCheckedChange={(checked) =>
                                         setSettings((prev) => ({
                                             ...prev,
-                                            voiceSettings: {
-                                                ...prev.voiceSettings,
-                                                buzzWord: e.target.value,
+                                            temporaryChatsSettings: {
+                                                ...prev.temporaryChatsSettings,
+                                                defaultToTemporary: checked,
                                             },
                                         }))
                                     }
-                                    placeholder="e.g., 'send now', 'submit', 'done'"
-                                    className="bg-gray-900/60 border-purple-600/30 text-purple-100 placeholder-purple-300/60"
                                 />
-                                <div className="mt-2 p-3 bg-blue-600/10 rounded-lg border border-blue-600/20">
-                                    <h4 className="text-sm font-medium text-blue-200 mb-1">
-                                        💡 How it works
-                                    </h4>
-                                    <ul className="text-xs text-blue-300 space-y-1">
-                                        <li>
-                                            • Choose a simple, unique word that
-                                            you don't use often in conversation
-                                        </li>
-                                        <li>
-                                            • When this word is detected in your
-                                            speech, recording will stop
-                                            automatically
-                                        </li>
-                                        <li>
-                                            • Your message will be sent
-                                            immediately after detection
-                                        </li>
-                                        <li>
-                                            • Leave empty to manually control
-                                            recording start/stop
-                                        </li>
-                                    </ul>
+                            </div>
+
+                            <div>
+                                <Label className="text-purple-200">
+                                    Default Lifespan (Hours)
+                                </Label>
+                                <p className="text-sm text-purple-400/80 mb-2">
+                                    How long temporary chats should exist before
+                                    expiring
+                                </p>
+                                <Select
+                                    value={settings.temporaryChatsSettings.defaultLifespanHours.toString()}
+                                    onValueChange={(value) =>
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            temporaryChatsSettings: {
+                                                ...prev.temporaryChatsSettings,
+                                                defaultLifespanHours:
+                                                    parseInt(value),
+                                            },
+                                        }))
+                                    }
+                                >
+                                    <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="glass border border-purple-600/30">
+                                        <SelectItem
+                                            value="1"
+                                            className="text-purple-100"
+                                        >
+                                            1 Hour
+                                        </SelectItem>
+                                        <SelectItem
+                                            value="6"
+                                            className="text-purple-100"
+                                        >
+                                            6 Hours
+                                        </SelectItem>
+                                        <SelectItem
+                                            value="12"
+                                            className="text-purple-100"
+                                        >
+                                            12 Hours
+                                        </SelectItem>
+                                        <SelectItem
+                                            value="24"
+                                            className="text-purple-100"
+                                        >
+                                            24 Hours (1 Day)
+                                        </SelectItem>
+                                        <SelectItem
+                                            value="48"
+                                            className="text-purple-100"
+                                        >
+                                            48 Hours (2 Days)
+                                        </SelectItem>
+                                        <SelectItem
+                                            value="72"
+                                            className="text-purple-100"
+                                        >
+                                            72 Hours (3 Days)
+                                        </SelectItem>
+                                        <SelectItem
+                                            value="168"
+                                            className="text-purple-100"
+                                        >
+                                            1 Week
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-purple-600/10 rounded-lg border border-purple-600/20">
+                                <div>
+                                    <Label className="text-purple-200">
+                                        Auto-cleanup Expired Chats
+                                    </Label>
+                                    <p className="text-sm text-purple-400/80">
+                                        Automatically delete temporary chats
+                                        when they expire
+                                    </p>
                                 </div>
+                                <Switch
+                                    checked={
+                                        settings.temporaryChatsSettings
+                                            .autoCleanup
+                                    }
+                                    onCheckedChange={(checked) =>
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            temporaryChatsSettings: {
+                                                ...prev.temporaryChatsSettings,
+                                                autoCleanup: checked,
+                                            },
+                                        }))
+                                    }
+                                />
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="notifications" className="space-y-6">
+                        <div className="flex items-center gap-3 mb-4">
+                            <Volume2 className="w-5 h-5 text-purple-400" />
+                            <h3 className="text-lg font-medium text-purple-100">
+                                Notification Settings
+                            </h3>
+                        </div>
+
+                        {/* Sound Notifications Toggle */}
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <label className="text-sm font-medium text-purple-200">
+                                    Sound Notifications
+                                </label>
+                                <p className="text-xs text-purple-400">
+                                    Play a sound when AI responds to your
+                                    messages
+                                </p>
+                            </div>
+                            <Switch
+                                checked={
+                                    settings.notificationSettings.soundEnabled
+                                }
+                                onCheckedChange={(checked) =>
+                                    setSettings((prev) => ({
+                                        ...prev,
+                                        notificationSettings: {
+                                            ...prev.notificationSettings,
+                                            soundEnabled: checked,
+                                        },
+                                    }))
+                                }
+                            />
+                        </div>
+
+                        {/* Only When Unfocused Toggle */}
+                        {settings.notificationSettings.soundEnabled && (
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <label className="text-sm font-medium text-purple-200">
+                                        Only When Tab Unfocused
+                                    </label>
+                                    <p className="text-xs text-purple-400">
+                                        Only play sounds when you're not
+                                        actively viewing the tab
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={
+                                        settings.notificationSettings
+                                            .soundOnlyWhenUnfocused
+                                    }
+                                    onCheckedChange={(checked) =>
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            notificationSettings: {
+                                                ...prev.notificationSettings,
+                                                soundOnlyWhenUnfocused: checked,
+                                            },
+                                        }))
+                                    }
+                                />
+                            </div>
+                        )}
+
+                        {/* Sound Type Selection */}
+                        {settings.notificationSettings.soundEnabled && (
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-purple-200">
+                                    Notification Sound
+                                </label>
+                                <Select
+                                    value={
+                                        settings.notificationSettings.soundType
+                                    }
+                                    onValueChange={(value) =>
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            notificationSettings: {
+                                                ...prev.notificationSettings,
+                                                soundType: value,
+                                            },
+                                        }))
+                                    }
+                                >
+                                    <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="glass border border-purple-600/30">
+                                        <SelectItem value="subtle">
+                                            Subtle
+                                        </SelectItem>
+                                        <SelectItem value="chime">
+                                            Chime
+                                        </SelectItem>
+                                        <SelectItem value="ping">
+                                            Ping
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
+
+                        {/* Volume Slider */}
+                        {settings.notificationSettings.soundEnabled && (
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-sm font-medium text-purple-200">
+                                        Volume
+                                    </label>
+                                    <span className="text-xs text-purple-400">
+                                        {Math.round(
+                                            settings.notificationSettings
+                                                .soundVolume * 100
+                                        )}
+                                        %
+                                    </span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.1"
+                                    value={
+                                        settings.notificationSettings
+                                            .soundVolume
+                                    }
+                                    onChange={(e) =>
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            notificationSettings: {
+                                                ...prev.notificationSettings,
+                                                soundVolume: parseFloat(
+                                                    e.target.value
+                                                ),
+                                            },
+                                        }))
+                                    }
+                                    className="w-full"
+                                />
+                            </div>
+                        )}
+
+                        {/* Test Sound Button */}
+                        {settings.notificationSettings.soundEnabled && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                    try {
+                                        await NotificationSounds.testSound(
+                                            settings.notificationSettings
+                                                .soundType,
+                                            settings.notificationSettings
+                                                .soundVolume
+                                        );
+                                    } catch (error) {
+                                        toast.error(
+                                            "Failed to play test sound"
+                                        );
+                                    }
+                                }}
+                                className="border-purple-600/30 text-purple-300 hover:bg-purple-600/20"
+                            >
+                                <Volume2 className="w-4 h-4 mr-2" />
+                                Test Sound
+                            </Button>
+                        )}
+
+                        {/* Chat Lifecycle Settings */}
+                        <div className="pt-6 border-t border-purple-600/20">
+                            <div className="flex items-center gap-3 mb-4">
+                                <Clock className="w-5 h-5 text-purple-400" />
+                                <h3 className="text-lg font-medium text-purple-100">
+                                    Chat Lifecycle
+                                </h3>
+                            </div>
+
+                            {/* Auto-Archive Settings */}
+                            <div className="space-y-4 p-4 bg-purple-600/10 rounded-lg border border-purple-600/20 mb-4">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <label className="text-sm font-medium text-purple-200">
+                                            Auto-Archive Chats
+                                        </label>
+                                        <p className="text-xs text-purple-400">
+                                            Automatically archive chats after a
+                                            period of inactivity
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={
+                                            settings.chatLifecycleSettings
+                                                .autoArchiveEnabled
+                                        }
+                                        onCheckedChange={(checked) =>
+                                            setSettings((prev) => ({
+                                                ...prev,
+                                                chatLifecycleSettings: {
+                                                    ...prev.chatLifecycleSettings,
+                                                    autoArchiveEnabled: checked,
+                                                },
+                                            }))
+                                        }
+                                    />
+                                </div>
+
+                                {settings.chatLifecycleSettings
+                                    .autoArchiveEnabled && (
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium text-purple-200">
+                                            Archive After (Days)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="365"
+                                            value={
+                                                settings.chatLifecycleSettings
+                                                    .autoArchiveDays
+                                            }
+                                            onChange={(e) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    chatLifecycleSettings: {
+                                                        ...prev.chatLifecycleSettings,
+                                                        autoArchiveDays:
+                                                            parseInt(
+                                                                e.target.value
+                                                            ) || 30,
+                                                    },
+                                                }))
+                                            }
+                                            className="w-full p-2 bg-purple-800/30 border border-purple-600/30 rounded-lg text-purple-100 focus:outline-none focus:border-purple-500"
+                                        />
+                                        <p className="text-xs text-purple-400">
+                                            Chats inactive for{" "}
+                                            {
+                                                settings.chatLifecycleSettings
+                                                    .autoArchiveDays
+                                            }{" "}
+                                            days will be automatically archived
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Auto-Delete Settings */}
+                            <div className="space-y-4 p-4 bg-red-600/10 rounded-lg border border-red-600/20">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <label className="text-sm font-medium text-red-200">
+                                            Auto-Delete Archived Chats
+                                        </label>
+                                        <p className="text-xs text-red-400">
+                                            Permanently delete chats after
+                                            they've been archived for a while
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={
+                                            settings.chatLifecycleSettings
+                                                .autoDeleteEnabled
+                                        }
+                                        onCheckedChange={(checked) =>
+                                            setSettings((prev) => ({
+                                                ...prev,
+                                                chatLifecycleSettings: {
+                                                    ...prev.chatLifecycleSettings,
+                                                    autoDeleteEnabled: checked,
+                                                },
+                                            }))
+                                        }
+                                    />
+                                </div>
+
+                                {settings.chatLifecycleSettings
+                                    .autoDeleteEnabled && (
+                                    <>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-red-200">
+                                                Delete After (Days in Archive)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="365"
+                                                value={
+                                                    settings
+                                                        .chatLifecycleSettings
+                                                        .autoDeleteDays
+                                                }
+                                                onChange={(e) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        chatLifecycleSettings: {
+                                                            ...prev.chatLifecycleSettings,
+                                                            autoDeleteDays:
+                                                                parseInt(
+                                                                    e.target
+                                                                        .value
+                                                                ) || 30,
+                                                        },
+                                                    }))
+                                                }
+                                                className="w-full p-2 bg-red-800/30 border border-red-600/30 rounded-lg text-red-100 focus:outline-none focus:border-red-500"
+                                            />
+                                            <p className="text-xs text-red-400">
+                                                Archived chats will be
+                                                permanently deleted after{" "}
+                                                {
+                                                    settings
+                                                        .chatLifecycleSettings
+                                                        .autoDeleteDays
+                                                }{" "}
+                                                days
+                                            </p>
+                                        </div>
+
+                                        <div className="flex items-start gap-2 p-3 bg-red-600/20 border border-red-600/30 rounded-lg">
+                                            <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                                            <div className="text-xs text-red-300">
+                                                <strong>Warning:</strong>{" "}
+                                                Auto-deleted chats cannot be
+                                                recovered. Make sure to export
+                                                important conversations before
+                                                they are deleted.
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="ai" className="space-y-6">
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-lg font-semibold text-purple-100">
+                                    Advanced AI Settings
+                                </h3>
+                                <button
+                                    onClick={() => {
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            aiSettings: {
+                                                temperature: 0.7,
+                                                maxTokens: undefined,
+                                                systemPrompt: "",
+                                                responseMode: "balanced",
+                                                promptEnhancement: false,
+                                                contextWindow: undefined,
+                                                topP: 0.9,
+                                                frequencyPenalty: 0,
+                                                presencePenalty: 0,
+                                            },
+                                        }));
+                                    }}
+                                    className="px-3 py-1.5 text-sm bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-md border border-purple-500/30 transition-all duration-200"
+                                >
+                                    Reset to Defaults
+                                </button>
+                            </div>
+
+                            {/* Temperature Setting */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-purple-200 font-medium">
+                                        Temperature
+                                    </label>
+                                    <span className="text-purple-300 text-sm">
+                                        {settings.aiSettings?.temperature ||
+                                            0.7}
+                                    </span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="2"
+                                    step="0.1"
+                                    value={
+                                        settings.aiSettings?.temperature || 0.7
+                                    }
+                                    onChange={(e) =>
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            aiSettings: {
+                                                ...prev.aiSettings,
+                                                temperature: parseFloat(
+                                                    e.target.value
+                                                ),
+                                            },
+                                        }))
+                                    }
+                                    className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
+                                />
+                                <p className="text-xs text-purple-400">
+                                    Lower values make responses more focused and
+                                    deterministic. Higher values increase
+                                    creativity and randomness.
+                                </p>
+                            </div>
+
+                            {/* Response Mode */}
+                            <div className="space-y-3">
+                                <label className="text-purple-200 font-medium">
+                                    Response Mode
+                                </label>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    {[
+                                        {
+                                            id: "balanced",
+                                            label: "Balanced",
+                                            desc: "Well-rounded responses",
+                                        },
+                                        {
+                                            id: "concise",
+                                            label: "Concise",
+                                            desc: "Brief and to the point",
+                                        },
+                                        {
+                                            id: "detailed",
+                                            label: "Detailed",
+                                            desc: "Comprehensive explanations",
+                                        },
+                                        {
+                                            id: "creative",
+                                            label: "Creative",
+                                            desc: "More imaginative responses",
+                                        },
+                                        {
+                                            id: "analytical",
+                                            label: "Analytical",
+                                            desc: "Data-driven approach",
+                                        },
+                                        {
+                                            id: "friendly",
+                                            label: "Friendly",
+                                            desc: "Casual and approachable",
+                                        },
+                                        {
+                                            id: "professional",
+                                            label: "Professional",
+                                            desc: "Formal business tone",
+                                        },
+                                    ].map((mode) => (
+                                        <button
+                                            key={mode.id}
+                                            onClick={() =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    aiSettings: {
+                                                        ...prev.aiSettings,
+                                                        responseMode: mode.id,
+                                                    },
+                                                }))
+                                            }
+                                            className={`p-3 rounded-lg border transition-all duration-200 text-left ${
+                                                (settings.aiSettings
+                                                    ?.responseMode ||
+                                                    "balanced") === mode.id
+                                                    ? "bg-purple-500/30 border-purple-500/50 text-purple-100"
+                                                    : "bg-purple-500/10 border-purple-500/30 text-purple-200 hover:bg-purple-500/20"
+                                            }`}
+                                            title={mode.desc}
+                                        >
+                                            <div className="font-medium text-sm">
+                                                {mode.label}
+                                            </div>
+                                            <div className="text-xs opacity-70 mt-1">
+                                                {mode.desc}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* System Prompt */}
+                            <div className="space-y-3">
+                                <label className="text-purple-200 font-medium">
+                                    Custom System Prompt
+                                </label>
+                                <textarea
+                                    value={
+                                        settings.aiSettings?.systemPrompt || ""
+                                    }
+                                    onChange={(e) =>
+                                        setSettings((prev) => ({
+                                            ...prev,
+                                            aiSettings: {
+                                                ...prev.aiSettings,
+                                                systemPrompt: e.target.value,
+                                            },
+                                        }))
+                                    }
+                                    placeholder="Enter a custom system prompt to guide AI behavior..."
+                                    className="w-full h-24 px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-lg text-purple-100 placeholder-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-none"
+                                />
+                                <p className="text-xs text-purple-400">
+                                    This prompt will be sent with every message
+                                    to guide the AI's behavior and responses.
+                                </p>
+                            </div>
+
+                            {/* Prompt Enhancement */}
+                            <div className="flex items-center justify-between p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
+                                <div>
+                                    <h4 className="text-purple-100 font-medium">
+                                        1-Click Prompt Enhancement
+                                    </h4>
+                                    <p className="text-sm text-purple-300 mt-1">
+                                        Automatically enhance your prompts for
+                                        better AI responses
+                                    </p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={
+                                            settings.aiSettings
+                                                ?.promptEnhancement || false
+                                        }
+                                        onChange={(e) =>
+                                            setSettings((prev) => ({
+                                                ...prev,
+                                                aiSettings: {
+                                                    ...prev.aiSettings,
+                                                    promptEnhancement:
+                                                        e.target.checked,
+                                                },
+                                            }))
+                                        }
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-11 h-6 bg-purple-600/30 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+                                </label>
+                            </div>
+
+                            {/* Advanced Parameters */}
+                            <details className="group">
+                                <summary className="flex items-center justify-between p-3 bg-purple-500/10 rounded-lg border border-purple-500/30 cursor-pointer hover:bg-purple-500/20 transition-colors">
+                                    <span className="text-purple-200 font-medium">
+                                        Advanced Parameters
+                                    </span>
+                                    <ChevronDown className="w-4 h-4 text-purple-400 group-open:rotate-180 transition-transform" />
+                                </summary>
+                                <div className="mt-4 space-y-4 p-4 bg-purple-500/5 rounded-lg border border-purple-500/20">
+                                    {/* Max Tokens */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-purple-200 text-sm">
+                                                Max Tokens
+                                            </label>
+                                            <span className="text-purple-300 text-sm">
+                                                {settings.aiSettings
+                                                    ?.maxTokens || "Auto"}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="32000"
+                                            value={
+                                                settings.aiSettings
+                                                    ?.maxTokens || ""
+                                            }
+                                            onChange={(e) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    aiSettings: {
+                                                        ...prev.aiSettings,
+                                                        maxTokens: e.target
+                                                            .value
+                                                            ? parseInt(
+                                                                  e.target.value
+                                                              )
+                                                            : undefined,
+                                                    },
+                                                }))
+                                            }
+                                            placeholder="Auto"
+                                            className="w-full px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-md text-purple-100 placeholder-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                                        />
+                                    </div>
+
+                                    {/* Top P */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-purple-200 text-sm">
+                                                Top P (Nucleus Sampling)
+                                            </label>
+                                            <span className="text-purple-300 text-sm">
+                                                {settings.aiSettings?.topP ||
+                                                    0.9}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="1"
+                                            step="0.05"
+                                            value={
+                                                settings.aiSettings?.topP || 0.9
+                                            }
+                                            onChange={(e) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    aiSettings: {
+                                                        ...prev.aiSettings,
+                                                        topP: parseFloat(
+                                                            e.target.value
+                                                        ),
+                                                    },
+                                                }))
+                                            }
+                                            className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
+                                        />
+                                    </div>
+
+                                    {/* Frequency Penalty */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-purple-200 text-sm">
+                                                Frequency Penalty
+                                            </label>
+                                            <span className="text-purple-300 text-sm">
+                                                {settings.aiSettings
+                                                    ?.frequencyPenalty || 0}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="2"
+                                            step="0.1"
+                                            value={
+                                                settings.aiSettings
+                                                    ?.frequencyPenalty || 0
+                                            }
+                                            onChange={(e) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    aiSettings: {
+                                                        ...prev.aiSettings,
+                                                        frequencyPenalty:
+                                                            parseFloat(
+                                                                e.target.value
+                                                            ),
+                                                    },
+                                                }))
+                                            }
+                                            className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
+                                        />
+                                    </div>
+
+                                    {/* Presence Penalty */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-purple-200 text-sm">
+                                                Presence Penalty
+                                            </label>
+                                            <span className="text-purple-300 text-sm">
+                                                {settings.aiSettings
+                                                    ?.presencePenalty || 0}
+                                            </span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="2"
+                                            step="0.1"
+                                            value={
+                                                settings.aiSettings
+                                                    ?.presencePenalty || 0
+                                            }
+                                            onChange={(e) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    aiSettings: {
+                                                        ...prev.aiSettings,
+                                                        presencePenalty:
+                                                            parseFloat(
+                                                                e.target.value
+                                                            ),
+                                                    },
+                                                }))
+                                            }
+                                            className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
+                                        />
+                                    </div>
+                                </div>
+                            </details>
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="security" className="space-y-6">
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-2">
+                                <Shield className="w-5 h-5 text-green-400" />
+                                <h3 className="text-lg font-semibold text-purple-100">
+                                    Password Protection
+                                </h3>
+                            </div>
+                            <p className="text-purple-300 text-sm">
+                                Secure your chats with password protection. Set
+                                a default password or customize protection for
+                                individual chats.
+                            </p>
+
+                            {/* Default Password Management */}
+                            <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <Key className="w-4 h-4 text-purple-400" />
+                                        <span className="text-purple-200 font-medium">
+                                            Default Password
+                                        </span>
+                                    </div>
+                                    <div
+                                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                            preferences?.passwordSettings
+                                                ?.defaultPasswordHash
+                                                ? "bg-green-500/20 text-green-300"
+                                                : "bg-gray-500/20 text-gray-300"
+                                        }`}
+                                    >
+                                        {preferences?.passwordSettings
+                                            ?.defaultPasswordHash
+                                            ? "Set"
+                                            : "Not Set"}
+                                    </div>
+                                </div>
+
+                                <p className="text-purple-300 text-sm mb-3">
+                                    Set a default password to quickly protect
+                                    new chats without entering a password each
+                                    time.
+                                </p>
+
+                                <Button
+                                    onClick={() =>
+                                        setShowDefaultPasswordModal(true)
+                                    }
+                                    className={
+                                        preferences?.passwordSettings
+                                            ?.defaultPasswordHash
+                                            ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                            : "bg-green-600 hover:bg-green-700 text-white"
+                                    }
+                                >
+                                    <Shield className="w-4 h-4 mr-2" />
+                                    {preferences?.passwordSettings
+                                        ?.defaultPasswordHash
+                                        ? "Change Default Password"
+                                        : "Set Default Password"}
+                                </Button>
+
+                                <div className="flex items-center justify-between mb-4">
+                                    <div>
+                                        <span className="text-purple-200 text-sm font-medium">
+                                            Lock New Chats by Default
+                                        </span>
+                                        <p className="text-purple-400 text-xs">
+                                            Automatically protect all new chats
+                                            with your default password.
+                                        </p>
+                                    </div>
+                                    <TooltipProvider>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span>
+                                                    <Switch
+                                                        checked={
+                                                            settings
+                                                                .passwordSettings
+                                                                .defaultLockNewChats
+                                                        }
+                                                        onCheckedChange={(
+                                                            checked
+                                                        ) =>
+                                                            setSettings(
+                                                                (prev) => ({
+                                                                    ...prev,
+                                                                    passwordSettings:
+                                                                        {
+                                                                            ...prev.passwordSettings,
+                                                                            defaultLockNewChats:
+                                                                                checked,
+                                                                        },
+                                                                })
+                                                            )
+                                                        }
+                                                        disabled={
+                                                            !preferences
+                                                                ?.passwordSettings
+                                                                ?.defaultPasswordHash
+                                                        }
+                                                    />
+                                                </span>
+                                            </TooltipTrigger>
+                                            {!preferences?.passwordSettings
+                                                ?.defaultPasswordHash && (
+                                                <TooltipContent
+                                                    side="left"
+                                                    className="bg-gray-900 border border-purple-500/30 text-purple-200"
+                                                >
+                                                    Set a default password first
+                                                    to enable this option.
+                                                </TooltipContent>
+                                            )}
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                </div>
+                            </div>
+
+                            {/* Session Settings */}
+                            <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Clock className="w-4 h-4 text-purple-400" />
+                                    <span className="text-purple-200 font-medium">
+                                        Session Settings
+                                    </span>
+                                </div>
+
+                                {/* Use Default Password Toggle */}
+                                <div className="flex items-center justify-between mb-4">
+                                    <div>
+                                        <span className="text-purple-200 text-sm font-medium">
+                                            Use Default Password
+                                        </span>
+                                        <p className="text-purple-400 text-xs">
+                                            Automatically use your default
+                                            password for new protected chats
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={
+                                            settings.passwordSettings
+                                                .useDefaultPassword
+                                        }
+                                        onCheckedChange={(checked) =>
+                                            setSettings((prev) => ({
+                                                ...prev,
+                                                passwordSettings: {
+                                                    ...prev.passwordSettings,
+                                                    useDefaultPassword: checked,
+                                                },
+                                            }))
+                                        }
+                                    />
+                                </div>
+
+                                {/* Session Timeout Toggle */}
+                                <div className="flex items-center justify-between mb-4">
+                                    <div>
+                                        <span className="text-purple-200 text-sm font-medium">
+                                            Session Timeout
+                                        </span>
+                                        <p className="text-purple-400 text-xs">
+                                            Require password re-entry after
+                                            period of inactivity
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={
+                                            settings.passwordSettings
+                                                .sessionTimeoutEnabled
+                                        }
+                                        onCheckedChange={(checked) =>
+                                            setSettings((prev) => ({
+                                                ...prev,
+                                                passwordSettings: {
+                                                    ...prev.passwordSettings,
+                                                    sessionTimeoutEnabled:
+                                                        checked,
+                                                },
+                                            }))
+                                        }
+                                    />
+                                </div>
+
+                                {/* Timeout Duration - Updated to 6 hours max */}
+                                {settings.passwordSettings
+                                    .sessionTimeoutEnabled && (
+                                    <div className="space-y-2">
+                                        <label className="text-purple-200 text-sm font-medium">
+                                            Auto-lock timeout:{" "}
+                                            {
+                                                settings.passwordSettings
+                                                    .autoLockTimeout
+                                            }{" "}
+                                            minutes
+                                        </label>
+                                        <input
+                                            type="range"
+                                            min="5"
+                                            max="360"
+                                            step="5"
+                                            value={
+                                                settings.passwordSettings
+                                                    .autoLockTimeout
+                                            }
+                                            onChange={(e) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    passwordSettings: {
+                                                        ...prev.passwordSettings,
+                                                        autoLockTimeout:
+                                                            parseInt(
+                                                                e.target.value
+                                                            ),
+                                                    },
+                                                }))
+                                            }
+                                            className="w-full h-2 bg-purple-500/20 rounded-lg appearance-none cursor-pointer slider"
+                                        />
+                                        <div className="flex justify-between text-xs text-purple-400">
+                                            <span>5 min</span>
+                                            <span>1 hour</span>
+                                            <span>3 hours</span>
+                                            <span>6 hours</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </TabsContent>
                 </Tabs>
@@ -1606,13 +3323,19 @@ filename = `chat-export-${timestamp}.csv`;
                     </Button>
                     <Button
                         onClick={handleSave}
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500/60 to-purple-500/60 text-white font-medium hover:from-pink-500/50 hover:to-purple-500/50 transition-all duration-200 shadow-lg hover:shadow-xl"
+                        className="px-4 py-2 space-x-2 rounded-lg bg-gradient-to-r from-pink-500/60 to-purple-500/60 text-white font-medium hover:from-pink-500/50 hover:to-purple-500/50 transition-all duration-200 shadow-lg hover:shadow-xl"
+                        title="Save settings (Ctrl + Enter)"
                     >
                         <Save className="w-4 h-4 mr-2" />
                         Save Settings
                     </Button>
                 </div>
             </DialogContent>
+
+            <DefaultPasswordModal
+                open={showDefaultPasswordModal}
+                onOpenChange={setShowDefaultPasswordModal}
+            />
         </Dialog>
     );
 }

@@ -23,17 +23,19 @@ import { toast } from "sonner";
 interface ShareModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    itemId: Id<"chats"> | Id<"projects">;
-    itemType: "chat" | "project";
-    itemTitle?: string;
+    chatId: Id<"chats">;
+    messageId?: Id<"messages">;
+    deepLinkHash?: string;
+    reason?: string;
 }
 
 export function ShareModal({
     open,
     onOpenChange,
-    itemId,
-    itemType,
-    itemTitle,
+    chatId,
+    messageId,
+    deepLinkHash,
+    reason,
 }: ShareModalProps) {
     const [isPublic, setIsPublic] = useState(false);
     const [shareMode, setShareMode] = useState<"read-only" | "collaboration">(
@@ -45,23 +47,20 @@ export function ShareModal({
     // Mutations for sharing
     const createChatShare = useMutation(api.sharing.createChatShare);
     const revokeChatShare = useMutation(api.sharing.revokeChatShare);
-    const updateChatShareMode = useMutation(api.sharing.updateChatShareMode);
-    const shareProject = useMutation(api.projects.shareProject);
-    const unshareProject = useMutation(api.projects.unshareProject);
+    const updateChatShare = useMutation(api.sharing.updateChatShare);
+
+    const [selectedPermissions, setSelectedPermissions] = useState<string[]>(
+        []
+    );
+    const [expiresAt, setExpiresAt] = useState<string>("");
 
     // Query current item to get sharing status
-    const chatData = useQuery(
-        api.chats.getChat,
-        itemType === "chat" ? { chatId: itemId as Id<"chats"> } : "skip"
-    );
-    const projectData = useQuery(
-        api.projects.getProjectTree,
-        itemType === "project" ? {} : "skip"
-    );
+    const chatData = useQuery(api.chats.getChat, { chatId: chatId });
+    const projectData = useQuery(api.projects.getProjectTree, "skip");
 
     // Get current sharing status
     useEffect(() => {
-        if (itemType === "chat" && chatData) {
+        if (chatData) {
             setIsPublic(chatData.isPublic || false);
             setShareMode(chatData.shareMode || "read-only");
             if (chatData.shareId) {
@@ -70,11 +69,11 @@ export function ShareModal({
                     `${window.location.origin}/share/chat/${chatData.shareId}`
                 );
             }
-        } else if (itemType === "project" && projectData) {
+        } else if (projectData) {
             // Find the specific project in the tree
             const findProject = (projects: any[]): any => {
                 for (const project of projects) {
-                    if (project._id === itemId) return project;
+                    if (project._id === chatId) return project;
                     const found = findProject(project.children || []);
                     if (found) return found;
                 }
@@ -93,7 +92,7 @@ export function ShareModal({
                 }
             }
         }
-    }, [chatData, projectData, itemId, itemType]);
+    }, [chatData, projectData, chatId]);
 
     const handleTogglePublic = async (checked: boolean) => {
         setIsLoading(true);
@@ -101,27 +100,20 @@ export function ShareModal({
             if (checked) {
                 // Enable sharing
                 let shareId: string;
-                if (itemType === "chat") {
-                    shareId = await createChatShare({
-                        chatId: itemId as Id<"chats">,
-                        shareMode,
-                    });
-                } else {
-                    shareId = await shareProject({
-                        projectId: itemId as Id<"projects">,
-                        shareMode,
-                    });
-                }
+                shareId = await createChatShare({
+                    chatId: chatId,
+                    shareMode,
+                });
 
                 // Fix: Generate correct share URL with shareId
-                const url = `${window.location.origin}/share/${itemType}/${shareId}`;
+                const url = `${window.location.origin}/share/chat/${shareId}`;
                 setShareUrl(url);
                 setIsPublic(true);
 
                 // Copy to clipboard
                 await navigator.clipboard.writeText(url);
                 toast.success("Link copied to clipboard!", {
-                    description: `${itemType === "chat" ? "Chat" : "Project"} is now ${shareMode === "read-only" ? "publicly viewable" : "open for collaboration"}`,
+                    description: `Chat is now ${shareMode === "read-only" ? "publicly viewable" : "open for collaboration"}`,
                     action: {
                         label: "Undo",
                         onClick: () => void handleTogglePublic(false),
@@ -129,19 +121,11 @@ export function ShareModal({
                 });
             } else {
                 // Disable sharing
-                if (itemType === "chat") {
-                    await revokeChatShare({ chatId: itemId as Id<"chats"> });
-                } else {
-                    await unshareProject({
-                        projectId: itemId as Id<"projects">,
-                    });
-                }
+                await revokeChatShare({ chatId: chatId });
 
                 setIsPublic(false);
                 setShareUrl("");
-                toast.success(
-                    `${itemType === "chat" ? "Chat" : "Project"} is no longer public`
-                );
+                toast.success(`Chat is no longer public`);
             }
         } catch (_error) {
             console.error("Failed to update sharing:", _error);
@@ -161,18 +145,10 @@ export function ShareModal({
 
         setIsLoading(true);
         try {
-            if (itemType === "chat") {
-                await updateChatShareMode({
-                    chatId: itemId as Id<"chats">,
-                    shareMode: mode,
-                });
-            } else {
-                // For projects, we need to re-share with new mode
-                await shareProject({
-                    projectId: itemId as Id<"projects">,
-                    shareMode: mode,
-                });
-            }
+            await updateChatShare({
+                chatId: chatId,
+                shareMode: mode,
+            });
 
             setShareMode(mode);
             toast.success(
@@ -190,17 +166,30 @@ export function ShareModal({
         if (!shareUrl) return;
 
         try {
-            await navigator.clipboard.writeText(shareUrl);
-            toast.success("Link copied to clipboard!");
+            // Enhance URL with deep link hash if messageId and deepLinkHash are provided
+            let finalUrl = shareUrl;
+            if (messageId && deepLinkHash) {
+                finalUrl = `${shareUrl}#${deepLinkHash}`;
+            }
+
+            await navigator.clipboard.writeText(finalUrl);
+            const linkType = messageId ? "Message link" : "Chat link";
+            toast.success(`${linkType} copied to clipboard!`);
         } catch (_error) {
             // Fallback for browsers that don't support clipboard API
+            let finalUrl = shareUrl;
+            if (messageId && deepLinkHash) {
+                finalUrl = `${shareUrl}#${deepLinkHash}`;
+            }
+
             const textArea = document.createElement("textarea");
-            textArea.value = shareUrl;
+            textArea.value = finalUrl;
             document.body.appendChild(textArea);
             textArea.select();
             try {
                 document.execCommand("copy");
-                toast.success("Link copied to clipboard!");
+                const linkType = messageId ? "Message link" : "Chat link";
+                toast.success(`${linkType} copied to clipboard!`);
             } catch (_fallbackError) {
                 toast.error("Failed to copy link");
             }
@@ -231,18 +220,19 @@ export function ShareModal({
         "Toggle public visibility on/off anytime",
         "Switch between read-only and collaboration modes freely",
         "Viewers can always fork content to their own workspace",
-        itemType === "project"
-            ? "Sharing includes all nested folders and chats"
-            : "Individual messages remain private until shared",
+        "Individual messages remain private until shared",
     ];
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[85vh] overflow-y-scroll" hideCloseButton>
+            <DialogContent
+                className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[85vh] overflow-y-scroll"
+                hideCloseButton
+            >
                 <DialogHeader>
                     <DialogTitle className="text-purple-100 flex items-center gap-2">
                         <Share2 className="w-5 h-5" />
-                        Share {itemType === "chat" ? "Chat" : "Project"}
+                        Share Chat
                         <button
                             onClick={() => onOpenChange(false)}
                             className="ml-auto p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
@@ -250,12 +240,12 @@ export function ShareModal({
                             <X className="w-5 h-5 text-purple-300" />
                         </button>
                     </DialogTitle>
-                    {itemTitle && (
+                    {reason && (
                         <p
                             className="text-sm text-purple-400 truncate"
-                            title={itemTitle}
+                            title={reason}
                         >
-                            {itemTitle}
+                            {reason}
                         </p>
                     )}
                 </DialogHeader>
@@ -276,7 +266,7 @@ export function ShareModal({
                                 <p className="text-sm text-purple-400/80">
                                     {isPublic
                                         ? `Anyone with the link can ${shareMode === "read-only" ? "view" : "collaborate"}`
-                                        : `Only you can access this ${itemType}`}
+                                        : `Only you can access this chat`}
                                 </p>
                             </div>
                         </div>

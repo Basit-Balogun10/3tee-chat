@@ -4,7 +4,7 @@ import OpenAI, { AzureOpenAI } from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
 import { GoogleGenAI } from "@google/genai";
-import { PROVIDER_CONFIGS } from "./config";
+import { GoogleAuth } from "google-auth-library";
 
 // Provider client factory with dual authentication support
 class ProviderManager {
@@ -16,9 +16,6 @@ class ProviderManager {
         if (this.clients.has(key)) {
             return this.clients.get(key);
         }
-
-        const config = PROVIDER_CONFIGS[provider];
-        const finalApiKey = apiKey;
 
         let client;
 
@@ -56,6 +53,14 @@ class ProviderManager {
                     client = new AnthropicVertex({
                         projectId: process.env.GOOGLE_CLOUD_PROJECT!,
                         region: process.env.GOOGLE_CLOUD_LOCATION || "us-east1",
+                        googleAuth: new GoogleAuth({
+                            credentials: JSON.parse(
+                                process.env.GOOGLE_CREDENTIALS as string
+                            ),
+                            scopes: [
+                                "https://www.googleapis.com/auth/cloud-platform",
+                            ],
+                        }) as any,
                     });
                 }
                 break;
@@ -70,6 +75,11 @@ class ProviderManager {
                 } else {
                     // Our Vertex AI setup
                     client = new GoogleGenAI({
+                        googleAuthOptions: {
+                            credentials: JSON.parse(
+                                process.env.GOOGLE_CREDENTIALS as string
+                            ),
+                        },
                         vertexai: true,
                         project: process.env.GOOGLE_CLOUD_PROJECT!,
                         location:
@@ -221,7 +231,9 @@ class ProviderManager {
                     ],
                     output_text_done: true,
                 };
-            } else if (event.type === "response.function_call.arguments.delta") {
+            } else if (
+                event.type === "response.function_call.arguments.delta"
+            ) {
                 // Function call arguments streaming
                 yield {
                     choices: [
@@ -249,7 +261,9 @@ class ProviderManager {
                     ],
                     function_call_done: true,
                 };
-            } else if (event.type === "response.image_generation_call.partial_image") {
+            } else if (
+                event.type === "response.image_generation_call.partial_image"
+            ) {
                 // Partial image generation (for progressive image loading)
                 yield {
                     choices: [
@@ -264,7 +278,9 @@ class ProviderManager {
                         data: event.partial_image_b64,
                     },
                 };
-            } else if (event.type === "response.image_generation_call.completed") {
+            } else if (
+                event.type === "response.image_generation_call.completed"
+            ) {
                 // Image generation completed
                 yield {
                     choices: [
@@ -595,9 +611,12 @@ class ProviderManager {
             }
         }
 
+        console.log("📦 Google request body:", requestBody)
+
         // Handle streaming vs non-streaming
         if (options.stream) {
-            const stream = await client.models.generateContentStream(requestBody);
+            const stream =
+                await client.models.generateContentStream(requestBody);
             return this.createGoogleStreamIterator(stream);
         } else {
             return await client.models.generateContent(requestBody);
@@ -621,7 +640,7 @@ class ProviderManager {
             }
 
             // Handle function calls and grounding metadata
-            if (chunk.functionCall) {
+            else if (chunk.functionCall) {
                 yield {
                     choices: [
                         {
@@ -635,7 +654,7 @@ class ProviderManager {
             }
 
             // Handle grounding metadata for citations
-            if (chunk.groundingMetadata) {
+            else if (chunk.groundingMetadata) {
                 yield {
                     choices: [
                         {
@@ -649,7 +668,7 @@ class ProviderManager {
             }
 
             // Handle finish reason
-            if (chunk.finishReason) {
+            else if (chunk.finishReason) {
                 yield {
                     choices: [
                         {
@@ -665,7 +684,7 @@ class ProviderManager {
             }
 
             // Handle safety ratings
-            if (chunk.safetyRatings) {
+            else if (chunk.safetyRatings) {
                 yield {
                     choices: [
                         {
@@ -679,7 +698,7 @@ class ProviderManager {
             }
 
             // Handle usage metadata
-            if (chunk.usageMetadata) {
+            else if (chunk.usageMetadata) {
                 yield {
                     choices: [
                         {
@@ -693,7 +712,7 @@ class ProviderManager {
             }
 
             // Handle candidates array for multiple responses
-            if (chunk.candidates && chunk.candidates.length > 0) {
+            else if (chunk.candidates && chunk.candidates.length > 0) {
                 for (const candidate of chunk.candidates) {
                     if (candidate.content && candidate.content.parts) {
                         for (const part of candidate.content.parts) {

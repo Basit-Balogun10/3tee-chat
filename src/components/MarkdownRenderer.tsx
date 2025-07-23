@@ -32,22 +32,22 @@ export function MarkdownRenderer({
         const openCodeBlocks = (processed.match(/```/g) || []).length;
         if (openCodeBlocks % 2 !== 0) {
             // We have an incomplete code block, close it temporarily with a streaming indicator
-            processed += '\n\n*[...streaming]*\n```';
+            processed += "\n\n*[...streaming]*\n```";
         }
 
         // Handle incomplete tables during streaming
-        const lines = processed.split('\n');
+        const lines = processed.split("\n");
         let inTable = false;
         let lastTableRow = -1;
-        
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
-            if (line.includes('|') && line.length > 1) {
+            if (line.includes("|") && line.length > 1) {
                 if (!inTable) {
                     inTable = true;
                 }
                 lastTableRow = i;
-            } else if (inTable && line === '') {
+            } else if (inTable && line === "") {
                 inTable = false;
             }
         }
@@ -55,15 +55,18 @@ export function MarkdownRenderer({
         // If we're in a table and the last line doesn't end properly, add a completion indicator
         if (inTable && lastTableRow === lines.length - 1) {
             const lastLine = lines[lastTableRow];
-            if (!lastLine.endsWith('|')) {
-                processed += ' *[...streaming]* |';
+            if (!lastLine.endsWith("|")) {
+                processed += " *[...streaming]* |";
             }
         }
 
         // Handle incomplete lists during streaming
         const lastLine = lines[lines.length - 1];
-        if (lastLine && (lastLine.match(/^\s*[-*+]\s*$/) || lastLine.match(/^\s*\d+\.\s*$/))) {
-            processed += ' *[...streaming]*';
+        if (
+            lastLine &&
+            (lastLine.match(/^\s*[-*+]\s*$/) || lastLine.match(/^\s*\d+\.\s*$/))
+        ) {
+            processed += " *[...streaming]*";
         }
 
         return processed;
@@ -91,11 +94,21 @@ export function MarkdownRenderer({
     };
 
     return (
-        <div className={cn("prose prose-invert max-w-none", className)}>
+        <div
+            className={cn(
+                "prose prose-invert [&>*:last-child]:mb-0",
+                className
+            )}
+        >
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                    code: ({ node: _node, className, children, ...props }: any) => {
+                    code: ({
+                        node: _node,
+                        className,
+                        children,
+                        ...props
+                    }: any) => {
                         const inline = !className;
                         const match = /language-(\w+)/.exec(className || "");
                         const language = match ? match[1] : "";
@@ -145,34 +158,65 @@ export function MarkdownRenderer({
                                     </div>
                                 </div>
 
-                                {/* Code Block Container */}
-                                <div className="overflow-x-auto">
-                                    <SyntaxHighlighter
-                                        style={oneDark}
-                                        language={language}
-                                        PreTag="div"
-                                        className="!mt-0 !rounded-t-none"
-                                        customStyle={{
-                                            margin: 0,
-                                            borderTopLeftRadius: 0,
-                                            borderTopRightRadius: 0,
-                                            whiteSpace: isWrapped
-                                                ? "pre-wrap"
-                                                : "pre",
-                                            wordBreak: isWrapped
-                                                ? "break-word"
-                                                : "normal",
-                                        }}
-                                        wrapLines={isWrapped}
-                                        wrapLongLines={isWrapped}
-                                    >
-                                        {codeString}
-                                    </SyntaxHighlighter>
+                                {/* Code Block Container with Line Numbers */}
+                                <div className="overflow-x-auto relative">
+                                    <div className="flex">
+                                        {/* Line Numbers Column */}
+                                        <div className="select-none min-w-[3rem] bg-gray-900/50 backdrop-blur-sm border-r border-purple-500/20 text-purple-400/60 text-sm font-mono leading-6 px-3 py-3">
+                                            {codeString
+                                                .split("\n")
+                                                .map((_, index) => (
+                                                    <div
+                                                        key={index}
+                                                        className="text-right"
+                                                    >
+                                                        {index + 1}
+                                                    </div>
+                                                ))}
+                                        </div>
+
+                                        {/* Code Content */}
+                                        <div className="flex-1 min-w-0">
+                                            <SyntaxHighlighter
+                                                style={oneDark}
+                                                language={language}
+                                                PreTag="div"
+                                                className="!mt-0 !rounded-t-none !rounded-l-none !border-l-0"
+                                                customStyle={{
+                                                    margin: 0,
+                                                    borderTopLeftRadius: 0,
+                                                    borderTopRightRadius: 0,
+                                                    borderBottomLeftRadius: 6,
+                                                    borderLeft: "none",
+                                                    paddingLeft: "1rem",
+                                                    whiteSpace: isWrapped
+                                                        ? "pre-wrap"
+                                                        : "pre",
+                                                    wordBreak: isWrapped
+                                                        ? "break-word"
+                                                        : "normal",
+                                                }}
+                                                wrapLines={isWrapped}
+                                                wrapLongLines={isWrapped}
+                                                showLineNumbers={false} // Disable built-in line numbers since we have custom ones
+                                            >
+                                                {codeString}
+                                            </SyntaxHighlighter>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        ) : (
+                        ) : inline ? (
                             <code
                                 className="bg-purple-500/20 px-1.5 py-0.5 rounded text-purple-200 text-sm font-mono"
+                                {...props}
+                            >
+                                {children}
+                            </code>
+                        ) : (
+                            // Fallback for code blocks without language
+                            <code
+                                className="block bg-gray-800 p-3 rounded font-mono text-sm text-gray-200 overflow-x-auto"
                                 {...props}
                             >
                                 {children}
@@ -181,42 +225,37 @@ export function MarkdownRenderer({
                     },
                     pre: ({ children }) => <>{children}</>,
                     h1: ({ children }) => (
-                        <h1 className="text-2xl font-bold text-purple-100 mb-4 border-b border-purple-500/30 pb-2">
+                        <h1 className="text-2xl font-bold text-purple-100 mb-4 border-b border-purple-500/30 pb-2 last:mb-0">
                             {children}
                         </h1>
                     ),
                     h2: ({ children }) => (
-                        <h2 className="text-xl font-semibold text-purple-100 mb-3 border-b border-purple-500/20 pb-1">
+                        <h2 className="text-xl font-semibold text-purple-100 mb-3 border-b border-purple-500/20 pb-1 last:mb-0">
                             {children}
                         </h2>
                     ),
                     h3: ({ children }) => (
-                        <h3 className="text-lg font-medium text-purple-100 mb-2">
+                        <h3 className="text-lg font-medium text-purple-100 mb-2 last:mb-0">
                             {children}
                         </h3>
                     ),
                     p: ({ children }) => (
-                        <p className="text-purple-200 mb-3 leading-relaxed">
+                        <p className="text-purple-200 mb-3 leading-relaxed last:mb-0">
                             {children}
                         </p>
                     ),
                     ul: ({ children }) => (
-                        <ul className="list-disc list-inside text-purple-200 mb-3 space-y-1 ml-4">
+                        <ul className="list-disc list-inside text-purple-200 mb-3 space-y-1 ml-4 last:mb-0">
                             {children}
                         </ul>
                     ),
                     ol: ({ children }) => (
-                        <ol className="list-decimal list-inside text-purple-200 mb-3 space-y-1 ml-4">
+                        <ol className="list-decimal list-inside text-purple-200 mb-3 space-y-1 ml-4 last:mb-0">
                             {children}
                         </ol>
                     ),
-                    li: ({ children }) => (
-                        <li className="text-purple-200 leading-relaxed">
-                            {children}
-                        </li>
-                    ),
                     blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-purple-500 pl-4 italic text-purple-300 mb-3 bg-purple-500/10 py-2 rounded-r">
+                        <blockquote className="border-l-4 border-purple-500 pl-4 italic text-purple-300 mb-3 bg-purple-500/10 py-2 rounded-r last:mb-0">
                             {children}
                         </blockquote>
                     ),
@@ -231,7 +270,7 @@ export function MarkdownRenderer({
                         </a>
                     ),
                     table: ({ children }) => (
-                        <div className="overflow-x-auto mb-3 rounded-lg border border-purple-500/30">
+                        <div className="overflow-x-auto mb-3 rounded-lg border border-purple-500/30 last:mb-0">
                             <table className="min-w-full">{children}</table>
                         </div>
                     ),
@@ -245,7 +284,9 @@ export function MarkdownRenderer({
                             {children}
                         </td>
                     ),
-                    hr: () => <hr className="border-purple-500/30 my-6" />,
+                    hr: () => (
+                        <hr className="border-purple-500/30 my-6 last:mb-0" />
+                    ),
                     strong: ({ children }) => (
                         <strong className="font-semibold text-purple-100">
                             {children}

@@ -5,7 +5,8 @@ import { api } from "../../convex/_generated/api";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Badge } from "./ui/badge";
-import { ExternalLink, GitFork, Users, Eye, AlertCircle } from "lucide-react";
+import { ExternalLink, GitFork, Users, Eye, AlertCircle, Share2, MessageSquare, Folder, X } from "lucide-react";
+import { toast } from "sonner";
 
 interface ShareLinkHandlerProps {
     children: React.ReactNode;
@@ -142,17 +143,16 @@ export const ShareLinkHandler: React.FC<ShareLinkHandlerProps> = ({
 
             // Show success message based on action
             if (result.action === "forked") {
-                // Could show a toast notification here
-                console.log(`${shareInfo.type} forked successfully`);
+                toast.success(`${shareInfo.type} forked successfully`);
             } else if (result.action === "added_to_shared") {
-                console.log(`Added to shared ${shareInfo.type}s`);
+                toast.success(`Added to shared ${shareInfo.type}s`);
             }
 
             setShowDialog(false);
             setShareInfo(null);
         } catch (error) {
             console.error("Error accessing shared content:", error);
-            // Could show error toast here
+            toast.error("Failed to access shared content");
         } finally {
             setIsProcessing(false);
         }
@@ -167,43 +167,45 @@ export const ShareLinkHandler: React.FC<ShareLinkHandlerProps> = ({
     const renderSharePreview = () => {
         if (shareInfo?.type === "chat" && getSharedChat) {
             return (
-                <div className="space-y-3">
-                    <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold">
-                            {getSharedChat.chat.title}
-                        </h3>
-                        <div className="flex items-center gap-2 mt-2 text-sm text-gray-600">
-                            <Badge variant="secondary">
-                                {getSharedChat.chat.model}
-                            </Badge>
-                            <span>•</span>
-                            <span>
-                                {getSharedChat.messages.length} messages
-                            </span>
-                            {getSharedChat.chat.viewCount && (
-                                <>
-                                    <span>•</span>
-                                    <div className="flex items-center gap-1">
-                                        <Eye className="h-3 w-3" />
-                                        <span>
+                <div className="space-y-4">
+                    <div className="p-4 bg-purple-600/10 rounded-lg border border-purple-600/20">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 bg-purple-500/20 rounded-lg">
+                                <MessageSquare className="w-5 h-5 text-purple-300" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold text-purple-100 text-lg mb-2">
+                                    {getSharedChat.chat.title}
+                                </h3>
+                                <div className="flex items-center gap-3 text-sm text-purple-300/80 mb-3">
+                                    <Badge variant="secondary" className="bg-purple-500/20 text-purple-200 border-purple-500/30">
+                                        {getSharedChat.chat.model}
+                                    </Badge>
+                                    <span className="flex items-center gap-1">
+                                        <MessageSquare className="w-3 h-3" />
+                                        {getSharedChat.messages.length} messages
+                                    </span>
+                                    {getSharedChat.chat.viewCount && (
+                                        <span className="flex items-center gap-1">
+                                            <Eye className="w-3 h-3" />
                                             {getSharedChat.chat.viewCount} views
                                         </span>
+                                    )}
+                                </div>
+                                {getSharedChat.messages.length > 0 && (
+                                    <div className="p-3 bg-purple-500/10 rounded-lg border border-purple-500/20">
+                                        <p className="text-sm text-purple-300/80 mb-1">Latest message:</p>
+                                        <p className="text-purple-100 text-sm leading-relaxed line-clamp-2">
+                                            {
+                                                getSharedChat.messages[
+                                                    getSharedChat.messages.length - 1
+                                                ].content
+                                            }
+                                        </p>
                                     </div>
-                                </>
-                            )}
-                        </div>
-                        {getSharedChat.messages.length > 0 && (
-                            <div className="mt-3 p-3 bg-gray-50 rounded text-sm">
-                                <p className="text-gray-600">Latest message:</p>
-                                <p className="truncate">
-                                    {
-                                        getSharedChat.messages[
-                                            getSharedChat.messages.length - 1
-                                        ].content
-                                    }
-                                </p>
+                                )}
                             </div>
-                        )}
+                        </div>
                     </div>
                 </div>
             );
@@ -211,65 +213,75 @@ export const ShareLinkHandler: React.FC<ShareLinkHandlerProps> = ({
 
         if (shareInfo?.type === "project" && getSharedProject) {
             return (
-                <div className="space-y-3">
-                    <div className="border rounded-lg p-4">
-                        <h3 className="font-semibold">
-                            {getSharedProject.project.name}
-                        </h3>
-                        {getSharedProject.project.description && (
-                            <p className="text-gray-600 mt-1">
-                                {getSharedProject.project.description}
-                            </p>
-                        )}
-                        <div className="flex items-center gap-2 mt-2 text-sm text-gray-600">
-                            <span>{getSharedProject.chats.length} chats</span>
-                            {getSharedProject.project.viewCount && (
-                                <>
-                                    <span>•</span>
-                                    <div className="flex items-center gap-1">
-                                        <Eye className="h-3 w-3" />
-                                        <span>
-                                            {getSharedProject.project.viewCount}{" "}
-                                            views
-                                        </span>
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                        {getSharedProject.chats.length > 0 && (
-                            <div className="mt-3">
-                                <p className="text-sm text-gray-600 mb-2">
-                                    Recent chats:
-                                </p>
-                                <div className="space-y-1">
-                                    {getSharedProject.chats
-                                        .slice(0, 3)
-                                        .map((chat) => (
-                                            <div
-                                                key={chat._id}
-                                                className="text-sm p-2 bg-gray-50 rounded"
-                                            >
-                                                <div className="font-medium">
-                                                    {chat.title}
-                                                </div>
-                                                <div className="text-gray-500">
-                                                    {chat.messages?.length || 0}{" "}
-                                                    messages
-                                                </div>
-                                            </div>
-                                        ))}
-                                </div>
+                <div className="space-y-4">
+                    <div className="p-4 bg-purple-600/10 rounded-lg border border-purple-600/20">
+                        <div className="flex items-start gap-3">
+                            <div className="p-2 bg-purple-500/20 rounded-lg">
+                                <Folder className="w-5 h-5 text-purple-300" />
                             </div>
-                        )}
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold text-purple-100 text-lg mb-2">
+                                    {getSharedProject.project.name}
+                                </h3>
+                                {getSharedProject.project.description && (
+                                    <p className="text-purple-200/80 mb-3 text-sm leading-relaxed">
+                                        {getSharedProject.project.description}
+                                    </p>
+                                )}
+                                <div className="flex items-center gap-3 text-sm text-purple-300/80 mb-3">
+                                    <span className="flex items-center gap-1">
+                                        <MessageSquare className="w-3 h-3" />
+                                        {getSharedProject.chats.length} chats
+                                    </span>
+                                    {getSharedProject.project.viewCount && (
+                                        <span className="flex items-center gap-1">
+                                            <Eye className="w-3 h-3" />
+                                            {getSharedProject.project.viewCount} views
+                                        </span>
+                                    )}
+                                </div>
+                                {getSharedProject.chats.length > 0 && (
+                                    <div className="space-y-2">
+                                        <p className="text-sm text-purple-300/80">
+                                            Recent chats:
+                                        </p>
+                                        <div className="space-y-1">
+                                            {getSharedProject.chats
+                                                .slice(0, 3)
+                                                .map((chat) => (
+                                                    <div
+                                                        key={chat._id}
+                                                        className="flex items-center justify-between p-2 bg-purple-500/10 rounded border border-purple-500/20"
+                                                    >
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="text-sm font-medium text-purple-100 truncate">
+                                                                {chat.title}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-xs text-purple-300/60 ml-2">
+                                                            {chat.messages?.length || 0} msgs
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            {getSharedProject.chats.length > 3 && (
+                                                <div className="text-xs text-purple-300/60 text-center py-1">
+                                                    +{getSharedProject.chats.length - 3} more chats
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
             );
         }
 
         return (
-            <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-4 text-gray-600">Loading shared content...</p>
+            <div className="text-center py-12">
+                <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-purple-200/80">Loading shared content...</p>
             </div>
         );
     };
@@ -281,28 +293,34 @@ export const ShareLinkHandler: React.FC<ShareLinkHandlerProps> = ({
 
         if (isOwner) {
             return {
-                icon: <ExternalLink className="h-4 w-4" />,
-                text: "This is your own content",
+                icon: <ExternalLink className="w-4 h-4" />,
+                text: "Your Content",
                 action: "Open",
-                description: "You're accessing your own shared content",
+                description: "This is your own shared content",
+                color: "bg-blue-600/10 border-blue-600/20 text-blue-200",
+                iconColor: "text-blue-300",
             };
         }
 
         if (shareMode === "read-only") {
             return {
-                icon: <GitFork className="h-4 w-4" />,
-                text: "Read-only share",
+                icon: <GitFork className="w-4 h-4" />,
+                text: "Read-Only Share",
                 action: "Fork & Open",
                 description: "A copy will be created in your workspace",
+                color: "bg-green-600/10 border-green-600/20 text-green-200",
+                iconColor: "text-green-300",
             };
         }
 
         if (shareMode === "collaboration") {
             return {
-                icon: <Users className="h-4 w-4" />,
-                text: "Collaboration share",
+                icon: <Users className="w-4 h-4" />,
+                text: "Collaboration Share",
                 action: "Join & Open",
                 description: "You'll be added as a collaborator",
+                color: "bg-orange-600/10 border-orange-600/20 text-orange-200",
+                iconColor: "text-orange-300",
             };
         }
 
@@ -313,75 +331,94 @@ export const ShareLinkHandler: React.FC<ShareLinkHandlerProps> = ({
         <>
             {children}
             <Dialog open={showDialog} onOpenChange={setShowDialog}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl" hideCloseButton>
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <ExternalLink className="h-5 w-5" />
-                            Shared{" "}
-                            {shareInfo?.type === "chat" ? "Chat" : "Project"}
+                        <DialogTitle className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <Share2 className="w-5 h-5 text-purple-300" />
+                                <span className="text-lg font-semibold text-purple-100">
+                                    Shared {shareInfo?.type === "chat" ? "Chat" : "Project"}
+                                </span>
+                            </div>
+                            <button
+                                onClick={handleCancel}
+                                className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
+                            >
+                                <X className="w-5 h-5 text-purple-300" />
+                            </button>
                         </DialogTitle>
                     </DialogHeader>
 
-                    {canAccessSharedContent?.canAccess === false ? (
-                        <div className="text-center py-8">
-                            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                            <h3 className="text-lg font-semibold mb-2">
-                                Unable to Access
-                            </h3>
-                            <p className="text-gray-600">
-                                {canAccessSharedContent.reason === "not_found"
-                                    ? "This share link is invalid or has been removed."
-                                    : "This content is no longer shared publicly."}
-                            </p>
-                            <Button onClick={handleCancel} className="mt-4">
-                                Return to Home
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="space-y-6">
-                            {renderSharePreview()}
-
-                            {getShareModeInfo() && (
-                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        {getShareModeInfo()!.icon}
-                                        <span className="font-medium">
-                                            {getShareModeInfo()!.text}
-                                        </span>
-                                    </div>
-                                    <p className="text-sm text-gray-600">
-                                        {getShareModeInfo()!.description}
-                                    </p>
+                    <div className="space-y-6">
+                        {canAccessSharedContent?.canAccess === false ? (
+                            <div className="text-center py-12">
+                                <div className="p-4 bg-red-600/10 rounded-full w-fit mx-auto mb-4">
+                                    <AlertCircle className="w-12 h-12 text-red-400" />
                                 </div>
-                            )}
-
-                            <div className="flex gap-3 justify-end">
-                                <Button
-                                    variant="outline"
-                                    onClick={handleCancel}
+                                <h3 className="text-lg font-semibold mb-2 text-purple-100">
+                                    Unable to Access
+                                </h3>
+                                <p className="text-purple-200/80 max-w-sm mx-auto leading-relaxed">
+                                    {canAccessSharedContent.reason === "not_found"
+                                        ? "This share link is invalid or has been removed."
+                                        : "This content is no longer shared publicly."}
+                                </p>
+                                <Button 
+                                    onClick={handleCancel} 
+                                    className="mt-6 bg-purple-600/80 hover:bg-purple-600/70 text-white"
                                 >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    onClick={handleAcceptShare}
-                                    disabled={
-                                        isProcessing ||
-                                        !canAccessSharedContent?.canAccess
-                                    }
-                                    className="min-w-[120px]"
-                                >
-                                    {isProcessing ? (
-                                        <div className="flex items-center gap-2">
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                            <span>Processing...</span>
-                                        </div>
-                                    ) : (
-                                        getShareModeInfo()?.action || "Access"
-                                    )}
+                                    Return to Home
                                 </Button>
                             </div>
-                        </div>
-                    )}
+                        ) : (
+                            <>
+                                {renderSharePreview()}
+
+                                {getShareModeInfo() && (
+                                    <div className={`p-4 rounded-lg border ${getShareModeInfo()!.color}`}>
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className={getShareModeInfo()!.iconColor}>
+                                                {getShareModeInfo()!.icon}
+                                            </span>
+                                            <span className="font-medium">
+                                                {getShareModeInfo()!.text}
+                                            </span>
+                                        </div>
+                                        <p className="text-sm opacity-80">
+                                            {getShareModeInfo()!.description}
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="flex gap-3 justify-end pt-4 border-t border-purple-600/20">
+                                    <Button
+                                        variant="ghost"
+                                        onClick={handleCancel}
+                                        className="text-purple-200 hover:bg-purple-500/20"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={handleAcceptShare}
+                                        disabled={
+                                            isProcessing ||
+                                            !canAccessSharedContent?.canAccess
+                                        }
+                                        className="min-w-[140px] bg-gradient-to-r from-purple-600/80 to-indigo-600/80 hover:from-purple-600/70 hover:to-indigo-600/70 text-white"
+                                    >
+                                        {isProcessing ? (
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                <span>Processing...</span>
+                                            </div>
+                                        ) : (
+                                            getShareModeInfo()?.action || "Access"
+                                        )}
+                                    </Button>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
         </>

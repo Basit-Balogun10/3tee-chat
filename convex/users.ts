@@ -40,21 +40,29 @@ export const deleteAccount = mutation({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    // Delete all user's chats and messages
+    // Delete all user's chats and messages using new branching system
     const chats = await ctx.db
       .query("chats")
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .collect();
 
     for (const chat of chats) {
-      const messages = await ctx.db
-        .query("messages")
+      // FIX: Delete all messages through branches instead of old index
+      // Get all branches for this chat
+      const branches = await ctx.db
+        .query("branches")
         .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
         .collect();
 
-      for (const message of messages) {
-        await ctx.db.delete(message._id);
+      for (const branch of branches) {
+        // Delete all messages in this branch
+        for (const messageId of branch.messages) {
+          await ctx.db.delete(messageId);
+        }
+        // Delete the branch itself
+        await ctx.db.delete(branch._id);
       }
+      
       await ctx.db.delete(chat._id);
     }
 

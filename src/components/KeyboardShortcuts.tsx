@@ -313,249 +313,255 @@ export function KeyboardShortcuts({
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
-                className="bg-gray-900/95 backdrop-blur-sm border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-y-auto"
+                className="bg-gray-900/95 backdrop-blur-sm border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
                 hideCloseButton
             >
-                <DialogHeader>
-                    <DialogTitle className="flex items-center justify-between">
-                        <h2 className="text-xl font-semibold text-purple-100">
-                            Keyboard Shortcuts
-                        </h2>
-                        <button
-                            onClick={() => onOpenChange(false)}
-                            className="p-2 rounded-lg hover:bg-purple-500/30 transition-colors"
-                        >
-                            <X className="w-5 h-5 text-purple-200" />
-                        </button>
-                    </DialogTitle>
-                </DialogHeader>
+                {/* Sticky Header */}
+                <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-purple-600/20 pb-4 z-10">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center justify-between">
+                            <h2 className="text-xl font-semibold text-purple-100">
+                                Keyboard Shortcuts
+                            </h2>
+                            <button
+                                onClick={() => onOpenChange(false)}
+                                className="p-2 rounded-lg hover:bg-purple-500/30 transition-colors"
+                            >
+                                <X className="w-5 h-5 text-purple-200" />
+                            </button>
+                        </DialogTitle>
+                    </DialogHeader>
 
-                <div className="mb-4 space-y-3">
-                    <SearchInput
-                        value={searchQuery}
-                        onChange={setSearchQuery}
-                        placeholder="Search shortcuts..."
-                        autoFocus={!editingShortcutId}
-                    />
-                    <div className="text-center">
-                        <p
-                            className={`text-xs ${
-                                editingShortcutId
-                                    ? "text-orange-300"
-                                    : "text-purple-400"
-                            }`}
-                        >
-                            {editingShortcutId ? (
-                                <>
-                                    <Keyboard className="w-3 h-3 inline mr-1" />
-                                    {isListening
-                                        ? "Press your desired key combination..."
-                                        : "Click 'Listen for Keys' or manually edit the shortcut"}
-                                </>
-                            ) : (
-                                <>
-                                    Press{" "}
-                                    <kbd className="px-1 py-0.5 bg-purple-500/20 rounded text-purple-300">
-                                        {getShortcut("showShortcuts")}
-                                    </kbd>{" "}
-                                    anytime to show this dialog • Click any
-                                    shortcut key to customize it
-                                </>
-                            )}
-                        </p>
+                    <div className="mt-4 space-y-3">
+                        <SearchInput
+                            value={searchQuery}
+                            onChange={setSearchQuery}
+                            placeholder="Search shortcuts..."
+                            autoFocus={!editingShortcutId}
+                        />
+                        <div className="text-center">
+                            <p
+                                className={`text-xs ${
+                                    editingShortcutId
+                                        ? "text-orange-300"
+                                        : "text-purple-400"
+                                }`}
+                            >
+                                {editingShortcutId ? (
+                                    <>
+                                        <Keyboard className="w-3 h-3 inline mr-1" />
+                                        {isListening
+                                            ? "Press your desired key combination..."
+                                            : "Click 'Listen for Keys' or manually edit the shortcut"}
+                                    </>
+                                ) : (
+                                    <>
+                                        Press{" "}
+                                        <kbd className="px-1 py-0.5 bg-purple-500/20 rounded text-purple-300">
+                                            {getShortcut("showShortcuts")}
+                                        </kbd>{" "}
+                                        anytime to show this dialog • Click any
+                                        shortcut key to customize it
+                                        <br />
+                                        <span className="text-yellow-400">
+                                            Shortcuts marked with{" "}
+                                            <AlertTriangle className="w-3 h-3 inline text-yellow-400" />{" "}
+                                            cannot be customized
+                                        </span>
+                                    </>
+                                )}
+                            </p>
+                        </div>
                     </div>
                 </div>
 
-                {filteredSections.length === 0 ? (
-                    <div className="text-center py-8">
-                        <p className="text-purple-300">
-                            No shortcuts found for "{searchQuery}"
-                        </p>
-                        <p className="text-purple-400 text-sm mt-2">
-                            Try a different search term
-                        </p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {filteredSections.map((section, sectionIndex) => (
-                            <div key={sectionIndex} className="space-y-3">
-                                <h3 className="text-lg font-medium text-purple-200 border-b border-purple-500/20 pb-2">
-                                    {section.title}
-                                </h3>
-                                <div className="space-y-2">
-                                    {section.shortcuts.map((shortcut) => (
-                                        <div
-                                            key={shortcut.id}
-                                            className="flex items-center justify-between group"
-                                        >
-                                            <span className="text-purple-300 text-sm flex-1">
-                                                {shortcut.action}
-                                                {shortcut.isCustomized && (
-                                                    <span className="ml-2 text-xs text-blue-300 bg-blue-600/20 px-1 rounded">
-                                                        Custom
-                                                    </span>
-                                                )}
-                                                {!shortcut.isEditable &&
-                                                    shortcut.warningMessage && (
-                                                        <div className="text-xs text-orange-300 mt-1 italic">
-                                                            ⚠️{" "}
-                                                            {
-                                                                shortcut.warningMessage
-                                                            }
-                                                        </div>
+                {/* Scrollable Content */}
+                <div className="flex-1 overflow-y-auto pt-4">
+                    {filteredSections.length === 0 ? (
+                        <div className="text-center py-8">
+                            <p className="text-purple-300">
+                                No shortcuts found for "{searchQuery}"
+                            </p>
+                            <p className="text-purple-400 text-sm mt-2">
+                                Try a different search term
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {filteredSections.map((section, sectionIndex) => (
+                                <div key={sectionIndex} className="space-y-3">
+                                    <h3 className="text-lg font-medium text-purple-200 border-b border-purple-500/20 pb-2">
+                                        {section.title}
+                                    </h3>
+                                    <div className="space-y-2">
+                                        {section.shortcuts.map((shortcut) => (
+                                            <div
+                                                key={shortcut.id}
+                                                className="flex items-center justify-between group"
+                                            >
+                                                <span className="text-purple-300 text-sm flex-1 flex items-center gap-1">
+                                                    {!shortcut.isEditable && (
+                                                        <AlertTriangle className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                                                     )}
-                                            </span>
+                                                    {shortcut.action}
+                                                    {shortcut.isCustomized && (
+                                                        <span className="ml-2 text-xs text-blue-300 bg-blue-600/20 px-1 rounded">
+                                                            Custom
+                                                        </span>
+                                                    )}
+                                                </span>
 
-                                            <div className="flex items-center gap-1">
-                                                {editingShortcutId ===
-                                                shortcut.id ? (
-                                                    <div className="flex flex-col items-end gap-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <input
-                                                                type="text"
-                                                                value={
-                                                                    editValue
-                                                                }
-                                                                onChange={(e) =>
-                                                                    setEditValue(
-                                                                        e.target
-                                                                            .value
-                                                                    )
-                                                                }
-                                                                onKeyDown={
-                                                                    handleKeyDown
-                                                                }
-                                                                className="w-32 px-2 py-1 bg-purple-500/20 border border-purple-500/50 rounded text-xs text-purple-100 font-mono text-center focus:outline-none focus:border-purple-400"
-                                                                placeholder="e.g. Ctrl + K"
-                                                                disabled={
-                                                                    isListening
-                                                                }
-                                                            />
-                                                            <button
-                                                                onClick={() =>
-                                                                    setIsListening(
-                                                                        !isListening
-                                                                    )
-                                                                }
-                                                                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                                                                    isListening
-                                                                        ? "bg-green-500/20 text-green-300 border border-green-500/50"
-                                                                        : "bg-blue-500/20 text-blue-300 border border-blue-500/50 hover:bg-blue-500/30"
-                                                                }`}
-                                                                title={
-                                                                    isListening
-                                                                        ? "Listening for keystrokes..."
-                                                                        : "Click to detect keys"
-                                                                }
-                                                            >
-                                                                <Keyboard className="w-3 h-3" />
-                                                            </button>
-                                                        </div>
-                                                        <div className="flex items-center gap-1">
-                                                            <button
-                                                                onClick={() =>
-                                                                    void handleSaveShortcut()
-                                                                }
-                                                                disabled={
-                                                                    isListening
-                                                                }
-                                                                className="px-2 py-1 bg-green-500/20 text-green-300 rounded text-xs hover:bg-green-500/30 disabled:opacity-50"
-                                                            >
-                                                                Save
-                                                            </button>
-                                                            <button
-                                                                onClick={
-                                                                    handleCancelEdit
-                                                                }
-                                                                className="px-2 py-1 bg-gray-500/20 text-gray-300 rounded text-xs hover:bg-gray-500/30"
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        </div>
-                                                        {validationError && (
-                                                            <div className="text-xs text-red-300 max-w-40 text-center">
-                                                                {
-                                                                    validationError
-                                                                }
+                                                <div className="flex items-center gap-1">
+                                                    {editingShortcutId ===
+                                                    shortcut.id ? (
+                                                        <div className="flex flex-col items-end gap-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    value={
+                                                                        editValue
+                                                                    }
+                                                                    onChange={(e) =>
+                                                                        setEditValue(
+                                                                            e.target
+                                                                                .value
+                                                                        )
+                                                                    }
+                                                                    onKeyDown={
+                                                                        handleKeyDown
+                                                                    }
+                                                                    className="w-32 px-2 py-1 bg-purple-500/20 border border-purple-500/50 rounded text-xs text-purple-100 font-mono text-center focus:outline-none focus:border-purple-400"
+                                                                    placeholder="e.g. Ctrl + K"
+                                                                    disabled={
+                                                                        isListening
+                                                                    }
+                                                                />
+                                                                <button
+                                                                    onClick={() =>
+                                                                        setIsListening(
+                                                                            !isListening
+                                                                        )
+                                                                    }
+                                                                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                                                        isListening
+                                                                            ? "bg-green-500/20 text-green-300 border border-green-500/50"
+                                                                            : "bg-blue-500/20 text-blue-300 border border-blue-500/50 hover:bg-blue-500/30"
+                                                                    }`}
+                                                                    title={
+                                                                        isListening
+                                                                            ? "Listening for keystrokes..."
+                                                                            : "Click to detect keys"
+                                                                    }
+                                                                >
+                                                                    <Keyboard className="w-3 h-3" />
+                                                                </button>
                                                             </div>
-                                                        )}
-                                                        {!validationError &&
-                                                            isListening &&
-                                                            detectedKeys.size >
-                                                                0 && (
-                                                                <div className="text-xs text-green-300 max-w-40 text-center">
-                                                                    Detected:{" "}
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    onClick={() =>
+                                                                        void handleSaveShortcut()
+                                                                    }
+                                                                    disabled={
+                                                                        isListening
+                                                                    }
+                                                                    className="px-2 py-1 bg-green-500/20 text-green-300 rounded text-xs hover:bg-green-500/30 disabled:opacity-50"
+                                                                >
+                                                                    Save
+                                                                </button>
+                                                                <button
+                                                                    onClick={
+                                                                        handleCancelEdit
+                                                                    }
+                                                                    className="px-2 py-1 bg-gray-500/20 text-gray-300 rounded text-xs hover:bg-gray-500/30"
+                                                                >
+                                                                    Cancel
+                                                                </button>
+                                                            </div>
+                                                            {validationError && (
+                                                                <div className="text-xs text-red-300 max-w-40 text-center">
                                                                     {
-                                                                        Array.from(
-                                                                            detectedKeys
-                                                                        )[0]
+                                                                        validationError
                                                                     }
                                                                 </div>
                                                             )}
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex items-center gap-1">
-                                                        <kbd
-                                                            className={`px-2 py-1 border rounded text-xs font-mono whitespace-nowrap cursor-pointer transition-colors ${
-                                                                shortcut.isEditable
-                                                                    ? "bg-purple-500/20 border-purple-500/30 text-purple-100 hover:bg-purple-500/30 hover:border-purple-400"
-                                                                    : "bg-gray-600/20 border-gray-500/30 text-gray-300 cursor-not-allowed"
-                                                            }`}
-                                                            onClick={() =>
-                                                                shortcut.isEditable &&
-                                                                handleEditShortcut(
-                                                                    shortcut.id,
-                                                                    shortcut.key
-                                                                )
-                                                            }
-                                                            title={
-                                                                shortcut.isEditable
-                                                                    ? "Click to customize"
-                                                                    : "Cannot be customized"
-                                                            }
-                                                        >
-                                                            {shortcut.key}
-                                                        </kbd>
+                                                            {!validationError &&
+                                                                isListening &&
+                                                                detectedKeys.size >
+                                                                    0 && (
+                                                                    <div className="text-xs text-green-300 max-w-40 text-center">
+                                                                        Detected:{" "}
+                                                                        {
+                                                                            Array.from(
+                                                                                detectedKeys
+                                                                            )[0]
+                                                                        }
+                                                                    </div>
+                                                                )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-center gap-1">
+                                                            <kbd
+                                                                className={`px-2 py-1 border rounded text-xs font-mono whitespace-nowrap cursor-pointer transition-colors ${
+                                                                    shortcut.isEditable
+                                                                        ? "bg-purple-500/20 border-purple-500/30 text-purple-100 hover:bg-purple-500/30 hover:border-purple-400"
+                                                                        : "bg-gray-600/20 border-gray-500/30 text-gray-300 cursor-not-allowed"
+                                                                }`}
+                                                                onClick={() =>
+                                                                    shortcut.isEditable &&
+                                                                    handleEditShortcut(
+                                                                        shortcut.id,
+                                                                        shortcut.key
+                                                                    )
+                                                                }
+                                                                title={
+                                                                    shortcut.isEditable
+                                                                        ? "Click to customize"
+                                                                        : "Cannot be customized"
+                                                                }
+                                                            >
+                                                                {shortcut.key}
+                                                            </kbd>
 
-                                                        {shortcut.isEditable && (
-                                                            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button
-                                                                    onClick={() =>
-                                                                        handleEditShortcut(
-                                                                            shortcut.id,
-                                                                            shortcut.key
-                                                                        )
-                                                                    }
-                                                                    className="p-1 rounded text-purple-400 hover:text-purple-300 hover:bg-purple-500/20"
-                                                                    title="Edit shortcut"
-                                                                >
-                                                                    <Edit2 className="w-3 h-3" />
-                                                                </button>
-                                                                {shortcut.isCustomized && (
+                                                            {shortcut.isEditable && (
+                                                                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                                     <button
                                                                         onClick={() =>
-                                                                            void handleResetShortcut(
-                                                                                shortcut.id
+                                                                            handleEditShortcut(
+                                                                                shortcut.id,
+                                                                                shortcut.key
                                                                             )
                                                                         }
-                                                                        className="p-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/20"
-                                                                        title="Reset to default"
+                                                                        className="p-1 rounded text-purple-400 hover:text-purple-300 hover:bg-purple-500/20"
+                                                                        title="Edit shortcut"
                                                                     >
-                                                                        <RotateCcw className="w-3 h-3" />
+                                                                        <Edit2 className="w-3 h-3" />
                                                                     </button>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
+                                                                    {shortcut.isCustomized && (
+                                                                        <button
+                                                                            onClick={() =>
+                                                                                void handleResetShortcut(
+                                                                                    shortcut.id
+                                                                                )
+                                                                            }
+                                                                            className="p-1 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-500/20"
+                                                                            title="Reset to default"
+                                                                        >
+                                                                            <RotateCcw className="w-3 h-3" />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                            ))}
+                        </div>
+                    )}
+                </div>
             </DialogContent>
         </Dialog>
     );

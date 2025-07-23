@@ -9,7 +9,7 @@ export async function performProviderWebSearch(
 ): Promise<any> {
     try {
         switch (provider) {
-            case "gemini": {
+            case "google": {
                 // Google Web Search & Citations with Search Grounding and URL Context (always enabled per appendix note)
                 const requestBody = {
                     model: "gemini-2.0-flash",
@@ -17,7 +17,7 @@ export async function performProviderWebSearch(
                     config: {
                         tools: [
                             { googleSearch: {} },
-                            { urlContext: {} }, // Always enable URL context per appendix.md note
+                            // { urlContext: {} }, // Always enable URL context per appendix.md note
                         ],
                     },
                 };
@@ -26,7 +26,7 @@ export async function performProviderWebSearch(
                     await client.models.generateContent(requestBody);
 
                 // Process groundingMetadata.grounding_supports for citation tracking
-                const citations = [];
+                const citations: any[] = [];
                 if (
                     response.candidates?.[0]?.groundingMetadata
                         ?.grounding_supports
@@ -91,7 +91,7 @@ export async function performProviderWebSearch(
                     });
 
                     // Process annotations with url_citation format per appendix
-                    const citations = [];
+                    const citations: any[] = [];
                     const message = response.choices[0]?.message;
                     if (message?.annotations) {
                         for (const annotation of message.annotations) {
@@ -173,7 +173,7 @@ export async function performProviderWebSearch(
                     // Extract citations from response and map to search results
                     const responseText =
                         response.choices[0]?.message?.content || "";
-                    const citations = [];
+                    const citations: any[] = [];
                     const citationRegex = /\[(\d+)\]/g;
                     let match;
 
@@ -185,7 +185,9 @@ export async function performProviderWebSearch(
 
                         if (
                             searchResult &&
-                            !citations.find((c) => c.number === citationNumber)
+                            !citations.find(
+                                (c: any) => c.number === citationNumber
+                            )
                         ) {
                             citations.push({
                                 number: citationNumber,

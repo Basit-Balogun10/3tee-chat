@@ -30,8 +30,9 @@ import {
 interface ModelSelectorProps {
     selectedModel: string;
     onModelChange: (model: string) => void;
-    context?: "message" | "settings";
+    context?: "message" | "settings" | "retry-message";
     currentDefaultModel?: string;
+    openByDefault?: boolean; // New prop to open modal immediately
 }
 
 export function ModelSelector({
@@ -39,6 +40,7 @@ export function ModelSelector({
     onModelChange,
     context = "message",
     currentDefaultModel,
+    openByDefault = false, // Default to false
 }: ModelSelectorProps) {
     // --- STATE MANAGEMENT ---
     const [showModal, setShowModal] = useState(false);
@@ -46,6 +48,16 @@ export function ModelSelector({
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCapability, setSelectedCapability] = useState<string>("all");
     const [selectedProvider, setSelectedProvider] = useState<string>("all");
+    const [contextWindowFilter, setContextWindowFilter] = useState<string>("all");
+
+    // Context window filter options
+    const contextWindowOptions = [
+        { id: "all", label: "All Context" },
+        { id: "small", label: "Small (≤32K)", max: 32000 },
+        { id: "medium", label: "Medium (≤128K)", max: 128000 },
+        { id: "large", label: "Large (≤1M)", max: 1000000 },
+        { id: "xlarge", label: "Extra Large (>1M)", min: 1000000 },
+    ];
 
     // --- DATA FETCHING & LOGIC ---
     const preferences = useQuery(api.preferences.getUserPreferences);
@@ -161,9 +173,34 @@ export function ModelSelector({
                     selectedCapability as keyof ModelCapabilities
                 ];
 
-            return matchesSearch && matchesCapability;
+            // Check context window filter
+            const contextWindow = contextWindowOptions.find(
+                (option) => option.id === contextWindowFilter
+            );
+            const maxContext =
+                contextWindow?.max !== undefined ? contextWindow.max : Infinity;
+            const minContext =
+                contextWindow?.min !== undefined ? contextWindow.min : -Infinity;
+
+            const modelContextLength = model.contextLength || 0;
+
+            const matchesContextWindow =
+                modelContextLength <= maxContext &&
+                modelContextLength >= minContext;
+
+            return (
+                matchesSearch &&
+                matchesCapability &&
+                matchesContextWindow
+            );
         });
-    }, [availableModels, searchQuery, selectedCapability, selectedProvider]);
+    }, [
+        availableModels,
+        searchQuery,
+        selectedCapability,
+        selectedProvider,
+        contextWindowFilter,
+    ]);
 
     // --- EVENT HANDLERS & DERIVED STATE ---
     const selectedModelInfo = availableModels.find(
@@ -175,6 +212,12 @@ export function ModelSelector({
             return {
                 title: "Select Default AI Model",
                 subtitle: "Choose your preferred model for new conversations",
+            };
+        if (context === "retry-message")
+            return {
+                title: "Retry with Different Model",
+                subtitle:
+                    "Choose a different model to regenerate this response",
             };
         return {
             title: "Select AI Model",
@@ -217,6 +260,13 @@ export function ModelSelector({
         return () =>
             document.removeEventListener("openModelSelector", handleOpenModal);
     }, []);
+
+    // --- OPEN MODAL ON DEFAULT ---
+    useEffect(() => {
+        if (openByDefault) {
+            handleOpenModal();
+        }
+    }, [openByDefault, handleOpenModal]);
 
     const { title, subtitle } = getModalTitle();
     const highlightedModelId =
@@ -338,6 +388,30 @@ export function ModelSelector({
                             </div>
                         </div>
 
+                        {/* NEW: Context Window Filter */}
+                        <div className="mb-4">
+                            <label className="block text-sm text-purple-400 mb-2">
+                                Context Window
+                            </label>
+                            <Tabs
+                                value={contextWindowFilter}
+                                onValueChange={setContextWindowFilter}
+                                className="w-full"
+                            >
+                                <TabsList className="grid w-full grid-cols-5 bg-purple-600/20 p-1 h-auto space-x-2">
+                                    {contextWindowOptions.map((option) => (
+                                        <TabsTrigger
+                                            key={option.id}
+                                            value={option.id}
+                                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                                        >
+                                            {option.label}
+                                        </TabsTrigger>
+                                    ))}
+                                </TabsList>
+                            </Tabs>
+                        </div>
+
                         <div className="overflow-y-auto px-2">
                             {filteredModels.length === 0 ? (
                                 <div className="p-8 text-center text-purple-400 text-sm">
@@ -371,6 +445,24 @@ export function ModelSelector({
                                         return (
                                             <div
                                                 key={model.id}
+                                                ref={
+                                                    isSelected
+                                                        ? (el) => {
+                                                              if (el) {
+                                                                  setTimeout(
+                                                                      () => {
+                                                                          el.scrollIntoView(
+                                                                              {
+                                                                                  block: "center",
+                                                                              }
+                                                                          );
+                                                                      },
+                                                                      100
+                                                                  );
+                                                              }
+                                                          }
+                                                        : null
+                                                }
                                                 onClick={() =>
                                                     handleSelectModel(model.id)
                                                 }
@@ -382,6 +474,18 @@ export function ModelSelector({
                                                             <h3 className="font-semibold text-purple-100">
                                                                 {model.name}
                                                             </h3>
+                                                            {/* Context Window Badge */}
+                                                            {model.contextLength && (
+                                                                <span className="flex items-center gap-1 text-xs bg-blue-600/20 text-blue-300 px-2 py-1 rounded border border-blue-500/30">
+                                                                    <FileText className="w-3 h-3" />
+                                                                    {model.contextLength >= 1000000 
+                                                                        ? `${(model.contextLength / 1000000).toFixed(1)}M`
+                                                                        : model.contextLength >= 1000
+                                                                        ? `${(model.contextLength / 1000)}K`
+                                                                        : model.contextLength.toString()
+                                                                    } tokens
+                                                                </span>
+                                                            )}
                                                             {model.userKeyEnabled && (
                                                                 <span className="flex items-center gap-1 text-xs text-green-400 font-medium">
                                                                     Personal Key

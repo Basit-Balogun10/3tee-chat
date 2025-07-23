@@ -67,7 +67,7 @@ export const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
                 },
             },
             {
-                id: "gemini-2.5-flash-05-20",
+                id: "gemini-2.5-flash",
                 name: "Gemini 2.5 Flash",
                 description:
                     "The newest flash model from the next-gen Gemini 2.5 family with improved performance.",
@@ -85,7 +85,7 @@ export const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
                 },
             },
             {
-                id: "gemini-2.5-pro-06-05",
+                id: "gemini-2.5-pro",
                 name: "Gemini 2.5 Pro",
                 description:
                     "The most capable Gemini model with a massive 2M token context window for complex tasks.",
@@ -120,7 +120,7 @@ export const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
                 },
             },
             {
-                id: "veo-2.0-generate-001",
+                id: "veo-3.0-generate-preview",
                 name: "Veo 2.0",
                 description:
                     "State-of-the-art model from Google for generating high-definition, cinematic video clips.",

@@ -2,22 +2,27 @@ import {
     Dispatch,
     SetStateAction,
     useState,
-    useRef,
     useEffect,
     useMemo,
     useCallback,
+    useRef,
 } from "react";
 import { useQuery, useAction, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
+import { PasswordGateway } from "./PasswordGateway";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { toast } from "sonner";
+import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
+import { useNotificationSounds } from "../lib/utils";
 
 interface ChatAreaProps {
     chatId: Id<"chats">;
     setSelectedChatId: Dispatch<SetStateAction<Id<"chats"> | null>>;
     showMessageInput?: boolean;
+    sidebarOpen: boolean;
+    scrollToBottom: () => void;
 }
 
 // Define commands in a single place to be shared
@@ -32,29 +37,41 @@ export function ChatArea({
     chatId,
     setSelectedChatId,
     showMessageInput = true,
+    sidebarOpen,
+    scrollToBottom,
 }: ChatAreaProps) {
-    const [selectedModel, setSelectedModel] = useState<string>("gpt-4o-mini"); // Default fallback
+    // State
+    const [selectedModel, setSelectedModel] =
+        useState<string>("gemini-2.0-flash"); // Default fallback
     const [messageInput, setMessageInput] = useState("");
     const [activeCommands, setActiveCommands] = useState<string[]>([]);
     const [hoveredMessageId, setHoveredMessageId] =
         useState<Id<"messages"> | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
+    // Queries and mutations
     const chat = useQuery(api.chats.getChat, { chatId });
     const messagesResult = useQuery(api.chats.getChatMessages, { chatId });
     const messages = useMemo(() => messagesResult || [], [messagesResult]);
+
     const sendMessage = useAction(api.messages.sendMessage);
-    const editMessage = useMutation(api.messages.updateMessage);
-    const branchFromMessage = useMutation(api.messages.branchFromMessage);
-    const retryMessage = useAction(api.ai.retryMessage);
+    const markStreamingComplete = useAction(api.ai.markStreamingComplete);
     const updateChatModel = useMutation(api.chats.updateChatModel);
     const deleteMessage = useMutation(api.messages.deleteMessage);
+    const retryMessage = useAction(api.messages.retryMessage);
+    const switchMessageVersion = useMutation(api.messages.switchMessageVersion);
 
-    // Check if any message is currently streaming (for UI purposes)
-    const isStreaming = messages.some((message) => message.isStreaming);
+    // PHASE 3 & 4 FIX: Branching system mutations
+    const createBranchFromMessageEdit = useMutation(
+        api.branches.createBranchFromMessageEdit
+    );
+    const navigateToBranch = useMutation(api.branches.navigateToBranch);
+
+    // Computed values
     const streamingMessage = messages.find((message) => message.isStreaming);
+    const hoveredMessage = hoveredMessageId
+        ? messages.find((m) => m._id === hoveredMessageId)
+        : null;
 
     // Initialize selectedModel from chat's model field when chat loads
     useEffect(() => {
@@ -63,28 +80,14 @@ export function ChatArea({
         }
     }, [chat?.model]);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
-
     // Handle model change and persist to chat
     const handleModelChange = useCallback(
         async (newModel: string) => {
             setSelectedModel(newModel);
-
-            // Update the chat's model field in the backend
             try {
-                await updateChatModel({
-                    chatId,
-                    model: newModel,
-                });
+                await updateChatModel({ chatId, model: newModel });
             } catch (error) {
                 console.error("Failed to update chat model:", error);
-                // Don't show toast for this as it's not critical to user experience
             }
         },
         [chatId, updateChatModel]
@@ -96,6 +99,8 @@ export function ChatArea({
             attachments?: any[],
             referencedArtifacts?: string[]
         ) => {
+            if (isLoading) return;
+
             if (
                 !content.trim() &&
                 (!attachments || attachments.length === 0) &&
@@ -114,7 +119,6 @@ export function ChatArea({
                     attachments,
                     referencedArtifacts,
                 });
-                // Clear input and commands after sending
                 setMessageInput("");
                 setActiveCommands([]);
             } catch (error) {
@@ -124,7 +128,7 @@ export function ChatArea({
                 setIsLoading(false);
             }
         },
-        [chatId, selectedModel, activeCommands, sendMessage]
+        [chatId, selectedModel, activeCommands, sendMessage, isLoading]
     );
 
     const handlePrefill = (promptText: string) => {
@@ -142,82 +146,79 @@ export function ChatArea({
         setMessageInput(remainingText);
     };
 
-    const handleEditMessage = useCallback(
-        async (messageId: Id<"messages">, newContent: string) => {
-            try {
-                await editMessage({
-                    messageId,
-                    content: newContent,
-                    isStreaming: false,
-                });
-                toast.success("Message edited successfully");
-            } catch (error) {
-                console.error("Failed to edit message:", error);
-                toast.error("Failed to edit message");
-            }
-        },
-        [editMessage]
-    );
-
+    // PHASE 3 & 4 FIX: Branch creation from message edit
     const handleBranchFromMessage = useCallback(
         async (messageId: Id<"messages">, newContent: string) => {
+            console.log("🌿 CREATING BRANCH FROM MESSAGE EDIT:", {
+                messageId,
+                newContent: newContent.substring(0, 50) + "...",
+                chatId,
+                timestamp: new Date().toISOString(),
+            });
+
             try {
-                await branchFromMessage({
+                const result = await createBranchFromMessageEdit({
                     messageId,
                     newContent,
                 });
 
-                // Generate AI response for the new branch
-                await sendMessage({
-                    chatId,
-                    content: newContent,
-                    model: selectedModel,
+                console.log("✅ BRANCH CREATED SUCCESSFULLY:", {
+                    newBranchId: result.newBranchId,
+                    branchNumber: result.branchNumber,
+                    totalBranches: result.totalBranches,
+                    activeBranchName: result.activeBranchName,
+                    timestamp: new Date().toISOString(),
                 });
 
-                toast.success("Created new conversation branch");
+                toast.success(
+                    `Created ${result.activeBranchName} (${result.branchNumber}/${result.totalBranches})`
+                );
             } catch (error) {
-                console.error("Failed to create branch:", error);
-                toast.error("Failed to create branch");
+                console.error("❌ BRANCH CREATION FAILED:", error);
+                toast.error(
+                    `Failed to create branch: ${error instanceof Error ? error.message : String(error)}`
+                );
             }
         },
-        [branchFromMessage, sendMessage, chatId, selectedModel]
+        [createBranchFromMessageEdit]
     );
 
     const handleRetryMessage = useCallback(
         async (messageId: Id<"messages">) => {
+            if (isLoading) return;
+
+            setIsLoading(true);
             try {
-                await retryMessage({
-                    messageId,
-                    model: selectedModel,
-                });
-                toast.success("Retrying message...");
+                await retryMessage({ messageId });
             } catch (error) {
-                console.error("Failed to retry message:", error);
-                toast.error("Failed to retry message");
+                console.error("Error retrying message:", error);
+                toast.error("Failed to retry message. Please try again.");
+            } finally {
+                setIsLoading(false);
             }
         },
-        [retryMessage, selectedModel]
+        [retryMessage, isLoading]
     );
 
-    // Simple stop streaming function that marks streaming as complete
     const handleStopStreaming = useCallback(async () => {
         if (streamingMessage) {
             try {
-                // Use the new resumable streaming action to mark as complete
-                const markComplete = await import("convex/react").then(m => m.useAction);
-                const markStreamingComplete = markComplete(api.ai.markStreamingComplete);
-                await markStreamingComplete({ messageId: streamingMessage._id });
+                await markStreamingComplete({
+                    messageId: streamingMessage._id,
+                });
+                setIsLoading(false);
                 toast.success("Streaming stopped");
             } catch (error) {
                 console.error("Failed to stop streaming:", error);
                 toast.error("Failed to stop streaming");
             }
         }
-    }, [streamingMessage]);
+    }, [streamingMessage, markStreamingComplete]);
 
     const handleDeleteMessage = useCallback(
         async (messageId: Id<"messages">) => {
             try {
+                // PHASE 5 FIX: Use the new branch cleanup deletion function
                 await deleteMessage({ messageId });
                 toast.success("Message deleted");
             } catch (error) {
@@ -228,7 +229,137 @@ export function ChatArea({
         [deleteMessage]
     );
 
-    // Message-level keyboard shortcuts
+    const handleVersionNavigation = useCallback(
+        async (messageId: Id<"messages">, direction: "prev" | "next") => {
+            try {
+                const message = messages.find((m) => m._id === messageId);
+                if (
+                    !message?.messageVersions ||
+                    message.messageVersions.length <= 1
+                )
+                    return;
+
+                const currentIndex = message.messageVersions.findIndex(
+                    (v) => v.isActive
+                );
+                let newIndex;
+
+                if (direction === "prev") {
+                    newIndex =
+                        currentIndex > 0
+                            ? currentIndex - 1
+                            : message.messageVersions.length - 1;
+                } else {
+                    newIndex =
+                        currentIndex < message.messageVersions.length - 1
+                            ? currentIndex + 1
+                            : 0;
+                }
+
+                const targetVersion = message.messageVersions[newIndex];
+                if (targetVersion) {
+                    await switchMessageVersion({
+                        messageId,
+                        versionId: targetVersion.versionId,
+                    });
+
+                    console.log("🔄 VERSION NAVIGATION:", {
+                        messageId,
+                        direction,
+                        fromVersion: currentIndex + 1,
+                        toVersion: newIndex + 1,
+                        targetVersionId: targetVersion.versionId,
+                        timestamp: new Date().toISOString(),
+                    });
+                }
+            } catch (error) {
+                console.error("Error navigating versions:", error);
+            }
+        },
+        [messages, switchMessageVersion]
+    );
+
+    // PHASE 4 FIX: Branch navigation function
+    const handleBranchNavigation = useCallback(
+        async (messageId: Id<"messages">, direction: "prev" | "next") => {
+            try {
+                const message = messages.find((m) => m._id === messageId);
+                if (!message?.branches || message.branches.length <= 1) {
+                    console.warn("No branches available for navigation");
+                    return;
+                }
+
+                // Simple branch data construction for navigation
+                const currentActiveIndex = message.branches.findIndex(
+                    (branchId) => branchId === message.activeBranchId
+                );
+                if (currentActiveIndex === -1) {
+                    console.warn("No active branch found");
+                    return;
+                }
+
+                let newIndex;
+                if (direction === "prev") {
+                    newIndex =
+                        currentActiveIndex > 0
+                            ? currentActiveIndex - 1
+                            : message.branches.length - 1;
+                } else {
+                    newIndex =
+                        currentActiveIndex < message.branches.length - 1
+                            ? currentActiveIndex + 1
+                            : 0;
+                }
+
+                const targetBranchId = message.branches[newIndex];
+                if (targetBranchId) {
+                    const result = await navigateToBranch({
+                        messageId,
+                        branchId: targetBranchId,
+                    });
+
+                    if (result.success) {
+                        console.log("🌿 BRANCH NAVIGATION SUCCESS:", {
+                            messageId,
+                            direction,
+                            fromBranch: currentActiveIndex + 1,
+                            toBranch: newIndex + 1,
+                            targetBranchId,
+                            branchName: result.branchName,
+                            timestamp: new Date().toISOString(),
+                        });
+
+                        toast.success(`Switched to ${result.branchName}`);
+                    }
+                }
+            } catch (error) {
+                console.error("❌ BRANCH NAVIGATION FAILED:", error);
+                toast.error(
+                    `Failed to navigate branch: ${error instanceof Error ? error.message : String(error)}`
+                );
+            }
+        },
+        [messages, navigateToBranch]
+    );
+
+    const { shortcuts, checkShortcutMatch } = useCustomShortcuts();
+    const { playAIReplySound } = useNotificationSounds();
+
+    // Track when AI messages complete streaming to play notification sound
+    const previousStreamingState = useRef<boolean>(false);
+
+    useEffect(() => {
+        const isCurrentlyStreaming = !!streamingMessage?.isStreaming;
+
+        if (previousStreamingState.current && !isCurrentlyStreaming) {
+            // Play notification sound for completed AI reply
+            void playAIReplySound();
+        }
+
+        previousStreamingState.current = isCurrentlyStreaming;
+    }, [streamingMessage?.isStreaming, playAIReplySound]);
+
+    // PHASE 4 FIX: Enhanced keyboard shortcuts with branch navigation
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Skip if user is typing in input/textarea
@@ -239,228 +370,253 @@ export function ChatArea({
 
             if (isTyping) return;
 
-            const hasModifier = e.metaKey || e.ctrlKey;
-
-            // Branch navigation shortcuts (Left/Right arrows) - no modifiers needed
-            if (!hasModifier && !e.shiftKey && !e.altKey) {
-                switch (e.key) {
-                    case "ArrowLeft":
-                        // Navigate to previous branch
-                        if (hoveredMessageId) {
-                            e.preventDefault();
-                            const branchEvent = new CustomEvent(
-                                "navigateBranch",
-                                {
-                                    detail: {
-                                        messageId: hoveredMessageId,
-                                        direction: "previous",
-                                    },
-                                }
-                            );
-                            document.dispatchEvent(branchEvent);
-                        }
-                        return;
-
-                    case "ArrowRight":
-                        // Navigate to next branch
-                        if (hoveredMessageId) {
-                            e.preventDefault();
-                            const branchEvent = new CustomEvent(
-                                "navigateBranch",
-                                {
-                                    detail: {
-                                        messageId: hoveredMessageId,
-                                        direction: "next",
-                                    },
-                                }
-                            );
-                            document.dispatchEvent(branchEvent);
-                        }
-                        return;
-                }
-            }
-
             // Message actions when hovering over a message
             if (hoveredMessageId) {
                 const hoveredMessage = messages.find(
                     (m) => m._id === hoveredMessageId
                 );
 
-                if (!hasModifier) {
-                    switch (e.key) {
-                        case "c":
-                        case "C":
-                            // Copy message content
-                            e.preventDefault();
-                            if (hoveredMessage) {
-                                void navigator.clipboard.writeText(
-                                    hoveredMessage.content
-                                );
-                                toast.success("Message copied to clipboard");
-                            }
-                            return;
+                // Use custom shortcuts for navigation
+                if (checkShortcutMatch(e, "navigateVersionsBranches")) {
+                    e.preventDefault();
+                    // Check if it's left or right arrow to determine direction
+                    const isLeft = e.key === "ArrowLeft";
+                    const direction = isLeft ? "prev" : "next";
 
-                        case "e":
-                        case "E":
-                            // Edit message (user messages only)
-                            e.preventDefault();
-                            if (hoveredMessage?.role === "user") {
-                                // Trigger edit mode for the message
-                                const editEvent = new CustomEvent(
-                                    "editMessage",
-                                    {
-                                        detail: {
-                                            messageId: hoveredMessageId,
-                                            content: hoveredMessage.content,
-                                        },
-                                    }
-                                );
-                                document.dispatchEvent(editEvent);
-                            }
-                            return;
-
-                        case "f":
-                        case "F":
-                            // Fork conversation from message (AI messages only)
-                            e.preventDefault();
-                            if (hoveredMessage?.role === "assistant") {
-                                // Dispatch event to MessageList to handle fork
-                                const forkEvent = new CustomEvent(
-                                    "forkFromMessage",
-                                    {
-                                        detail: { messageId: hoveredMessageId },
-                                    }
-                                );
-                                document.dispatchEvent(forkEvent);
-                            }
-                            return;
-
-                        case "r":
-                        case "R":
-                            // Retry AI response (AI messages only)
-                            e.preventDefault();
-                            if (hoveredMessage?.role === "assistant") {
-                                const retryEvent = new CustomEvent(
-                                    "retryMessage",
-                                    {
-                                        detail: { messageId: hoveredMessageId },
-                                    }
-                                );
-                                document.dispatchEvent(retryEvent);
-                            }
-                            return;
-
-                        case "Delete":
-                        case "Backspace":
-                            // Delete message (user messages only)
-                            e.preventDefault();
-                            if (hoveredMessage?.role === "user") {
-                                if (
-                                    confirm(
-                                        "Are you sure you want to delete this message?"
-                                    )
-                                ) {
-                                    void handleDeleteMessage(hoveredMessageId);
-                                }
-                            }
-                            return;
+                    // Check if message has versions (retries) first, then branches (edits)
+                    if (hoveredMessage) {
+                        if (
+                            (hoveredMessage as any).messageVersions?.length > 1
+                        ) {
+                            void handleVersionNavigation(
+                                hoveredMessageId,
+                                direction
+                            );
+                        } else if (
+                            (hoveredMessage as any).conversationBranches
+                                ?.length > 1
+                        ) {
+                            void handleBranchNavigation(
+                                hoveredMessageId,
+                                direction
+                            );
+                        }
                     }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "collapseMessage")) {
+                    e.preventDefault();
+                    // Collapse message - dedicated action
+                    if (hoveredMessage && hoveredMessage.content.length > 100) {
+                        const collapseEvent = new CustomEvent(
+                            "collapseMessage",
+                            {
+                                detail: {
+                                    messageId: hoveredMessageId,
+                                    action: "collapse",
+                                },
+                            }
+                        );
+                        document.dispatchEvent(collapseEvent);
+                    }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "expandMessage")) {
+                    e.preventDefault();
+                    // Expand message - dedicated action
+                    if (hoveredMessage && hoveredMessage.content.length > 100) {
+                        const expandEvent = new CustomEvent("expandMessage", {
+                            detail: {
+                                messageId: hoveredMessageId,
+                                action: "expand",
+                            },
+                        });
+                        document.dispatchEvent(expandEvent);
+                    }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "scrollToMessageEnd")) {
+                    e.preventDefault();
+                    // Scroll to end of hovered message
+                    const scrollEvent = new CustomEvent("scrollToMessageEnd", {
+                        detail: { messageId: hoveredMessageId },
+                    });
+                    document.dispatchEvent(scrollEvent);
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "copyMessage")) {
+                    e.preventDefault();
+                    if (hoveredMessage) {
+                        void navigator.clipboard.writeText(
+                            hoveredMessage.content
+                        );
+                        toast.success("Message copied to clipboard");
+                    }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "editMessage")) {
+                    e.preventDefault();
+                    if (hoveredMessage?.role === "user") {
+                        const editEvent = new CustomEvent("editMessage", {
+                            detail: {
+                                messageId: hoveredMessageId,
+                                content: hoveredMessage.content,
+                            },
+                        });
+                        document.dispatchEvent(editEvent);
+                    }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "retryMessage")) {
+                    e.preventDefault();
+                    if (hoveredMessage?.role === "assistant") {
+                        const retryEvent = new CustomEvent(
+                            "retryMessageWithSameModel",
+                            {
+                                detail: { messageId: hoveredMessageId },
+                            }
+                        );
+                        document.dispatchEvent(retryEvent);
+                    }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "retryDifferentModel")) {
+                    e.preventDefault();
+                    if (hoveredMessage?.role === "assistant") {
+                        const retryEvent = new CustomEvent(
+                            "retryMessageWithDifferentModel",
+                            {
+                                detail: { messageId: hoveredMessageId },
+                            }
+                        );
+                        document.dispatchEvent(retryEvent);
+                    }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "deleteMessage")) {
+                    e.preventDefault();
+                    if (hoveredMessage?.role === "user") {
+                        if (
+                            confirm(
+                                "Are you sure you want to delete this message?"
+                            )
+                        ) {
+                            void handleDeleteMessage(hoveredMessageId);
+                        }
+                    }
+                    return;
+                }
+
+                if (checkShortcutMatch(e, "forkConversation")) {
+                    e.preventDefault();
+                    if (hoveredMessage?.role === "assistant") {
+                        const forkEvent = new CustomEvent("forkFromMessage", {
+                            detail: { messageId: hoveredMessageId },
+                        });
+                        document.dispatchEvent(forkEvent);
+                    }
+                    return;
+                }
+
+                // Enhanced Deep Link Shortcuts
+                if (
+                    checkShortcutMatch(e, "copyDirectMessageLink") &&
+                    hoveredMessageId
+                ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const copyDirectLinkEvent = new CustomEvent(
+                        "copyDirectMessageLink",
+                        {
+                            detail: { messageId: hoveredMessageId },
+                        }
+                    );
+                    document.dispatchEvent(copyDirectLinkEvent);
+                    return;
+                }
+
+                if (
+                    checkShortcutMatch(e, "createSharedMessageLink") &&
+                    hoveredMessageId
+                ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const createSharedLinkEvent = new CustomEvent(
+                        "createSharedMessageLink",
+                        {
+                            detail: { messageId: hoveredMessageId },
+                        }
+                    );
+                    document.dispatchEvent(createSharedLinkEvent);
+                    return;
                 }
             }
         };
 
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
-    }, [hoveredMessageId, messages, handleDeleteMessage]);
-
-    // Listen for edit message events from keyboard shortcuts
-    useEffect(() => {
-        const handleEditMessage = (e: CustomEvent) => {
-            const { messageId, content } = e.detail;
-            // Find the message and trigger edit mode
-            const message = messages.find((m) => m._id === messageId);
-            if (message && message.role === "user") {
-                // Dispatch event to MessageList to start editing
-                const startEditEvent = new CustomEvent("startMessageEdit", {
-                    detail: { messageId, content },
-                });
-                document.dispatchEvent(startEditEvent);
-            }
-        };
-
-        const handleStartEditingMessage = (e: CustomEvent) => {
-            const { messageId, content } = e.detail;
-            // Find the message and trigger edit mode
-            const message = messages.find((m) => m._id === messageId);
-            if (message && message.role === "user") {
-                // Dispatch event to MessageList to start editing
-                const startEditEvent = new CustomEvent("startMessageEdit", {
-                    detail: { messageId, content },
-                });
-                document.dispatchEvent(startEditEvent);
-            }
-        };
-
-        document.addEventListener(
-            "editMessage",
-            handleEditMessage as EventListener
-        );
-        document.addEventListener(
-            "startEditingMessage",
-            handleStartEditingMessage as EventListener
-        );
-        return () => {
-            document.removeEventListener(
-                "editMessage",
-                handleEditMessage as EventListener
-            );
-            document.removeEventListener(
-                "startEditingMessage",
-                handleStartEditingMessage as EventListener
-            );
-        };
-    }, [messages]);
+    }, [
+        checkShortcutMatch,
+        hoveredMessageId,
+        messages,
+        handleDeleteMessage,
+        handleRetryMessage,
+        handleVersionNavigation,
+        handleBranchNavigation,
+    ]);
 
     return (
-        <div className="flex flex-col w-4/5 mx-auto h-full">
-            {/* Header section with sliding animation */}
-            <div className="flex-1 flex flex-col">
-                <MessageList
-                    messages={messages}
-                    onEditMessage={(messageId, newContent) =>
-                        void handleEditMessage(messageId, newContent)
-                    }
-                    onRetryMessage={(messageId) =>
-                        void handleRetryMessage(messageId)
-                    }
-                    onBranchFromMessage={(messageId, newContent) =>
-                        void handleBranchFromMessage(messageId, newContent)
-                    }
-                    onPrefill={handlePrefill}
-                    onMessageHover={setHoveredMessageId}
-                    setSelectedChatId={setSelectedChatId}
-                />
-            </div>
+        <PasswordGateway chatId={chatId}>
+            <div className="flex flex-col w-4/5 mx-auto h-full">
+                {/* Header section with sliding animation */}
+                <div className="flex-1 flex flex-col">
+                    <MessageList
+                        messages={messages}
+                        chat={chat}
+                        onRetryMessage={handleRetryMessage}
+                        onBranchFromMessage={handleBranchFromMessage}
+                        onPrefill={handlePrefill}
+                        onMessageHover={setHoveredMessageId}
+                        setSelectedChatId={setSelectedChatId}
+                        scrollToBottom={scrollToBottom}
+                    />
+                </div>
 
-            <div
-                className={`transition-all duration-300 ease-in-out ${showMessageInput ? "transform translate-y-0 opacity-100" : "transform translate-y-full opacity-0 pointer-events-none"}`}
-            >
-                <MessageInput
-                    message={messageInput}
-                    onMessageChange={setMessageInput}
-                    activeCommands={activeCommands}
-                    onCommandsChange={setActiveCommands}
-                    onSendMessage={(content, attachments, referencedArtifacts) =>
-                        void handleSendMessage(content, attachments, referencedArtifacts)
-                    }
-                    isStreaming={isStreaming}
-                    onStopStreaming={handleStopStreaming}
-                    selectedModel={selectedModel}
-                    onModelChange={(model) => void handleModelChange(model)}
-                    showMessageInput={showMessageInput}
-                    chatId={chatId}
-                />
+                {showMessageInput && (
+                    <MessageInput
+                        message={messageInput}
+                        onMessageChange={setMessageInput}
+                        activeCommands={activeCommands}
+                        onCommandsChange={setActiveCommands}
+                        onSendMessage={(
+                            content,
+                            attachments,
+                            referencedArtifacts
+                        ) =>
+                            void handleSendMessage(
+                                content,
+                                attachments,
+                                referencedArtifacts
+                            )
+                        }
+                        isStreaming={streamingMessage?.isStreaming || false}
+                        onStopStreaming={handleStopStreaming}
+                        selectedModel={selectedModel}
+                        onModelChange={(model) => void handleModelChange(model)}
+                        showMessageInput={showMessageInput}
+                        sidebarOpen={sidebarOpen}
+                        chatId={chatId}
+                    />
+                )}
             </div>
-        </div>
+        </PasswordGateway>
     );
 }

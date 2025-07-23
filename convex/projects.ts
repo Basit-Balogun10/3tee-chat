@@ -395,28 +395,73 @@ export const forkProject = mutation({
                 updatedAt: now,
                 isStarred: false,
                 parentChatId: chat._id,
+                // NEW BRANCHING SYSTEM FIELDS
+                baseMessages: [],
+                activeMessages: [],
             });
 
-            // Copy all messages
-            const messages = await ctx.db
-                .query("messages")
-                .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
-                .order("asc")
-                .collect();
+            // PHASE 1: Create main branch for forked chat
+            const mainBranchId = await ctx.db.insert("branches", {
+                chatId: forkedChatId,
+                fromMessageId: undefined,
+                messages: [],
+                isMain: true,
+                createdAt: now,
+                updatedAt: now,
+                branchName: "Main",
+                description: "Main conversation thread",
+            });
 
-            totalMessages += messages.length;
+            // FIX: Get messages through branches instead of old index
+            const activeBranchId = chat.activeBranchId;
+            if (!activeBranchId) continue;
 
-            for (const message of messages) {
-                await ctx.db.insert("messages", {
-                    chatId: forkedChatId,
+            const activeBranch = await ctx.db.get(activeBranchId);
+            if (!activeBranch) continue;
+
+            // Get messages from baseMessages + activeBranch.messages
+            const baseMessageIds = chat.baseMessages || [];
+            const branchMessageIds = activeBranch.messages || [];
+            const allMessageIds = [...baseMessageIds, ...branchMessageIds];
+
+            const messages = await Promise.all(
+                allMessageIds.map((messageId) => ctx.db.get(messageId))
+            );
+
+            const validMessages = messages
+                .filter((msg) => msg !== null)
+                .sort((a, b) => a.timestamp - b.timestamp);
+
+            totalMessages += validMessages.length;
+
+            // Copy messages to new branch
+            const copiedMessageIds = [];
+            for (const message of validMessages) {
+                const newMessageId = await ctx.db.insert("messages", {
+                    branchId: mainBranchId, // Messages belong to branches now
                     role: message.role,
                     content: message.content,
                     timestamp: message.timestamp,
                     model: message.model,
                     attachments: message.attachments,
                     metadata: message.metadata,
+                    branches: [mainBranchId],
+                    activeBranchId: mainBranchId,
                 });
+                copiedMessageIds.push(newMessageId);
             }
+
+            // Update branch with copied messages
+            await ctx.db.patch(mainBranchId, {
+                messages: copiedMessageIds,
+                updatedAt: now,
+            });
+
+            // Update chat with active branch and messages
+            await ctx.db.patch(forkedChatId, {
+                activeBranchId: mainBranchId,
+                activeMessages: copiedMessageIds,
+            });
         }
 
         return {
@@ -501,18 +546,44 @@ export const getProjectWithAllChats = query({
             .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
             .collect();
 
-        // Get messages for each chat
+        // Get messages for each chat using new branching system
         const chatsWithMessages = [];
         for (const chat of chats) {
-            const messages = await ctx.db
-                .query("messages")
-                .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
-                .order("asc")
-                .collect();
+            // FIX: Get messages through branches instead of old index
+            const activeBranchId = chat.activeBranchId;
+            if (!activeBranchId) {
+                chatsWithMessages.push({
+                    chat,
+                    messages: [],
+                });
+                continue;
+            }
+
+            const activeBranch = await ctx.db.get(activeBranchId);
+            if (!activeBranch) {
+                chatsWithMessages.push({
+                    chat,
+                    messages: [],
+                });
+                continue;
+            }
+
+            // Get messages from baseMessages + activeBranch.messages
+            const baseMessageIds = chat.baseMessages || [];
+            const branchMessageIds = activeBranch.messages || [];
+            const allMessageIds = [...baseMessageIds, ...branchMessageIds];
+
+            const messages = await Promise.all(
+                allMessageIds.map((messageId) => ctx.db.get(messageId))
+            );
+
+            const validMessages = messages
+                .filter((msg) => msg !== null)
+                .sort((a, b) => a.timestamp - b.timestamp);
 
             chatsWithMessages.push({
                 chat,
-                messages,
+                messages: validMessages,
             });
         }
 
@@ -564,21 +635,47 @@ export const getFullWorkspaceExport = query({
             .withIndex("by_user", (q) => q.eq("userId", userId))
             .collect();
 
-        // Get all messages for all chats
+        // Get all messages for all chats using new branching system
         const allMessages = [];
         const chatsWithMessages = [];
 
         for (const chat of chats) {
-            const messages = await ctx.db
-                .query("messages")
-                .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
-                .order("asc")
-                .collect();
+            // FIX: Get messages through branches instead of old index
+            const activeBranchId = chat.activeBranchId;
+            if (!activeBranchId) {
+                chatsWithMessages.push({
+                    chat,
+                    messages: [],
+                });
+                continue;
+            }
 
-            allMessages.push(...messages);
+            const activeBranch = await ctx.db.get(activeBranchId);
+            if (!activeBranch) {
+                chatsWithMessages.push({
+                    chat,
+                    messages: [],
+                });
+                continue;
+            }
+
+            // Get messages from baseMessages + activeBranch.messages
+            const baseMessageIds = chat.baseMessages || [];
+            const branchMessageIds = activeBranch.messages || [];
+            const allMessageIds = [...baseMessageIds, ...branchMessageIds];
+
+            const messages = await Promise.all(
+                allMessageIds.map((messageId) => ctx.db.get(messageId))
+            );
+
+            const validMessages = messages
+                .filter((msg) => msg !== null)
+                .sort((a, b) => a.timestamp - b.timestamp);
+
+            allMessages.push(...validMessages);
             chatsWithMessages.push({
                 chat,
-                messages,
+                messages: validMessages,
             });
         }
 

@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "./ui/button";
-import { Mic, MicOff, Square } from "lucide-react";
+import { Mic, Square } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -9,12 +9,21 @@ interface VoiceInputProps {
     onTranscription: (transcript: string) => void;
     isRecording: boolean;
     onRecordingChange: (recording: boolean) => void;
+    sendMessage: (transcription?: string) => void;
+}
+
+// Extend Window interface for webkit audio context
+declare global {
+    interface Window {
+        webkitAudioContext?: typeof AudioContext;
+    }
 }
 
 export function VoiceInput({
     onTranscription,
     isRecording,
     onRecordingChange,
+    sendMessage,
 }: VoiceInputProps) {
     const [isInitializing, setIsInitializing] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
@@ -37,99 +46,210 @@ export function VoiceInput({
 
         return {
             async requestPermission() {
-                stream = await navigator.mediaDevices.getUserMedia({
-                    audio: true,
-                });
-                streamRef.current = stream;
-                return stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            sampleRate: 16000,
+                            channelCount: 1,
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                        },
+                    });
+                    streamRef.current = stream;
+
+                    return stream;
+                } catch (error) {
+                    console.error(
+                        "❌ Failed to get microphone permission:",
+                        error
+                    );
+                    throw error;
+                }
             },
 
             async startRecording(onAudioCallback: (data: Uint8Array) => void) {
                 if (!stream) {
-                    stream = await navigator.mediaDevices.getUserMedia({
-                        audio: true,
-                    });
-                    streamRef.current = stream;
+                    stream = await this.requestPermission();
                 }
 
-                audioContext = new AudioContext({
-                    sampleRate: 16000,
-                    latencyHint: "balanced",
-                });
-                audioContextRef.current = audioContext;
+                try {
+                    audioContext = new AudioContext({
+                        sampleRate: 16000,
+                        latencyHint: "interactive",
+                    });
+                    audioContextRef.current = audioContext;
 
-                source = audioContext.createMediaStreamSource(stream);
+                    // Resume context if suspended
+                    if (audioContext.state === "suspended") {
+                        await audioContext.resume();
+                    }
 
-                // Create audio processor worklet inline (since we can't add external files easily)
-                const processorCode = `
-                    const MAX_16BIT_INT = 32767;
-                    
-                    class AudioProcessor extends AudioWorkletProcessor {
-                        process(inputs) {
-                            try {
-                                const input = inputs[0];
-                                if (!input) return true;
-                                
-                                const channelData = input[0];
-                                if (!channelData) return true;
-                                
-                                const floa3Tee2Array = Floa3Tee2Array.from(channelData);
-                                const int16Array = Int16Array.from(
-                                    floa3Tee2Array.map((n) => n * MAX_16BIT_INT)
-                                );
-                                const buffer = int16Array.buffer;
-                                this.port.postMessage({ audio_data: buffer });
-                                
-                                return true;
-                            } catch (error) {
-                                console.error('🎤 Audio processing error:', error);
-                                return false;
+                    // Wait for the audio context to be running
+                    if (audioContext.state !== "running") {
+                        await new Promise((resolve) => {
+                            const checkState = () => {
+                                if (audioContext!.state === "running") {
+                                    resolve(void 0);
+                                } else {
+                                    setTimeout(checkState, 10);
+                                }
+                            };
+                            checkState();
+                        });
+                    }
+
+                    source = audioContext.createMediaStreamSource(stream);
+
+                    // Fixed audio processor worklet code
+                    const processorCode = `
+                        const MAX_16BIT_INT = 32767;
+                        
+                        class AudioProcessor extends AudioWorkletProcessor {
+                            constructor() {
+                                super();
+                                this.chunkCount = 0;
+                            }
+                            
+                            process(inputs) {
+                                try {
+                                    const input = inputs[0];
+                                    if (!input || input.length === 0) {
+                                        return true;
+                                    }
+                                    
+                                    const channelData = input[0];
+                                    if (!channelData || channelData.length === 0) {
+                                        return true;
+                                    }
+                                    
+                                    // Fixed: Use Float32Array instead of typo "Floa3Tee2Array"
+                                    const float32Array = Float32Array.from(channelData);
+                                    const int16Array = Int16Array.from(
+                                        float32Array.map((n) => Math.max(-1, Math.min(1, n)) * MAX_16BIT_INT)
+                                    );
+                                    
+                                    this.chunkCount++;
+                                    
+                                    const buffer = int16Array.buffer;
+                                    this.port.postMessage({ audio_data: buffer });
+                                    
+                                    return true;
+                                } catch (error) {
+                                    console.error('🚨 Audio processing error:', error);
+                                    return false;
+                                }
                             }
                         }
+                        
+                        registerProcessor('audio-processor', AudioProcessor);
+                    `;
+
+                    const blob = new Blob([processorCode], {
+                        type: "application/javascript",
+                    });
+                    const workletUrl = URL.createObjectURL(blob);
+
+                    try {
+                        await audioContext.audioWorklet.addModule(workletUrl);
+                        console.log(
+                            "✅ Audio worklet module loaded successfully"
+                        );
+
+                        // Add a small delay to ensure the module is fully processed
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 100)
+                        );
+                    } catch (error) {
+                        console.error(
+                            "❌ Failed to add audio worklet module:",
+                            error
+                        );
+                        throw error;
+                    } finally {
+                        URL.revokeObjectURL(workletUrl);
                     }
-                    
-                    registerProcessor('audio-processor', AudioProcessor);
-                `;
 
-                const blob = new Blob([processorCode], {
-                    type: "application/javascript",
-                });
-                const workletUrl = URL.createObjectURL(blob);
+                    // Ensure audio context is still running before creating the node
+                    if (audioContext.state !== "running") {
+                        throw new Error("AudioContext is not in running state");
+                    }
 
-                await audioContext.audioWorklet.addModule(workletUrl);
-                URL.revokeObjectURL(workletUrl);
-
-                audioWorkletNode = new AudioWorkletNode(
-                    audioContext,
-                    "audio-processor"
-                );
-                source.connect(audioWorkletNode);
-                audioWorkletNode.connect(audioContext.destination);
-
-                audioWorkletNode.port.onmessage = (event) => {
-                    const currentBuffer = new Int16Array(event.data.audio_data);
-                    audioBufferQueue = this.mergeBuffers(
-                        audioBufferQueue,
-                        currentBuffer
+                    audioWorkletNode = new AudioWorkletNode(
+                        audioContext,
+                        "audio-processor"
                     );
 
-                    const bufferDuration =
-                        (audioBufferQueue.length / audioContext!.sampleRate) *
-                        1000;
+                    console.log("✅ AudioWorkletNode created successfully");
 
-                    if (bufferDuration >= 100) {
-                        const totalSamples = Math.floor(
-                            audioContext!.sampleRate * 0.1
-                        );
-                        const finalBuffer = new Uint8Array(
-                            audioBufferQueue.subarray(0, totalSamples).buffer
-                        );
-                        audioBufferQueue =
-                            audioBufferQueue.subarray(totalSamples);
+                    source.connect(audioWorkletNode);
+                    audioWorkletNode.connect(audioContext.destination);
 
-                        if (onAudioCallback) onAudioCallback(finalBuffer);
+                    audioWorkletNode.port.onmessage = (event) => {
+                        try {
+                            const currentBuffer = new Int16Array(
+                                event.data.audio_data
+                            );
+
+                            audioBufferQueue = this.mergeBuffers(
+                                audioBufferQueue,
+                                currentBuffer
+                            );
+
+                            const bufferDuration =
+                                (audioBufferQueue.length /
+                                    audioContext!.sampleRate) *
+                                1000;
+
+                            if (bufferDuration >= 100) {
+                                const totalSamples = Math.floor(
+                                    audioContext!.sampleRate * 0.1
+                                );
+                                const finalBuffer = new Uint8Array(
+                                    audioBufferQueue.subarray(
+                                        0,
+                                        totalSamples
+                                    ).buffer
+                                );
+                                audioBufferQueue =
+                                    audioBufferQueue.subarray(totalSamples);
+
+                                if (onAudioCallback) {
+                                    onAudioCallback(finalBuffer);
+                                }
+                            }
+                        } catch (error) {
+                            console.error(
+                                "🚨 Error processing audio message:",
+                                error
+                            );
+                        }
+                    };
+
+                    audioWorkletNode.port.onmessageerror = (error) => {
+                        console.error(
+                            "🚨 AudioWorkletNode message error:",
+                            error
+                        );
+                    };
+                } catch (error) {
+                    console.error("🚨 Error in startRecording:", error);
+                    // Clean up on error
+                    if (audioWorkletNode) {
+                        audioWorkletNode.disconnect();
+                        audioWorkletNode = null;
                     }
-                };
+                    if (source) {
+                        source.disconnect();
+                        source = null;
+                    }
+                    if (audioContext) {
+                        void audioContext.close();
+                        audioContext = null;
+                        audioContextRef.current = null;
+                    }
+                    throw error;
+                }
             },
 
             mergeBuffers(lhs: Int16Array, rhs: Int16Array): Int16Array {
@@ -140,16 +260,40 @@ export function VoiceInput({
             },
 
             stopRecording() {
+                if (audioWorkletNode) {
+                    audioWorkletNode.disconnect();
+                    audioWorkletNode = null;
+                }
+
+                if (source) {
+                    source.disconnect();
+                    source = null;
+                }
+
                 if (stream) {
-                    stream.getTracks().forEach((track) => track.stop());
+                    stream.getTracks().forEach((track) => {
+                        track.stop();
+                    });
                     stream = null;
                     streamRef.current = null;
                 }
+
                 if (audioContext) {
-                    audioContext.close();
+                    audioContext
+                        .close()
+                        .then(() => {
+                            console.log("✅ AudioContext closed successfully");
+                        })
+                        .catch((error) => {
+                            console.error(
+                                "❌ Error closing AudioContext:",
+                                error
+                            );
+                        });
                     audioContext = null;
                     audioContextRef.current = null;
                 }
+
                 audioBufferQueue = new Int16Array(0);
             },
         };
@@ -161,16 +305,67 @@ export function VoiceInput({
         if (!buzzWord) return false;
 
         const lowerTranscript = transcript.toLowerCase();
-        const words = lowerTranscript.split(/\s+/);
 
-        // Check if buzz word appears as a complete word (not part of another word)
-        return words.includes(buzzWord);
+        // Check if the buzzword appears as a substring in the transcript
+        const found = lowerTranscript.includes(buzzWord);
+
+        return found;
     };
 
-    const startRecording = async () => {
+    const stopRecording = useCallback(
+        (isCleanup: boolean = false) => {
+            setIsInitializing(false);
+            onRecordingChange(false);
+
+            // Close WebSocket
+            if (wsRef.current) {
+                if (wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ type: "Terminate" }));
+                }
+                wsRef.current.close();
+                wsRef.current = null;
+            }
+
+            // Stop microphone
+            if (microphoneRef.current) {
+                microphoneRef.current.stopRecording();
+                microphoneRef.current = null;
+            }
+
+            // Clean up audio context and stream
+            if (audioContextRef.current) {
+                void audioContextRef.current.close();
+                audioContextRef.current = null;
+            }
+
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach((track) => track.stop());
+                streamRef.current = null;
+            }
+
+            if (!isCleanup) {
+                toast.success("🎤 Voice recording stopped");
+            }
+        },
+        [onRecordingChange]
+    );
+
+    const startRecording = useCallback(async () => {
         try {
             setIsInitializing(true);
             toast.success("🎤 Starting voice recording...");
+
+            // Check browser support
+            if (
+                !navigator.mediaDevices ||
+                !navigator.mediaDevices.getUserMedia
+            ) {
+                throw new Error("getUserMedia not supported in this browser");
+            }
+
+            if (!window.AudioContext && !window.webkitAudioContext) {
+                throw new Error("Web Audio API not supported in this browser");
+            }
 
             // Create microphone
             const microphone = createMicrophone();
@@ -182,8 +377,6 @@ export function VoiceInput({
             // Get token from our Convex backend
             const convexUrl = import.meta.env.VITE_CONVEX_ACTIONS_URL;
             const tokenUrl = `${convexUrl}/api/assemblyai-token`;
-
-            console.log("🔑 Fetching token from:", tokenUrl);
 
             const tokenResponse = await fetch(tokenUrl, {
                 method: "GET",
@@ -205,6 +398,7 @@ export function VoiceInput({
             }
 
             const tokenData = await tokenResponse.json();
+
             if (tokenData.error || !tokenData.token) {
                 console.error("🚨 Token response error:", tokenData);
                 throw new Error(tokenData.error || "No token received");
@@ -212,13 +406,16 @@ export function VoiceInput({
 
             // Connect to AssemblyAI WebSocket
             const endpoint = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&formatted_finals=true&token=${tokenData.token}`;
+
             const ws = new WebSocket(endpoint);
             wsRef.current = ws;
 
             const turns: Record<number, string> = {};
 
             ws.onopen = () => {
-                console.log("🌐 WebSocket connected to AssemblyAI!");
+                console.log(
+                    "🌐 WebSocket connected to AssemblyAI successfully!"
+                );
                 const buzzMessage = buzzWord
                     ? `🎤 Listening... Say "${buzzWord}" to send automatically!`
                     : "🎤 Listening... Speak now!";
@@ -231,65 +428,85 @@ export function VoiceInput({
                 microphone.startRecording((audioChunk: Uint8Array) => {
                     if (ws.readyState === WebSocket.OPEN) {
                         ws.send(audioChunk);
+                    } else {
+                        console.warn(
+                            "⚠️ WebSocket not open, cannot send audio. State:",
+                            ws.readyState
+                        );
                     }
                 });
             };
 
             ws.onmessage = (event) => {
-                const msg = JSON.parse(event.data);
+                try {
+                    const msg = JSON.parse(event.data);
 
-                if (msg.type === "Turn") {
-                    const { turn_order, transcript } = msg;
+                    if (msg.type === "Turn") {
+                        const { turn_order, transcript } = msg;
+                        if (transcript && transcript.trim()) {
+                            turns[turn_order] = transcript;
 
-                    if (transcript && transcript.trim()) {
-                        turns[turn_order] = transcript;
+                            // Combine all turns in order for real-time streaming display
+                            const currentTranscript = Object.keys(turns)
+                                .sort((a, b) => Number(a) - Number(b))
+                                .map((k) => turns[Number(k)])
+                                .join(" ");
 
-                        // Combine all turns in order for real-time streaming display
-                        const currentTranscript = Object.keys(turns)
-                            .sort((a, b) => Number(a) - Number(b))
-                            .map((k) => turns[k])
-                            .join(" ");
-
-                        console.log("📝 Transcription:", transcript);
-
-                        // Send real-time updates to message input for streaming effect
-                        if (currentTranscript.trim()) {
-                            onTranscription(currentTranscript);
-                        }
-
-                        // Check for buzz word to auto-send
-                        if (buzzWord && checkForBuzzWord(currentTranscript)) {
                             console.log(
-                                `🎯 Buzz word "${buzzWord}" detected! Auto-sending message...`
-                            );
-                            toast.success(
-                                `🎯 "${buzzWord}" detected! Sending message...`
+                                "📝 Current full transcript:",
+                                currentTranscript
                             );
 
-                            // Remove the buzz word from the transcript before sending
-                            const cleanTranscript = currentTranscript
-                                .toLowerCase()
-                                .split(/\s+/)
-                                .filter((word) => word !== buzzWord)
-                                .join(" ")
-                                .trim();
+                            // Send real-time updates to message input for streaming effect
+                            if (currentTranscript.trim()) {
+                                onTranscription(currentTranscript);
+                            }
 
-                            // Update the final transcript and stop recording
-                            onTranscription(cleanTranscript);
-                            setTimeout(() => {
-                                stopRecording();
-                                // Trigger send message event
-                                const sendEvent = new CustomEvent(
-                                    "autoSendMessage"
+                            // Check for buzz word to auto-send
+                            if (
+                                buzzWord &&
+                                checkForBuzzWord(currentTranscript)
+                            ) {
+                                console.log(
+                                    `🎯 Buzz word "${buzzWord}" detected! Auto-sending message...`
                                 );
-                                document.dispatchEvent(sendEvent);
-                            }, 500); // Small delay to ensure transcript is updated
-                            return;
-                        }
+                                toast.success(
+                                    `🎯 "${buzzWord}" detected! Sending message...`
+                                );
 
-                        // Store for final cleanup
-                        finalTranscript = currentTranscript;
+                                // Remove the buzz word from the transcript before sending
+                                const cleanTranscript = currentTranscript
+                                    .toLowerCase()
+                                    .split(/\s+/)
+                                    .filter((word) => word !== buzzWord)
+                                    .join(" ")
+                                    .trim();
+
+                                console.log(
+                                    "🧹 Clean transcript (without buzz word):",
+                                    cleanTranscript
+                                );
+
+                                // Update the final transcript and stop recording
+                                onTranscription(cleanTranscript);
+                                setTimeout(() => {
+                                    stopRecording();
+
+                                    console.log('sending message: ', cleanTranscript)
+                                    sendMessage(cleanTranscript);
+                                }, 1000); // Small delay to ensure transcript is updated
+                                return;
+                            }
+
+                            // Store for final cleanup
+                            finalTranscript = currentTranscript;
+                        }
                     }
+                } catch (parseError) {
+                    console.error(
+                        "🚨 Failed to parse WebSocket message:",
+                        parseError
+                    );
                 }
 
                 // Store the websocket's final transcript reference
@@ -298,134 +515,102 @@ export function VoiceInput({
 
             ws.onerror = (error) => {
                 console.error("🚨 WebSocket error:", error);
+                console.error("🚨 WebSocket details:", {
+                    readyState: ws.readyState,
+                    url: ws.url,
+                    protocol: ws.protocol,
+                });
                 toast.error("🚨 Voice recognition error");
                 stopRecording();
             };
 
             ws.onclose = (event) => {
-                console.log(
-                    "🔌 WebSocket connection closed:",
-                    event.code,
-                    event.reason
-                );
+                console.log("🔌 WebSocket connection closed:", {
+                    code: event.code,
+                    reason: event.reason,
+                    wasClean: event.wasClean,
+                });
                 if (event.code !== 1000) {
                     // 1000 is normal closure
+                    console.warn("⚠️ WebSocket closed abnormally");
                     toast.error("🔌 Voice connection lost");
                 }
                 stopRecording();
             };
         } catch (error) {
-            console.error("🚨 Voice recording error:", error);
+            console.error("🚨 Voice recording setup error:", error);
             toast.error(
                 `🚨 Voice recording failed: ${error instanceof Error ? error.message : "Unknown error"}`
             );
             stopRecording();
         }
-    };
+    }, [stopRecording, onRecordingChange, onTranscription, buzzWord]);
 
-    const stopRecording = (isCleanup: boolean = false) => {
-        setIsInitializing(false);
-        onRecordingChange(false);
-
-        // Close WebSocket
-        if (wsRef.current) {
-            if (wsRef.current.readyState === WebSocket.OPEN) {
-                wsRef.current.send(JSON.stringify({ type: "Terminate" }));
-            }
-            wsRef.current.close();
-            wsRef.current = null;
-        }
-
-        // Stop microphone
-        if (microphoneRef.current) {
-            microphoneRef.current.stopRecording();
-            microphoneRef.current = null;
-        }
-
-        // Clean up audio context and stream
-        if (audioContextRef.current) {
-            audioContextRef.current.close();
-            audioContextRef.current = null;
-        }
-
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-            streamRef.current = null;
-        }
-
-        if (!isCleanup) {
-            toast.success("🎤 Voice recording stopped");
-        }
-    };
-
-    const handleToggleRecording = async () => {
-        if (isRecording || isInitializing) {
-            stopRecording();
-        } else {
-            await startRecording();
-        }
-    };
-
-    // Cleanup on unmount
+    // Clean up on unmount
     useEffect(() => {
         return () => {
             stopRecording(true);
         };
-    }, []);
+    }, [stopRecording]);
+
+    const toggleRecording = useCallback(() => {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            void startRecording();
+        }
+    }, [isRecording, stopRecording]);
 
     useEffect(() => {
-        document.addEventListener(
-            "toggleVoiceRecording",
-            handleToggleRecording
-        );
-        return () =>
+        document.addEventListener("toggleVoiceRecording", toggleRecording);
+
+        return () => {
             document.removeEventListener(
                 "toggleVoiceRecording",
-                handleToggleRecording
+                toggleRecording
             );
-    }, []);
-
-    const getButtonState = () => {
-        if (isInitializing) {
-            return {
-                icon: (
-                    <div className="w-4 h-4 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" />
-                ),
-                className:
-                    "bg-yellow-600/20 hover:bg-yellow-600/30 text-yellow-300",
-                title: "Initializing voice recording...",
-            };
-        }
-
-        if (isRecording) {
-            return {
-                icon: <Square className="w-4 h-4" />,
-                className:
-                    "bg-red-600/20 hover:bg-red-600/30 text-red-300 animate-pulse",
-                title: "Stop recording (voice is active)",
-            };
-        }
-
-        return {
-            icon: <Mic className="w-4 h-4" />,
-            className: "text-purple-400 hover:bg-purple-600/20",
-            title: "Start voice recording",
         };
+    }, [toggleRecording]);
+
+    const getButtonIcon = () => {
+        if (isInitializing) {
+            return (
+                <div className="w-4 h-4 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" />
+            );
+        }
+        if (isRecording) {
+            return <Square className="w-4 h-4" />;
+        }
+        return <Mic className="w-4 h-4" />;
     };
 
-    const buttonState = getButtonState();
+    const getButtonTitle = () => {
+        if (isInitializing) return "Setting up voice recording...";
+        if (isRecording) return "Stop voice recording";
+        const buzzMessage = buzzWord ? ` (say "${buzzWord}" to auto-send)` : "";
+        return `Start voice recording${buzzMessage}`;
+    };
 
     return (
         <Button
             type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleToggleRecording}
+            onClick={toggleRecording}
             disabled={isInitializing}
-            className={`h-8 w-8 p-0 transition-all duration-200 ${buttonState.className}`}
-            title={buttonState.title}
+            size="sm"
+            variant="ghost"
+            className={`h-8 ${isInitializing ? "w-auto px-3 gap-1" : "w-8 p-0"} ${
+                isRecording
+                    ? "text-red-400 bg-red-600/20 hover:bg-red-600/30"
+                    : "text-purple-400 bg-purple-600/20 hover:bg-purple-600/30"
+            } ${isInitializing ? "opacity-50 cursor-not-allowed" : ""}`}
+            title={getButtonTitle()}
         >
-            {buttonState.icon}
+            {getButtonIcon()}
+            {isInitializing && (
+                <span className="ml-2 text-xs font-medium">
+                    Initializing...
+                </span>
+            )}
         </Button>
     );
 }

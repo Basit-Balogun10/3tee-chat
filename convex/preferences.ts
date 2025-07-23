@@ -16,9 +16,10 @@ export const getUserPreferencesInternal = internalQuery({
 
         return (
             preferences || {
-                defaultModel: "gpt-4o-mini",
+                defaultModel: "gemini-2.0-flash",
                 theme: "dark",
                 localFirst: false,
+                chatTitleGeneration: "first-message", // Add default value
                 apiKeys: {},
                 apiKeyPreferences: {
                     openai: true,
@@ -29,10 +30,54 @@ export const getUserPreferencesInternal = internalQuery({
                 },
                 voiceSettings: {
                     autoPlay: false,
-                    voice: "alloy",
+                    voice: "aoede",
+                    language: "en-US",
                     speed: 1.0,
                     buzzWord: "",
                 },
+                // Default temporary chat settings - Phase 2
+                temporaryChatsSettings: {
+                    defaultToTemporary: false, // New chats are permanent by default
+                    defaultLifespanHours: 24, // 24 hour default lifespan
+                    showExpirationWarnings: true, // Show warnings before expiration
+                    autoCleanup: true, // Auto-delete expired temporary chats
+                },
+                // Default chat lifecycle settings - Phase 2
+                chatLifecycleSettings: {
+                    autoDeleteEnabled: false, // Disabled by default
+                    autoDeleteDays: 30, // 30 days default
+                    autoArchiveEnabled: false, // Disabled by default
+                    autoArchiveDays: 30, // 30 days default
+                },
+                // Default notification settings - Phase 2
+                notificationSettings: {
+                    soundEnabled: false, // Disabled by default
+                    soundOnlyWhenUnfocused: true, // Only when tab unfocused
+                    soundVolume: 0.5, // Medium volume
+                    soundType: "subtle", // Subtle notification sound
+                },
+                // Default AI settings - Phase 4
+                aiSettings: {
+                    temperature: 0.7,
+                    maxTokens: undefined,
+                    systemPrompt: "",
+                    responseMode: "balanced",
+                    promptEnhancement: false,
+                    contextWindow: undefined,
+                    topP: 0.9,
+                    frequencyPenalty: 0,
+                    presencePenalty: 0,
+                },
+                // Default password settings - Phase 6
+                passwordSettings: {
+                    defaultPasswordHash: undefined,
+                    defaultPasswordSalt: undefined,
+                    useDefaultPassword: false,
+                    sessionTimeoutEnabled: true,
+                    autoLockTimeout: 30,
+                    defaultLockNewChats: false,
+                },
+                customShortcuts: {},
             }
         );
     },
@@ -52,9 +97,10 @@ export const getUserPreferences = query({
 
         return (
             preferences || {
-                defaultModel: "gpt-4o-mini",
+                defaultModel: "gemini-2.0-flash",
                 theme: "dark",
                 localFirst: false,
+                chatTitleGeneration: "first-message", // Add default value
                 apiKeys: {},
                 apiKeyPreferences: {
                     openai: true,
@@ -65,10 +111,54 @@ export const getUserPreferences = query({
                 },
                 voiceSettings: {
                     autoPlay: false,
-                    voice: "alloy",
+                    voice: "aoede",
+                    language: "en-US",
                     speed: 1.0,
                     buzzWord: "",
                 },
+                // Default temporary chat settings - Phase 2
+                temporaryChatsSettings: {
+                    defaultToTemporary: false, // New chats are permanent by default
+                    defaultLifespanHours: 24, // 24 hour default lifespan
+                    showExpirationWarnings: true, // Show warnings before expiration
+                    autoCleanup: true, // Auto-delete expired temporary chats
+                },
+                // Default chat lifecycle settings - Phase 2
+                chatLifecycleSettings: {
+                    autoDeleteEnabled: false, // Disabled by default
+                    autoDeleteDays: 30, // 30 days default
+                    autoArchiveEnabled: false, // Disabled by default
+                    autoArchiveDays: 30, // 30 days default
+                },
+                // Default notification settings - Phase 2
+                notificationSettings: {
+                    soundEnabled: false, // Disabled by default
+                    soundOnlyWhenUnfocused: true, // Only when tab unfocused
+                    soundVolume: 0.5, // Medium volume
+                    soundType: "subtle", // Subtle notification sound
+                },
+                // Default AI settings - Phase 4
+                aiSettings: {
+                    temperature: 0.7,
+                    maxTokens: undefined,
+                    systemPrompt: "",
+                    responseMode: "balanced",
+                    promptEnhancement: false,
+                    contextWindow: undefined,
+                    topP: 0.9,
+                    frequencyPenalty: 0,
+                    presencePenalty: 0,
+                },
+                // Default password settings - Phase 6
+                passwordSettings: {
+                    defaultPasswordHash: undefined,
+                    defaultPasswordSalt: undefined,
+                    useDefaultPassword: false,
+                    sessionTimeoutEnabled: true,
+                    autoLockTimeout: 30,
+                    defaultLockNewChats: false,
+                },
+                customShortcuts: {},
             }
         );
     },
@@ -81,6 +171,9 @@ export const updatePreferences = mutation({
             v.union(v.literal("light"), v.literal("dark"), v.literal("system"))
         ),
         localFirst: v.optional(v.boolean()),
+        chatTitleGeneration: v.optional(
+            v.union(v.literal("first-message"), v.literal("ai-generated"))
+        ),
         apiKeys: v.optional(
             v.object({
                 openai: v.optional(v.string()),
@@ -105,6 +198,69 @@ export const updatePreferences = mutation({
                 voice: v.optional(v.string()),
                 speed: v.optional(v.number()),
                 buzzWord: v.optional(v.string()),
+                language: v.optional(v.string()),
+            })
+        ),
+        // Phase 2: Add temporary chats settings
+        temporaryChatsSettings: v.optional(
+            v.object({
+                defaultToTemporary: v.optional(v.boolean()),
+                defaultLifespanHours: v.optional(v.number()),
+                showExpirationWarnings: v.optional(v.boolean()),
+                autoCleanup: v.optional(v.boolean()),
+            })
+        ),
+        // Phase 2: Add chat lifecycle settings
+        chatLifecycleSettings: v.optional(
+            v.object({
+                autoDeleteEnabled: v.optional(v.boolean()),
+                autoDeleteDays: v.optional(v.number()),
+                autoArchiveEnabled: v.optional(v.boolean()),
+                autoArchiveDays: v.optional(v.number()),
+            })
+        ),
+        // Phase 2: Add notification settings
+        notificationSettings: v.optional(
+            v.object({
+                soundEnabled: v.optional(v.boolean()),
+                soundOnlyWhenUnfocused: v.optional(v.boolean()),
+                soundVolume: v.optional(v.number()),
+                soundType: v.optional(v.string()),
+            })
+        ),
+        // Phase 4: Add AI settings
+        aiSettings: v.optional(
+            v.object({
+                temperature: v.optional(v.number()),
+                maxTokens: v.optional(v.number()),
+                systemPrompt: v.optional(v.string()),
+                responseMode: v.optional(
+                    v.union(
+                        v.literal("balanced"),
+                        v.literal("concise"),
+                        v.literal("detailed"),
+                        v.literal("creative"),
+                        v.literal("analytical"),
+                        v.literal("friendly"),
+                        v.literal("professional")
+                    )
+                ),
+                promptEnhancement: v.optional(v.boolean()),
+                contextWindow: v.optional(v.number()),
+                topP: v.optional(v.number()),
+                frequencyPenalty: v.optional(v.number()),
+                presencePenalty: v.optional(v.number()),
+            })
+        ),
+        // Phase 6: Add password settings
+        passwordSettings: v.optional(
+            v.object({
+                defaultPasswordHash: v.optional(v.string()),
+                defaultPasswordSalt: v.optional(v.string()),
+                useDefaultPassword: v.optional(v.boolean()),
+                sessionTimeoutEnabled: v.optional(v.boolean()),
+                autoLockTimeout: v.optional(v.number()),
+                defaultLockNewChats: v.optional(v.boolean()),
             })
         ),
     },
@@ -160,15 +316,41 @@ export const getSelectedChatsData = query({
             const chat = await ctx.db.get(chatId);
             if (!chat || chat.userId !== userId) continue;
 
-            const messages = await ctx.db
-                .query("messages")
-                .withIndex("by_chat", (q) => q.eq("chatId", chatId))
-                .order("asc")
-                .collect();
+            // FIX: Get messages through branches instead of old index
+            const activeBranchId = chat.activeBranchId;
+            if (!activeBranchId) {
+                chatsData.push({
+                    chat,
+                    messages: [],
+                });
+                continue;
+            }
+
+            const activeBranch = await ctx.db.get(activeBranchId);
+            if (!activeBranch) {
+                chatsData.push({
+                    chat,
+                    messages: [],
+                });
+                continue;
+            }
+
+            // Get messages from baseMessages + activeBranch.messages
+            const baseMessageIds = chat.baseMessages || [];
+            const branchMessageIds = activeBranch.messages || [];
+            const allMessageIds = [...baseMessageIds, ...branchMessageIds];
+
+            const messages = await Promise.all(
+                allMessageIds.map((messageId) => ctx.db.get(messageId))
+            );
+
+            const validMessages = messages
+                .filter((msg) => msg !== null)
+                .sort((a, b) => a.timestamp - b.timestamp);
 
             chatsData.push({
                 chat,
-                messages,
+                messages: validMessages,
             });
         }
 
@@ -188,15 +370,21 @@ export const deleteAllUserChats = mutation({
             .withIndex("by_user", (q) => q.eq("userId", userId))
             .collect();
 
-        // Delete all messages for each chat
+        // FIX: Delete all messages through branches instead of old index
         for (const chat of chats) {
-            const messages = await ctx.db
-                .query("messages")
+            // Get all branches for this chat
+            const branches = await ctx.db
+                .query("branches")
                 .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
                 .collect();
 
-            for (const message of messages) {
-                await ctx.db.delete(message._id);
+            for (const branch of branches) {
+                // Delete all messages in this branch
+                for (const messageId of branch.messages) {
+                    await ctx.db.delete(messageId);
+                }
+                // Delete the branch itself
+                await ctx.db.delete(branch._id);
             }
 
             await ctx.db.delete(chat._id);
@@ -212,21 +400,27 @@ export const deleteUserAccount = mutation({
         const userId = await getAuthUserId(ctx);
         if (!userId) throw new Error("Not authenticated");
 
-        // Delete all user chats and messages (duplicate the logic instead of calling handler)
+        // Delete all user chats and messages using new branching system
         const chats = await ctx.db
             .query("chats")
             .withIndex("by_user", (q) => q.eq("userId", userId))
             .collect();
 
-        // Delete all messages for each chat
+        // FIX: Delete all messages through branches instead of old index
         for (const chat of chats) {
-            const messages = await ctx.db
-                .query("messages")
+            // Get all branches for this chat
+            const branches = await ctx.db
+                .query("branches")
                 .withIndex("by_chat", (q) => q.eq("chatId", chat._id))
                 .collect();
 
-            for (const message of messages) {
-                await ctx.db.delete(message._id);
+            for (const branch of branches) {
+                // Delete all messages in this branch
+                for (const messageId of branch.messages) {
+                    await ctx.db.delete(messageId);
+                }
+                // Delete the branch itself
+                await ctx.db.delete(branch._id);
             }
 
             await ctx.db.delete(chat._id);

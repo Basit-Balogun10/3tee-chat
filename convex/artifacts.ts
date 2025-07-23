@@ -1,5 +1,4 @@
 import { v } from "convex/values";
-import { Id } from "../../convex/_generated/dataModel";
 import {
     mutation,
     query,
@@ -431,12 +430,16 @@ export const updateProviderFileUsage = internalMutation({
             )
             .first();
 
-        if (!artifact?.providerFiles?.[args.provider]) {
+        if (
+            !artifact?.providerFiles?.[
+                args.provider as keyof typeof artifact.providerFiles
+            ]
+        ) {
             return;
         }
 
         const now = Date.now();
-        const currentProviderFiles = artifact.providerFiles;
+        const currentProviderFiles = artifact.providerFiles as any;
         const updatedProviderFiles = {
             ...currentProviderFiles,
             [args.provider]: {
@@ -456,7 +459,7 @@ export const updateProviderFileUsage = internalMutation({
 // Clean up expired provider files
 export const cleanupExpiredProviderFiles = internalMutation({
     args: {},
-    handler: async (ctx, args) => {
+    handler: async (ctx, _args) => {
         const now = Date.now();
         const artifacts = await ctx.db.query("artifacts").collect();
 
@@ -465,14 +468,17 @@ export const cleanupExpiredProviderFiles = internalMutation({
         for (const artifact of artifacts) {
             if (!artifact.providerFiles) continue;
 
-            const updatedProviderFiles = { ...artifact.providerFiles };
+            const updatedProviderFiles = { ...artifact.providerFiles } as any;
             let hasChanges = false;
 
             // Check each provider's file for expiration
             for (const [provider, fileInfo] of Object.entries(
                 updatedProviderFiles
             )) {
-                if (fileInfo?.expiresAt && fileInfo.expiresAt < now) {
+                if (
+                    (fileInfo as any)?.expiresAt &&
+                    (fileInfo as any).expiresAt < now
+                ) {
                     delete updatedProviderFiles[provider];
                     hasChanges = true;
                     cleanedCount++;
@@ -490,21 +496,5 @@ export const cleanupExpiredProviderFiles = internalMutation({
         }
 
         return { cleanedCount };
-    },
-});
-
-export const getUserArtifacts = query({
-    args: {},
-    handler: async (ctx) => {
-        const identity = await ctx.auth.getUserIdentity();
-        if (!identity) return [];
-
-        return await ctx.db
-            .query("artifacts")
-            .withIndex("by_user", (q) =>
-                q.eq("userId", identity.subject as Id<"users">)
-            )
-            .order("desc")
-            .collect();
     },
 });

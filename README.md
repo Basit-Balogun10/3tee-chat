@@ -10,9 +10,10 @@
 This isn't just another chat clone. This is a **feedback-driven, architecturally-sound chat ecosystem** built in **10 days** that runs on **web, desktop, and mobile** from a **single, reusable codebase**. It's powered by real community insights and built for the future of AI interaction.
 
 ### ✨ The Magic: ONE Codebase, EVERY Platform
+
 - 🌐 **Web**: Blazing fast SPA with glassmorphism UI
 - 💻 **Desktop**: Native Windows, MacOS, Linux apps via Tauri v2
-- 📱 **Mobile**: Native Android & iOS apps (same Tauri magic!)  
+- 📱 **Mobile**: Native Android & iOS apps (same Tauri magic!)
 - 🔄 **Realtime Sync**: Your chats, projects, and preferences everywhere, always thanks to Convex
 
 ---
@@ -20,6 +21,7 @@ This isn't just another chat clone. This is a **feedback-driven, architecturally
 ## 🌟 Noble Features That Will Blow Your Mind
 
 ### 🎮 **Core AI Capabilities**
+
 - **🤖 Multi-Provider AI Models**: Seamlessly switch between OpenAI, Google Gemini, Anthropic Claude, and OpenRouter models with intelligent fallbacks
 - **🎨 Image Generation**: Create stunning visuals with AI-powered image generation directly in chat conversations
 - **🎬 Video Generation**: Generate and preview video content using cutting-edge AI models (future-ready infrastructure)
@@ -28,21 +30,25 @@ This isn't just another chat clone. This is a **feedback-driven, architecturally
 - **🎤 Smart Voice Recording**: Record voice messages with real-time transcription and configurable "buzz words" to auto-send when you say specific phrases
 
 ### 🧠 **Advanced Conversation Management**
+
 - **🌿 Internal Message Branching**: Edit any message to create internal conversation branches - explore multiple pathways within a single conversation thread
 - **🍴 Project & Chat Forking**: Fork entire conversations or projects to experiment with different approaches without losing original context
 - **🗺️ Chat Navigation & Outline**: Visual conversation mapping with message threading, branch visualization, and easy navigation between conversation paths
 - **📁 Hierarchical Project Organization**: Organize chats into nested projects with beautiful color coding and drag-drop management
 
 ### 🎨 **Beautiful Interface & UX**
+
 - **✨ Glassmorphism Design**: Stunning frosted glass effects with backdrop blur, gradient borders, and ethereal aesthetics
 - **⌨️ Custom Keyboard Shortcuts**: Fully customizable shortcuts with auto-detection - press key combinations and they're automatically configured
 
 ### 🔄 **Export & Data Management**
+
 - **📊 Universal Export System**: Export individual chats, entire projects, or your complete workspace in multiple formats
 - **📝 Format Support**: JSON (structured data), Markdown (documentation), CSV (analytics), PDF (sharing), TXT (simple backup)
 - **🔗 Advanced Sharing**: Generate public read-only links, collaboration links, or embedded snippets with granular permission control
 
 ### 🛠 **Power User Features**
+
 - **🔑 BYOK (Bring Your Own Key)**: Total control with your own API keys for unlimited usage and privacy
 - **🚪 Guest Mode**: Zero-barrier entry - jump right in without registration for instant access
 - **💾 Resumable Streaming**: Continue AI responses exactly where they left off, even after browser refresh or connection drops
@@ -53,18 +59,23 @@ This isn't just another chat clone. This is a **feedback-driven, architecturally
 ## 📖 The Epic Journey: From Portfolio Dream to Cloneathon Victory
 
 ### 💡 **The Spark: An AI Portfolio Vision**
+
 My journey began with a personal mission: build an AI-powered portfolio to solve the "stateless resume" challenge and truly stand out in a competitive job market. Deep research into AI chat interfaces became my foundation.
 
 ### 👁️ **Theo's Feedback Call & The Pivot**
+
 Then I saw Theo's post seeking community feedback on **t3.chat**. He mentioned issues with AI tools analyzing replies. Recognizing a real-time problem I could tackle, I pivoted. I started scraping and analyzing **hundreds of replies** to provide clean, categorized insights.
 
 ### 👑 **The 3Tee Cloneathon Emerges**
+
 Mid-analysis, the **3Tee Cloneathon** was announced – perfect timing! It felt like destiny calling.
 
 ### 🤝 **Good Faith & The Main Quest**
+
 I completed the feedback analysis anyway and shared it with Theo via GitHub Gist oin his X's DM, as an act of good faith. With that done, the Cloneathon became the main quest: build the AI chat clone the community was actually asking for.
 
 ### 🏃‍♂️ **10 Days of Hyper-Development**
+
 An insane deadline fueled an adrenaline-driven sprint. Leveraging a reusable engine, Convex for backend, and Tauri for cross-platform magic, the vision rapidly materialized into this masterpiece.
 
 ---
@@ -74,8 +85,9 @@ An insane deadline fueled an adrenaline-driven sprint. Leveraging a reusable eng
 Built on a robust **PNPM monorepo** with a versatile "engine" of shared components. This isn't just an app; it's a platform I engineered for excellence.
 
 ### 🛠️ **Tech Stack**
+
 - **⚡ Vite**: Lightning-fast build tool with HMR
-- **⚛️ React 18**: Modern UI with concurrent features  
+- **⚛️ React 18**: Modern UI with concurrent features
 - **📘 TypeScript**: Strict type safety across the stack
 - **🎨 Tailwind CSS**: Utility-first styling with custom design system
 - **🗄️ Convex**: Real-time backend with optimistic updates
@@ -84,6 +96,7 @@ Built on a robust **PNPM monorepo** with a versatile "engine" of shared componen
 ### 🧠 **Smart Implementation Approaches**
 
 #### **AI Provider Strategy**
+
 - **Azure OpenAI**: Initially planned to use Azure's free credits for cost-effective inference, but hit quota request barriers in final days
 - **Fallback Strategy**: Implemented normal OpenAI SDK when users provide their own API keys for maximum flexibility
 - **Google Integration**: Used Vertex AI API with our Google Cloud project for free credits, but gracefully switches to standard Gemini API when users provide their own keys
@@ -91,12 +104,13 @@ Built on a robust **PNPM monorepo** with a versatile "engine" of shared componen
 - **OpenRouter Support**: Full integration for users who want access to additional models (user keys required due to cost considerations)
 
 ### 🌍 **Universal Deployment Architecture**
+
 ```
 📦 ONE Codebase → Multiple Targets
 ├── 🌐 Web App (Vercel deployment)
 ├── 💻 Desktop Apps (Tauri builds)
 │   ├── Windows (.exe installer)
-│   ├── MacOS (.dmg bundle)  
+│   ├── MacOS (.dmg bundle)
 │   └── Linux (.AppImage)
 ├── 📱 Mobile Apps (Tauri mobile)
 │   ├── Android (.apk)
@@ -105,7 +119,7 @@ Built on a robust **PNPM monorepo** with a versatile "engine" of shared componen
 ```
 
 ---
-  
+
 ## 🚀 **Getting Started**
 
 ### 📦 **Quick Setup**
@@ -166,6 +180,7 @@ pnpm tauri ios build
 ```
 
 **📋 Prerequisites for Mobile:**
+
 - **Android**: Android Studio with SDK tools installed
 - **iOS**: Xcode (macOS only) and iOS development certificates
 - **Both**: Rust toolchain with mobile targets added
@@ -202,7 +217,7 @@ DEEPSEEK_API_KEY=your-deepseek-key
 
 ---
 
-## 🎯 **Community-Driven Features** 
+## 🎯 **Community-Driven Features**
 
 These features came directly from analyzing **hundreds of community replies** on Theo's original post:
 
@@ -212,23 +227,28 @@ These features came directly from analyzing **hundreds of community replies** on
 ✅ **Better Error Handling**: Clean, user-friendly error messages with recovery suggestions  
 ✅ **Keyboard Navigation**: Full app control via customizable shortcuts  
 ✅ **Real Collaboration**: Multi-user sharing with permission levels  
-✅ **Source Citation**: Transparent AI reasoning with linked sources  
+✅ **Source Citation**: Transparent AI reasoning with linked sources
 
 ## 🎨 **Feature Showcase**
 
 ### **🎤 Smart Voice Recording**
+
 Record voice messages with real-time transcription. Configure custom "buzz words" like "send it" or "that's all" to automatically end recording and send to AI.
 
-### **🌿 Internal Conversation Branching** 
+### **🌿 Internal Conversation Branching**
+
 Edit any message in a conversation to create a new branch. Explore multiple conversation paths without losing context - like Git for conversations!
 
 ### **🔍 Live Web Search Integration**
+
 AI responses include real-time web search results with source citations. Ask about current events and get up-to-date information with transparency.
 
 ### **📊 Universal Export System**
+
 Export individual chats, entire projects, or your complete workspace. Supports JSON (data), Markdown (docs), CSV (analytics), PDF (sharing), and TXT (backup).
 
 ### **✨ Glassmorphism UI**
+
 Beautiful frosted glass effects with backdrop blur, gradient borders, and dynamic color systems that adapt to content and user preferences.
 
 ---
@@ -236,7 +256,7 @@ Beautiful frosted glass effects with backdrop blur, gradient borders, and dynami
 ## 🏅 **Hackathon Highlights**
 
 - ✅ **10-Day Development Sprint**: From concept to cross-platform reality
-- ✅ **Community Feedback Integration**: Built on real user insights from 200+ replies  
+- ✅ **Community Feedback Integration**: Built on real user insights from 200+ replies
 - ✅ **Cross-Platform Excellence**: One codebase, six deployment targets
 - ✅ **Advanced AI Features**: Voice, vision, search, branching, and collaboration
 

@@ -1,38 +1,32 @@
-import { Dispatch, SetStateAction, useState, useRef, useEffect } from "react";
-import { Id } from "../../convex/_generated/dataModel";
-import { AttachmentPreview } from "./AttachmentPreview";
-import { MarkdownRenderer } from "./MarkdownRenderer";
-import { StreamingMessage } from "./StreamingMessage";
-import { ScrollToBottom } from "./ScrollToBottom";
-import { MessageBranchNavigator } from "./MessageBranchNavigator";
-import { Button } from "./ui/button";
-import { useMutation } from "convex/react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
-import { LoadingPlaceholder } from "./LoadingPlaceholder";
-import { useResumableStreaming } from "../hooks/useResumableStreaming";
+import { Id } from "../../convex/_generated/dataModel";
 import {
-    Edit3,
-    Copy,
-    RotateCcw,
-    Check,
-    X,
-    GitBranch,
-    Mic,
-    Image,
-    ExternalLink,
-    Search,
-    ChevronDown,
-    ChevronRight,
-    Trash2,
     Clock,
+    Copy,
+    Edit3,
+    RotateCcw,
+    ChevronDown,
+    ChevronUp,
+    Trash2,
+    MoreVertical,
+    Link,
+    ExternalLink,
+    FileText,
+    Image,
     Video,
     Palette,
-    RefreshCw,
-    Wifi,
-    WifiOff,
-    FileText,
+    Trash,
 } from "lucide-react";
+import { Button } from "./ui/button";
+import { MarkdownRenderer } from "./MarkdownRenderer";
+import { AttachmentPreview } from "./AttachmentPreview";
+import { LoadingPlaceholder } from "./LoadingPlaceholder";
+import { MessageBranchNavigator } from "./MessageBranchNavigator";
+import { ModelSelector } from "./ModelSelector";
 import { toast } from "sonner";
+import { Dispatch, SetStateAction } from "react";
 
 interface Message {
     _id: Id<"messages">;
@@ -42,10 +36,22 @@ interface Message {
     model?: string;
     isStreaming?: boolean;
     attachments?: Array<{
-        type: "image" | "pdf" | "file" | "audio";
+        type: "image" | "pdf" | "file" | "audio" | "video";
         storageId: Id<"_storage">;
         name: string;
         size: number;
+    }>;
+    // Auto-populated artifacts from backend query
+    artifacts?: Array<{
+        _id: Id<"artifacts">;
+        artifactId: string;
+        filename: string;
+        language: string;
+        content: string;
+        description?: string;
+        isPreviewable?: boolean;
+        editCount?: number;
+        updatedAt: number;
     }>;
     metadata?: {
         // Updated to use new citations schema instead of searchResults
@@ -63,12 +69,8 @@ interface Message {
         structuredOutput?: boolean;
         canvasIntro?: string;
         canvasSummary?: string;
-        artifacts?: Array<{
-            id: string;
-            filename: string;
-            language: string;
-            description?: string;
-        }>;
+        // artifacts now contains array of artifact IDs (v.array(v.id("artifacts")))
+        artifacts?: Array<Id<"artifacts">>;
         audioTranscription?: string;
         videoPrompt?: string;
         generatedVideoUrl?: string;
@@ -76,36 +78,56 @@ interface Message {
         videoDuration?: string;
         videoResolution?: string;
     };
+    // Branch information (optional for now until fully implemented)
+    activeBranchId?: string;
 }
 
 interface MessageListProps {
     messages: Message[];
-    onEditMessage?: (
+    chat?: {
+        _id: Id<"chats">;
+        title: string;
+        model: string;
+        shareId?: string;
+        isPublic?: boolean;
+        sharePermissions?: string[];
+        shareExpiresAt?: number;
+    };
+    onRetryMessage?: (
         messageId: Id<"messages">,
-        newContent: string
+        model: string
     ) => Promise<void> | void;
-    onRetryMessage?: (messageId: Id<"messages">) => Promise<void> | void;
-    onBranchFromMessage?: (
+    onBranchFromMessage: (
         messageId: Id<"messages">,
         newContent: string
     ) => Promise<void> | void;
     onPrefill: (prompText: string) => void;
     onMessageHover?: (messageId: Id<"messages"> | null) => void;
     setSelectedChatId: Dispatch<SetStateAction<Id<"chats"> | null>>;
+    scrollToBottom: () => void;
 }
 
 export function MessageList({
     messages,
-    onEditMessage,
+    chat,
     onRetryMessage,
     onBranchFromMessage,
     onPrefill: _onPrefill,
     onMessageHover,
     setSelectedChatId,
+    scrollToBottom,
 }: MessageListProps) {
     const [editingMessageId, setEditingMessageId] =
         useState<Id<"messages"> | null>(null);
     const [editContent, setEditContent] = useState("");
+    const [_editAttachments, setEditAttachments] = useState<
+        Array<{
+            type: "image" | "pdf" | "file" | "audio" | "video";
+            storageId: Id<"_storage">;
+            name: string;
+            size: number;
+        }>
+    >();
     // Per-message render state instead of global
     const [messageRenderModes, setMessageRenderModes] = useState<
         Record<string, "rendered" | "raw">
@@ -115,47 +137,132 @@ export function MessageList({
     >(new Set());
     const [hoveredMessageId, setHoveredMessageId] =
         useState<Id<"messages"> | null>(null);
-    const [showRetryModels, setShowRetryModels] =
+    const [showRetryModelSelector, setShowRetryModelSelector] =
         useState<Id<"messages"> | null>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
+    const [showRetryDropdown, setShowRetryDropdown] =
+        useState<Id<"messages"> | null>(null);
+    const [showDeleteDropdown, setShowDeleteDropdown] =
+        useState<Id<"messages"> | null>(null);
+    const [showDeepLinkDropdown, setShowDeepLinkDropdown] =
+        useState<Id<"messages"> | null>(null);
+    const lastAiMessageRef = useRef<HTMLDivElement>(null);
 
     // Initialize mutations at the top level to avoid hooks order issues
     const deleteMessage = useMutation(api.messages.deleteMessage);
+    const deleteAllMessagesFromHere = useMutation(
+        api.messages.deleteAllMessagesFromHere
+    );
+    const editAssistantMessage = useMutation(api.messages.editAssistantMessage);
     const forkChat = useMutation(api.chats.forkChatFromMessage);
 
-    // Available models for retry
-    const availableModels = [
-        { id: "gpt-4o", name: "GPT-4o", provider: "OpenAI" },
-        { id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "OpenAI" },
-        { id: "gpt-4-turbo", name: "GPT-4 Turbo", provider: "OpenAI" },
-        { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", provider: "OpenAI" },
-        {
-            id: "gemini-1.5-pro",
-            name: "Gemini 1.5 Pro",
-            provider: "Google",
-        },
-        {
-            id: "gemini-1.5-flash",
-            name: "Gemini 1.5 Flash",
-            provider: "Google",
-        },
-        {
-            id: "claude-3-5-sonnet-20241022",
-            name: "Claude 3.5 Sonnet",
-            provider: "Anthropic",
-        },
-        {
-            id: "claude-3-5-haiku-20241022",
-            name: "Claude 3.5 Haiku",
-            provider: "Anthropic",
-        },
-        { id: "deepseek-chat", name: "DeepSeek Chat", provider: "DeepSeek" },
-        { id: "deepseek-coder", name: "DeepSeek Coder", provider: "DeepSeek" },
-    ];
+    const lastAiMessage = useMemo(() => {
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === "assistant") {
+                return messages[i];
+            }
+        }
+        return null;
+    }, [messages]);
 
-    // Extract last message content to satisfy React Hook dependency array requirements
-    const lastMessageContent =
-        messages.length > 0 ? messages[messages.length - 1]?.content : "";
+    // Find the currently streaming message
+    const streamingMessage = useMemo(() => {
+        return messages.find((message) => message.isStreaming);
+    }, [messages]);
+
+    // Smart scroll function - scroll to streaming message or bottom with proper offset
+    const smartScroll = useCallback(() => {
+        if (streamingMessage) {
+            // Check if streaming message is the last message
+            const isLastMessage =
+                messages[messages.length - 1]?._id === streamingMessage._id;
+
+            // If it's the last message, use regular scrollToBottom (it has proper padding)
+            if (isLastMessage) {
+                scrollToBottom();
+                return;
+            }
+
+            // For non-last streaming messages, scroll to the end of the element + offset
+            const streamingElement = document.querySelector(
+                `[data-message-id="${streamingMessage._id}"]`
+            );
+            if (streamingElement) {
+                // Get the bottom position of the streaming element
+                const elementRect = streamingElement.getBoundingClientRect();
+                const scrollTop =
+                    window.pageYOffset || document.documentElement.scrollTop;
+                const elementBottomAbsolute = elementRect.bottom + scrollTop;
+
+                // Calculate where we want the element's bottom to be positioned
+                // We want it to be visible above the MessageInput (140px offset)
+                const messageInputOffset = 140;
+                const targetViewportPosition =
+                    window.innerHeight - messageInputOffset;
+
+                // Calculate how much we need to scroll to position the element's bottom at the target
+                const targetScrollPosition =
+                    elementBottomAbsolute - targetViewportPosition;
+
+                window.scrollTo({
+                    top: Math.max(0, targetScrollPosition),
+                    behavior: "smooth",
+                });
+                return;
+            }
+        }
+    }, [streamingMessage, messages, scrollToBottom]);
+
+    // Function to scroll to the end of any message (for keyboard shortcut)
+    const scrollToMessageEnd = useCallback((messageId: Id<"messages">) => {
+        const messageElement = document.querySelector(
+            `[data-message-id="${messageId}"]`
+        );
+        console.log("Scrolling to message end: ", messageElement);
+        if (messageElement) {
+            const elementRect = messageElement.getBoundingClientRect();
+            const scrollTop =
+                window.pageYOffset || document.documentElement.scrollTop;
+            const elementBottomAbsolute = elementRect.bottom + scrollTop;
+
+            // Position the bottom of the message comfortably above the MessageInput
+            const messageInputOffset = 140;
+            const targetViewportPosition =
+                window.innerHeight - messageInputOffset;
+            const targetScrollPosition =
+                elementBottomAbsolute - targetViewportPosition;
+
+            console.log(
+                "Scrolling to: ",
+                window.innerHeight,
+                messageInputOffset,
+                targetViewportPosition,
+                elementBottomAbsolute,
+                targetScrollPosition
+            );
+
+            window.scrollTo({
+                top: Math.max(0, targetScrollPosition),
+                behavior: "smooth",
+            });
+        }
+    }, []);
+
+    // Initial scroll to bottom when messages first load
+    useEffect(() => {
+        if (messages.length > 0) {
+            // Small delay to ensure DOM is updated
+            setTimeout(() => {
+                scrollToBottom();
+            }, 100);
+        }
+    }, [messages.length, scrollToBottom]); // Only trigger when messages go from 0 to some, or length changes
+
+    useEffect(() => {
+        // Only trigger smart scroll when actively streaming
+        if (streamingMessage?.isStreaming) {
+            smartScroll();
+        }
+    }, [smartScroll, streamingMessage?.isStreaming]);
 
     // Toggle render mode for a specific message
     const toggleMessageRenderMode = (messageId: string) => {
@@ -203,41 +310,6 @@ export function MessageList({
         }
     };
 
-    // Improved auto-scroll logic
-    useEffect(() => {
-        if (containerRef.current && messages.length > 0) {
-            const container = containerRef.current;
-            const { scrollHeight, clientHeight, scrollTop } = container;
-
-            // Always scroll to bottom on initial load or when switching chats
-            // Check if we're near the bottom (within 150px) or if it's the first render
-            const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-            const shouldAutoScroll = isNearBottom || scrollTop === 0;
-
-            if (shouldAutoScroll) {
-                // Use requestAnimationFrame to ensure DOM is updated
-                requestAnimationFrame(() => {
-                    if (containerRef.current) {
-                        containerRef.current.scrollTo({
-                            top: containerRef.current.scrollHeight,
-                            behavior: scrollTop === 0 ? "instant" : "smooth",
-                        });
-                    }
-                });
-            }
-        }
-    }, [messages.length, lastMessageContent]);
-
-    // Force scroll to bottom when component mounts or chat changes
-    useEffect(() => {
-        if (containerRef.current) {
-            containerRef.current.scrollTo({
-                top: containerRef.current.scrollHeight,
-                behavior: "instant",
-            });
-        }
-    }, []);
-
     // Listen for keyboard shortcut events
     useEffect(() => {
         const handleEditMessage = (e: CustomEvent) => {
@@ -250,16 +322,31 @@ export function MessageList({
 
         const handleForkFromMessage = (e: CustomEvent) => {
             const { messageId } = e.detail;
-
             void handleForkChat(messageId);
         };
 
-        const handleRetryMessage = (e: CustomEvent) => {
+        const handleRetryMessageWithSameModel = (e: CustomEvent) => {
             const { messageId } = e.detail;
+            const message = messages.find((m) => m._id === messageId);
+            if (message && message.role === "assistant" && onRetryMessage) {
+                // Retry with the same model directly
+                void onRetryMessage(
+                    messageId,
+                    message.model || "gemini-2.0-flash"
+                );
+                toast.success(
+                    `Retrying with ${message.model || "gemini-2.0-flash"}`
+                );
+            }
+        };
 
-            setShowRetryModels(
-                showRetryModels === messageId ? null : messageId
-            );
+        const handleRetryMessageWithDifferentModel = (e: CustomEvent) => {
+            const { messageId } = e.detail;
+            const message = messages.find((m) => m._id === messageId);
+            if (message && message.role === "assistant") {
+                // Open model selector directly for choosing different model
+                setShowRetryModelSelector(messageId);
+            }
         };
 
         const handleNavigateBranch = (e: CustomEvent) => {
@@ -275,6 +362,43 @@ export function MessageList({
             }
         };
 
+        const handleCollapseMessage = (e: CustomEvent) => {
+            const { messageId } = e.detail;
+            // Dedicated collapse function
+            setCollapsedMessages((prev) => {
+                const newCollapsed = new Set(prev);
+                newCollapsed.add(messageId);
+                return newCollapsed;
+            });
+        };
+
+        const handleExpandMessage = (e: CustomEvent) => {
+            const { messageId } = e.detail;
+            // Dedicated expand function
+            setCollapsedMessages((prev) => {
+                const newCollapsed = new Set(prev);
+                newCollapsed.delete(messageId);
+                return newCollapsed;
+            });
+        };
+
+        const handleScrollToMessageEnd = (e: CustomEvent) => {
+            console.log("scrollToMessageEnd event received");
+            const { messageId } = e.detail;
+            scrollToMessageEnd(messageId);
+        };
+
+        // Enhanced Deep Link Keyboard Shortcuts
+        const handleCopyDirectMessageLink = (e: CustomEvent) => {
+            const { messageId } = e.detail;
+            void handleCopyMessageLink(messageId);
+        };
+
+        const handleCreateSharedMessageLink = (e: CustomEvent) => {
+            const { messageId } = e.detail;
+            void handleCreateSharedMessageLink(messageId);
+        };
+
         document.addEventListener(
             "editMessage",
             handleEditMessage as EventListener
@@ -284,12 +408,36 @@ export function MessageList({
             handleForkFromMessage as EventListener
         );
         document.addEventListener(
-            "retryMessage",
-            handleRetryMessage as EventListener
+            "retryMessageWithSameModel",
+            handleRetryMessageWithSameModel as EventListener
+        );
+        document.addEventListener(
+            "retryMessageWithDifferentModel",
+            handleRetryMessageWithDifferentModel as EventListener
         );
         document.addEventListener(
             "navigateBranch",
             handleNavigateBranch as EventListener
+        );
+        document.addEventListener(
+            "collapseMessage",
+            handleCollapseMessage as EventListener
+        );
+        document.addEventListener(
+            "expandMessage",
+            handleExpandMessage as EventListener
+        );
+        document.addEventListener(
+            "scrollToMessageEnd",
+            handleScrollToMessageEnd as EventListener
+        );
+        document.addEventListener(
+            "copyDirectMessageLink",
+            handleCopyDirectMessageLink as EventListener
+        );
+        document.addEventListener(
+            "createSharedMessageLink",
+            handleCreateSharedMessageLink as EventListener
         );
 
         return () => {
@@ -302,32 +450,80 @@ export function MessageList({
                 handleForkFromMessage as EventListener
             );
             document.removeEventListener(
-                "retryMessage",
-                handleRetryMessage as EventListener
+                "retryMessageWithSameModel",
+                handleRetryMessageWithSameModel as EventListener
+            );
+            document.removeEventListener(
+                "retryMessageWithDifferentModel",
+                handleRetryMessageWithDifferentModel as EventListener
             );
             document.removeEventListener(
                 "navigateBranch",
                 handleNavigateBranch as EventListener
             );
+            document.removeEventListener(
+                "collapseMessage",
+                handleCollapseMessage as EventListener
+            );
+            document.removeEventListener(
+                "expandMessage",
+                handleExpandMessage as EventListener
+            );
+            document.removeEventListener(
+                "scrollToMessageEnd",
+                handleScrollToMessageEnd as EventListener
+            );
+            document.removeEventListener(
+                "copyDirectMessageLink",
+                handleCopyDirectMessageLink as EventListener
+            );
+            document.removeEventListener(
+                "createSharedMessageLink",
+                handleCreateSharedMessageLink as EventListener
+            );
         };
-    }, [messages, onBranchFromMessage, handleForkChat, showRetryModels]);
+    }, [messages, onBranchFromMessage, handleForkChat, onRetryMessage]);
 
     const handleEdit = (message: Message) => {
         setEditingMessageId(message._id);
         setEditContent(message.content);
+        // Initialize edit attachments with existing message attachments
+        setEditAttachments(message.attachments || []);
+
+        // Log edit initiation
+        console.log("✏️ EDIT INITIATED:", {
+            messageId: message._id,
+            originalContent: message.content.substring(0, 50) + "...",
+            role: message.role,
+            attachmentsCount: (message.attachments || []).length,
+            timestamp: new Date().toISOString(),
+        });
     };
 
-    const handleSaveEdit = (createBranch = false) => {
+    const handleSaveEdit = async (isAssistantMessage = false) => {
         if (editingMessageId && editContent.trim()) {
-            if (createBranch && onBranchFromMessage) {
+            const message = messages.find((m) => m._id === editingMessageId);
+
+            if (message?.role === "assistant" || isAssistantMessage) {
+                // Direct edit for AI messages (like Google AI Studio)
+                try {
+                    await editAssistantMessage({
+                        messageId: editingMessageId,
+                        newContent: editContent,
+                    });
+                    toast.success("AI message updated successfully");
+                    setEditingMessageId(null);
+                    setEditContent("");
+                } catch {
+                    toast.error("Failed to update AI message");
+                }
+            } else {
+                // Branch creation for user messages (existing behavior)
                 void onBranchFromMessage(editingMessageId, editContent);
                 toast.success("Created new conversation branch");
-            } else if (onEditMessage) {
-                void onEditMessage(editingMessageId, editContent);
-                toast.success("Message updated");
+                setEditingMessageId(null);
+                setEditContent("");
             }
-            setEditingMessageId(null);
-            setEditContent("");
         }
     };
 
@@ -353,6 +549,187 @@ export function MessageList({
             toast.error("Failed to copy to clipboard");
         }
     };
+
+    // Enhanced Deep Link Handlers with Branch Support and Sharing Integration
+    const handleCopyMessageLink = async (messageId: Id<"messages">) => {
+        try {
+            const currentUrl = new URL(window.location.href);
+            const message = messages.find((m) => m._id === messageId);
+
+            if (!message) {
+                toast.error("Message not found");
+                return;
+            }
+
+            // Create simplified deep link format: m=messageId&b=branchId
+            let deepLinkHash = `m=${messageId}`;
+
+            // Add branch info using existing branching system
+            if (message.activeBranchId) {
+                deepLinkHash += `&b=${message.activeBranchId}`;
+            }
+
+            // Direct chat link with deep link
+            currentUrl.hash = deepLinkHash;
+            await navigator.clipboard.writeText(currentUrl.toString());
+            toast.success("Message link copied to clipboard!");
+        } catch {
+            toast.error("Failed to copy message link");
+        }
+    };
+
+    const handleCreateSharedMessageLink = async (messageId: Id<"messages">) => {
+        try {
+            const message = messages.find((m) => m._id === messageId);
+            if (!message) {
+                toast.error("Message not found");
+                return;
+            }
+
+            // Create simplified deep link format: m=messageId&b=branchId
+            let deepLinkHash = `m=${messageId}`;
+            if (message.activeBranchId) {
+                deepLinkHash += `&b=${message.activeBranchId}`;
+            }
+
+            if (chat) {
+                if (chat.shareId && chat.isPublic) {
+                    // Chat is already shared - create the link directly
+                    const shareUrl = `${window.location.origin}/shared/chat/${chat.shareId}#${deepLinkHash}`;
+
+                    await navigator.clipboard.writeText(shareUrl);
+                    toast.success("Shared message link copied to clipboard!");
+                } else {
+                    // Chat not shared yet - trigger ShareModal with message context
+                    const shareModalEvent = new CustomEvent(
+                        "openShareModalWithMessage",
+                        {
+                            detail: {
+                                chatId: chat._id,
+                                messageId,
+                                deepLinkHash,
+                                reason: "Create shared link to this specific message",
+                            },
+                        }
+                    );
+                    document.dispatchEvent(shareModalEvent);
+                }
+            }
+        } catch (error) {
+            console.error("Failed to create shared message link:", error);
+            toast.error("Failed to create shared message link");
+        }
+    };
+
+    // Handle deep link navigation on component mount
+    useEffect(() => {
+        const handleDeepLink = () => {
+            const hash = window.location.hash;
+            if (hash.startsWith("#m=")) {
+                // Parse simplified deep link format: #m=messageId&b=branchId
+                const params = new URLSearchParams(hash.substring(1)); // Remove '#'
+                const messageId = params.get("m");
+                const branchId = params.get("b");
+
+                if (!messageId) return;
+
+                const targetMessage = messages.find((m) => m._id === messageId);
+
+                if (targetMessage) {
+                    // Check if we need to switch branches first
+                    if (branchId && targetMessage.activeBranchId !== branchId) {
+                        // TODO: Switch to the specified branch before scrolling
+                        console.log(
+                            `Switching to branch ${branchId} for message ${messageId}`
+                        );
+                        // For now, we'll scroll to the message even if branch doesn't match
+                    }
+
+                    // Message found - scroll to it with enhanced highlighting
+                    setTimeout(() => {
+                        const messageElement = document.querySelector(
+                            `[data-message-id="${messageId}"]`
+                        );
+                        if (messageElement) {
+                            messageElement.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                            });
+
+                            // Enhanced purple glow animation matching our theme
+                            messageElement.classList.add(
+                                "ring-4",
+                                "ring-purple-400",
+                                "ring-opacity-70",
+                                "shadow-2xl",
+                                "shadow-purple-400/50",
+                                "transition-all",
+                                "duration-1000"
+                            );
+
+                            // Add pulsing animation
+                            messageElement.style.animation =
+                                "deep-link-highlight 3s ease-in-out";
+
+                            setTimeout(() => {
+                                messageElement.classList.remove(
+                                    "ring-4",
+                                    "ring-purple-400",
+                                    "ring-opacity-70",
+                                    "shadow-2xl",
+                                    "shadow-purple-400/50"
+                                );
+                                messageElement.style.animation = "";
+                            }, 4000);
+
+                            // Show success toast
+                            toast.success("Navigated to linked message", {
+                                description: branchId
+                                    ? `Branch: ${branchId}`
+                                    : undefined,
+                                duration: 3000,
+                            });
+                        }
+                    }, 500); // Allow time for messages to render
+                } else {
+                    // Message not found - show appropriate error
+                    const isValidMessageId = messageId.length > 10; // Basic validation
+
+                    if (isValidMessageId) {
+                        // Valid ID format but message doesn't exist
+                        toast.error("Message not found", {
+                            description:
+                                "The linked message may have been deleted or is not accessible in this conversation.",
+                            duration: 5000,
+                        });
+                    } else {
+                        // Invalid message ID format
+                        toast.error("Invalid message link", {
+                            description:
+                                "The message link appears to be corrupted or invalid.",
+                            duration: 5000,
+                        });
+                    }
+
+                    // Clear the invalid hash
+                    window.history.replaceState(
+                        null,
+                        "",
+                        window.location.pathname
+                    );
+                }
+            }
+        };
+
+        // Handle initial deep link
+        if (messages.length > 0) {
+            handleDeepLink();
+        }
+
+        // Handle hash changes (for SPA navigation)
+        window.addEventListener("hashchange", handleDeepLink);
+        return () => window.removeEventListener("hashchange", handleDeepLink);
+    }, [messages]);
 
     const toggleMessageCollapse = (messageId: Id<"messages">) => {
         const newCollapsed = new Set(collapsedMessages);
@@ -381,207 +758,282 @@ export function MessageList({
                 )}
  */}
                 {/* Generated image display */}
-                // Replace the existing image/video metadata rendering with loading-aware versions:
+                {/* Replace the existing image/video metadata rendering with
+                loading-aware versions: */}
+                {/* Generated image display with loading state */}
+                {message.metadata.imagePrompt && (
+                    <div className="my-4">
+                        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
+                            <Image className="w-4 h-4" />
+                            Generated image: "{message.metadata.imagePrompt}"
+                        </div>
 
-{/* Generated image display with loading state */}
-{message.metadata.imagePrompt && (
-    <div className="my-4">
-        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
-            <Image className="w-4 h-4" />
-            Generated image: "{message.metadata.imagePrompt}"
-        </div>
-        
-        {message.metadata.generatedImageUrl ? (
-            // Show actual image
-            <div className="relative group">
-                <img
-                    src={message.metadata.generatedImageUrl}
-                    alt={message.metadata.imagePrompt}
-                    className="max-w-md w-full rounded-lg shadow-lg transition-transform group-hover:scale-105"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg" />
-                <Button
-                    size="sm"
-                    variant="secondary"
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => window.open(message.metadata?.generatedImageUrl, "_blank")}
-                >
-                    <ExternalLink className="w-4 h-4" />
-                </Button>
-            </div>
-        ) : (
-            // Show loading placeholder
-            <LoadingPlaceholder 
-                type="image" 
-                prompt={message.metadata.imagePrompt}
-                className="my-2"
-            />
-        )}
-    </div>
-)}
-
-{/* Generated video display with loading state */}
-{message.metadata.videoPrompt && (
-    <div className="my-4">
-        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
-            <Video className="w-4 h-4" />
-            Generated video: "{message.metadata.videoPrompt}"
-        </div>
-        
-        {message.metadata.generatedVideoUrl ? (
-            // Show actual video
-            <div className="relative group">
-                <video
-                    src={message.metadata.generatedVideoUrl}
-                    poster={message.metadata.videoThumbnailUrl}
-                    controls
-                    className="max-w-md w-full rounded-lg shadow-lg"
-                    preload="metadata"
-                >
-                    Your browser does not support the video tag.
-                </video>
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg pointer-events-none" />
-                <Button
-                    size="sm"
-                    variant="secondary"
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => window.open(message.metadata?.generatedVideoUrl, "_blank")}
-                >
-                    <ExternalLink className="w-4 h-4" />
-                </Button>
-                {/* Video metadata overlay */}
-                {(message.metadata.videoDuration || message.metadata.videoResolution) && (
-                    <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
-                        {message.metadata.videoDuration && <span>{message.metadata.videoDuration}</span>}
-                        {message.metadata.videoDuration && message.metadata.videoResolution && (
-                            <span className="mx-1">•</span>
+                        {message.metadata.generatedImageUrl ? (
+                            // Show actual image
+                            <div className="relative group">
+                                <img
+                                    src={message.metadata.generatedImageUrl}
+                                    alt={message.metadata.imagePrompt}
+                                    className="max-w-md w-full rounded-lg shadow-lg transition-transform group-hover:scale-105"
+                                />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg" />
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() =>
+                                        window.open(
+                                            message.metadata?.generatedImageUrl,
+                                            "_blank"
+                                        )
+                                    }
+                                >
+                                    <ExternalLink className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        ) : (
+                            // Show loading placeholder
+                            <LoadingPlaceholder
+                                type="image"
+                                prompt={message.metadata.imagePrompt}
+                                className="my-2"
+                            />
                         )}
-                        {message.metadata.videoResolution && <span>{message.metadata.videoResolution}</span>}
                     </div>
                 )}
-            </div>
-        ) : (
-            // Show loading placeholder
-            <LoadingPlaceholder 
-                type="video" 
-                prompt={message.metadata.videoPrompt}
-                className="my-2"
-            />
-        )}
-    </div>
-)}
-                {/* Canvas Artifacts Display - REPLACE EXISTING PLACEHOLDER */}
-{message.metadata?.structuredOutput && message.metadata?.artifacts && (
-    <div className="mt-4 p-4 bg-gradient-to-br from-blue-600/10 to-purple-600/10 rounded-lg border border-blue-600/20">
-        {/* Canvas Intro */}
-        {message.metadata.canvasIntro && (
-            <div className="mb-4">
-                <MarkdownRenderer 
-                    content={message.metadata.canvasIntro} 
-                    className="text-blue-100" 
-                />
-            </div>
-        )}
-
-        {/* Artifacts List */}
-        <div className="space-y-3">
-            <div className="flex items-center gap-2 text-blue-200">
-                <Palette className="w-5 h-5" />
-                <h4 className="font-medium">Created Artifacts</h4>
-                <span className="text-xs bg-blue-600/20 px-2 py-1 rounded">
-                    {message.metadata.artifacts.length} files
-                </span>
-            </div>
-            
-            {message.metadata.artifacts.map((artifact: any) => (
-                <div 
-                    key={artifact.id}
-                    className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-blue-600/10 hover:border-blue-600/30 transition-colors group cursor-pointer"
-                    onClick={() => {
-                        // Open artifact in Canvas - dispatch event for parent to handle
-                        const event = new CustomEvent('openArtifact', { 
-                            detail: { artifactId: artifact.id } 
-                        });
-                        document.dispatchEvent(event);
-                    }}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center">
-                            <FileText className="w-4 h-4 text-blue-400" />
+                {/* Generated video display with loading state */}
+                {message.metadata.videoPrompt && (
+                    <div className="my-4">
+                        <div className="text-sm text-purple-400 mb-2 flex items-center gap-2">
+                            <Video className="w-4 h-4" />
+                            Generated video: "{message.metadata.videoPrompt}"
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <span className="font-medium text-blue-100">
-                                    {artifact.filename}
-                                </span>
-                                <span className="text-xs bg-blue-600/20 px-2 py-1 rounded text-blue-300">
-                                    {artifact.language}
-                                </span>
+
+                        {message.metadata.generatedVideoUrl ? (
+                            // Show actual video
+                            <div className="relative group">
+                                <video
+                                    src={message.metadata.generatedVideoUrl}
+                                    poster={message.metadata.videoThumbnailUrl}
+                                    controls
+                                    className="max-w-md w-full rounded-lg shadow-lg"
+                                    preload="metadata"
+                                >
+                                    Your browser does not support the video tag.
+                                </video>
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-lg pointer-events-none" />
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    onClick={() =>
+                                        window.open(
+                                            message.metadata?.generatedVideoUrl,
+                                            "_blank"
+                                        )
+                                    }
+                                >
+                                    <ExternalLink className="w-4 h-4" />
+                                </Button>
+                                {/* Video metadata overlay */}
+                                {(message.metadata.videoDuration ||
+                                    message.metadata.videoResolution) && (
+                                    <div className="absolute bottom-2 left-2 bg-black/80 text-white text-xs px-2 py-1 rounded">
+                                        {message.metadata.videoDuration && (
+                                            <span>
+                                                {message.metadata.videoDuration}
+                                            </span>
+                                        )}
+                                        {message.metadata.videoDuration &&
+                                            message.metadata
+                                                .videoResolution && (
+                                                <span className="mx-1">•</span>
+                                            )}
+                                        {message.metadata.videoResolution && (
+                                            <span>
+                                                {
+                                                    message.metadata
+                                                        .videoResolution
+                                                }
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
                             </div>
-                            {artifact.description && (
-                                <p className="text-sm text-blue-300 mt-1">
-                                    {artifact.description}
-                                </p>
+                        ) : (
+                            // Show loading placeholder
+                            <LoadingPlaceholder
+                                type="video"
+                                prompt={message.metadata.videoPrompt}
+                                className="my-2"
+                            />
+                        )}
+                    </div>
+                )}
+                {/* Canvas Artifacts Display - REPLACE EXISTING PLACEHOLDER */}
+                {message.metadata?.structuredOutput &&
+                    message.metadata?.artifacts && (
+                        <div className="mt-4 p-4 bg-gradient-to-br from-blue-600/10 to-purple-600/10 rounded-lg border border-blue-600/20">
+                            {/* Canvas Intro */}
+                            {message.metadata.canvasIntro && (
+                                <div className="mb-4">
+                                    <MarkdownRenderer
+                                        content={message.metadata.canvasIntro}
+                                        className="text-blue-100"
+                                    />
+                                </div>
                             )}
+
+                            {/* Artifacts List */}
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-2 text-blue-200">
+                                    <Palette className="w-5 h-5" />
+                                    <h4 className="font-medium">
+                                        Created Artifacts
+                                    </h4>
+                                    <span className="text-xs bg-blue-600/20 px-2 py-1 rounded">
+                                        {message.metadata.artifacts.length}{" "}
+                                        files
+                                    </span>
+                                </div>
+
+                                {message.metadata.artifacts.map(
+                                    (artifactId, index) => {
+                                        // Since artifacts is an array of artifact IDs, we need to create a mock structure
+                                        // In a real implementation, you'd query the artifacts by ID
+                                        const mockArtifact = {
+                                            id: artifactId,
+                                            filename: `artifact-${index + 1}.tsx`,
+                                            language: "typescript",
+                                            description: `Generated artifact ${index + 1}`,
+                                        };
+
+                                        return (
+                                            <div
+                                                key={artifactId}
+                                                className="flex items-center justify-between p-3 bg-blue-600/20 rounded-lg border border-blue-600/30 cursor-pointer hover:bg-blue-600/30 transition-colors group"
+                                                onClick={() => {
+                                                    const event =
+                                                        new CustomEvent(
+                                                            "openArtifact",
+                                                            {
+                                                                detail: {
+                                                                    artifactId:
+                                                                        mockArtifact.id,
+                                                                },
+                                                            }
+                                                        );
+                                                    document.dispatchEvent(
+                                                        event
+                                                    );
+                                                }}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 bg-blue-600/20 rounded flex items-center justify-center">
+                                                        <FileText className="w-4 h-4 text-blue-400" />
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="font-medium text-blue-100">
+                                                                {
+                                                                    mockArtifact.filename
+                                                                }
+                                                            </span>
+                                                            <span className="text-xs bg-blue-600/20 px-2 py-1 rounded text-blue-300">
+                                                                {
+                                                                    mockArtifact.language
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                        {mockArtifact.description && (
+                                                            <p className="text-sm text-blue-300 mt-1">
+                                                                {
+                                                                    mockArtifact.description
+                                                                }
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const event =
+                                                                new CustomEvent(
+                                                                    "openArtifact",
+                                                                    {
+                                                                        detail: {
+                                                                            artifactId:
+                                                                                mockArtifact.id,
+                                                                        },
+                                                                    }
+                                                                );
+                                                            document.dispatchEvent(
+                                                                event
+                                                            );
+                                                        }}
+                                                        className="h-8 w-8 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-600/20"
+                                                        title="Open in Canvas"
+                                                    >
+                                                        <ExternalLink className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                )}
+                            </div>
+
+                            {/* Canvas Summary */}
+                            {message.metadata.canvasSummary && (
+                                <div className="mt-4 pt-4 border-t border-blue-600/20">
+                                    <MarkdownRenderer
+                                        content={message.metadata.canvasSummary}
+                                        className="text-blue-100"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Action buttons */}
+                            <div className="mt-4 pt-4 border-t border-blue-600/20 flex items-center justify-between">
+                                <div className="text-xs text-blue-400">
+                                    Canvas response •{" "}
+                                    {message.metadata.artifacts.length}{" "}
+                                    artifacts created
+                                </div>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                        // Open Canvas panel if available
+                                        if (
+                                            message?.metadata?.artifacts
+                                                .length > 0
+                                        ) {
+                                            const event = new CustomEvent(
+                                                "openArtifact",
+                                                {
+                                                    detail: {
+                                                        artifactId:
+                                                            message?.metadata
+                                                                ?.artifacts[0],
+                                                    },
+                                                }
+                                            );
+                                            document.dispatchEvent(event);
+                                        }
+                                    }}
+                                    className="border-blue-600/30 text-blue-300 hover:bg-blue-600/20"
+                                >
+                                    <Palette className="w-4 h-4 mr-2" />
+                                    Open Canvas
+                                </Button>
+                            </div>
                         </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                const event = new CustomEvent('openArtifact', { 
-                                    detail: { artifactId: artifact.id } 
-                                });
-                                document.dispatchEvent(event);
-                            }}
-                            className="h-8 w-8 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-600/20"
-                            title="Open in Canvas"
-                        >
-                            <ExternalLink className="w-4 h-4" />
-                        </Button>
-                    </div>
-                </div>
-            ))}
-        </div>
-
-        {/* Canvas Summary */}
-        {message.metadata.canvasSummary && (
-            <div className="mt-4 pt-4 border-t border-blue-600/20">
-                <MarkdownRenderer 
-                    content={message.metadata.canvasSummary} 
-                    className="text-blue-100" 
-                />
-            </div>
-        )}
-
-        {/* Action buttons */}
-        <div className="mt-4 pt-4 border-t border-blue-600/20 flex items-center justify-between">
-            <div className="text-xs text-blue-400">
-                Canvas response • {message.metadata.artifacts.length} artifacts created
-            </div>
-            <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                    // Open Canvas panel if available
-                    if (message?.metadata?.artifacts.length > 0) {
-                        const event = new CustomEvent('openArtifact', { 
-                            detail: { artifactId: message?.metadata?.artifacts[0].id } 
-                        });
-                        document.dispatchEvent(event);
-                    }
-                }}
-                className="border-blue-600/30 text-blue-300 hover:bg-blue-600/20"
-            >
-                <Palette className="w-4 h-4 mr-2" />
-                Open Canvas
-            </Button>
-        </div>
-    </div>
-)}
+                    )}
             </div>
         );
     };
@@ -601,9 +1053,44 @@ export function MessageList({
         }
     };
 
-    const closeRetryModels = () => {
-        if (showRetryModels) {
-            setShowRetryModels(null);
+    // Add enhanced deletion handlers
+    const handleDeleteAllFromHere = async (messageId: Id<"messages">) => {
+        if (
+            confirm(
+                "⚠️ Delete all messages from here onwards?\n\nThis will permanently delete this message and ALL messages that come after it in the conversation. This action cannot be undone."
+            )
+        ) {
+            try {
+                const result = await deleteAllMessagesFromHere({
+                    messageId,
+                    deleteMode: "from_here",
+                });
+                toast.success(
+                    `Deleted ${result.deletedCount} messages from position ${result.fromIndex + 1} onwards`
+                );
+            } catch {
+                toast.error("Failed to delete messages");
+            }
+        }
+    };
+
+    const handleDeleteAllAfter = async (messageId: Id<"messages">) => {
+        if (
+            confirm(
+                "⚠️ Delete all messages after this one?\n\nThis will permanently delete ALL messages that come after this one in the conversation, but keep this message. This action cannot be undone."
+            )
+        ) {
+            try {
+                const result = await deleteAllMessagesFromHere({
+                    messageId,
+                    deleteMode: "all_after",
+                });
+                toast.success(
+                    `Deleted ${result.deletedCount} messages after this one`
+                );
+            } catch {
+                toast.error("Failed to delete messages");
+            }
         }
     };
 
@@ -617,13 +1104,22 @@ export function MessageList({
         return citations.sort((a, b) => a.number - b.number);
     };
 
+    // Close function for retry model selector and delete dropdown
+    const closeRetryModels = () => {
+        if (showRetryModelSelector) {
+            setShowRetryModelSelector(null);
+        }
+        if (showDeleteDropdown) {
+            setShowDeleteDropdown(null);
+        }
+    };
+
     return (
-        <div className="relative h-full" onClick={closeRetryModels}>
-            <div
-                ref={containerRef}
-                className="flex-1 flex flex-col p-4 gap-y-6 overflow-y-auto"
-            >
+        <div className="relative h-full mb-8" onClick={closeRetryModels}>
+            <div className="flex-1 flex flex-col p-4 gap-y-6 overflow-y-auto">
                 {messages.map((message, index) => {
+                    const isLastAiMessage =
+                        lastAiMessage && message._id === lastAiMessage._id;
                     const isCollapsed = collapsedMessages.has(message._id);
                     const isLongMessage = message.content.length > 100; // Threshold for showing collapse
                     const isOneLine =
@@ -634,7 +1130,8 @@ export function MessageList({
                     return (
                         <div
                             key={message._id}
-                            data-message-id={message._id} // Add ID attribute for scroll navigation
+                            ref={isLastAiMessage ? lastAiMessageRef : undefined}
+                            data-message-id={message._id}
                             className={`flex ${
                                 message.role === "user"
                                     ? "justify-end"
@@ -644,8 +1141,38 @@ export function MessageList({
                             }`}
                         >
                             <div className="relative max-w-[85%]">
+                                {/* Model Selector for Retry */}
+                                {showRetryModelSelector === message._id && (
+                                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                                        <div className="w-full max-w-2xl mx-4">
+                                            <ModelSelector
+                                                selectedModel={
+                                                    message.model ||
+                                                    "gemini-2.0-flash"
+                                                }
+                                                onModelChange={(model) => {
+                                                    if (onRetryMessage) {
+                                                        void onRetryMessage(
+                                                            message._id,
+                                                            model
+                                                        );
+                                                        toast.success(
+                                                            `Retrying with ${model}`
+                                                        );
+                                                    }
+                                                    setShowRetryModelSelector(
+                                                        null
+                                                    );
+                                                }}
+                                                context="retry-message"
+                                                openByDefault={true}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div
-                                    className={`rounded-2xl px-4 pt-3 group ${
+                                    className={`rounded-2xl px-4 py-3 group ${
                                         message.role === "user"
                                             ? "bg-gradient-to-r from-purple-600/30 to-pink-600/10 backdrop-blur-sm text-white"
                                             : "bg-transparent backdrop-blur-sm border border-purple-600/30 text-purple-100"
@@ -657,7 +1184,14 @@ export function MessageList({
                                         }
                                     }}
                                     onMouseLeave={() => {
-                                        if (showRetryModels !== message._id) {
+                                        // Reset all retry states when leaving message
+                                        setHoveredMessageId(null);
+                                        setShowRetryDropdown(null);
+                                        setShowRetryModelSelector(null);
+                                        if (
+                                            showRetryModelSelector !==
+                                            message._id
+                                        ) {
                                             setHoveredMessageId(null);
                                             if (onMessageHover) {
                                                 onMessageHover(null);
@@ -725,39 +1259,39 @@ export function MessageList({
                                                 placeholder="Edit your message... (Enter to save, Ctrl+Enter to save and branch, Shift+Enter for new line)"
                                                 autoFocus
                                             />
-                                            <div className="flex items-center gap-1 text-xs text-purple-400">
-                                                <span className="flex items-center gap-1">
-                                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
-                                                        Ctrl+Enter
-                                                    </kbd>
-                                                    <span>
-                                                        to save and branch
+                                            <div className="flex justify-end">
+                                                <div className="flex items-center gap-1 text-xs text-purple-400">
+                                                    <span className="flex items-center gap-1">
+                                                        <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
+                                                            Ctrl+Enter
+                                                        </kbd>
+                                                        <span>
+                                                            to save and branch
+                                                        </span>
                                                     </span>
-                                                </span>
-                                                <span className="flex items-center gap-1">
-                                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
-                                                        Esc
-                                                    </kbd>
-                                                    <span>to cancel</span>
-                                                </span>
+                                                    <span className="flex items-center gap-1">
+                                                        <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
+                                                            Esc
+                                                        </kbd>
+                                                        <span>to cancel</span>
+                                                    </span>
+                                                </div>
                                             </div>
-                                            <div className="flex gap-2">
+                                            <div className="flex justify-end gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={handleCancelEdit}
+                                                >
+                                                    Cancel
+                                                </Button>
                                                 <Button
                                                     size="sm"
                                                     onClick={() =>
                                                         handleSaveEdit(true)
                                                     }
                                                 >
-                                                    <Check className="w-3 h-3 mr-1" />
                                                     Save & Branch
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={handleCancelEdit}
-                                                >
-                                                    <X className="w-3 h-3 mr-1" />
-                                                    Cancel
                                                 </Button>
                                             </div>
                                         </div>
@@ -768,7 +1302,7 @@ export function MessageList({
                                             <div
                                                 className={`${
                                                     isCollapsed
-                                                        ? "line-clamp-1 cursor-pointer"
+                                                        ? "line-clamp-1 cursor-pointer pr-4"
                                                         : ""
                                                 }`}
                                                 onClick={() => {
@@ -782,23 +1316,25 @@ export function MessageList({
                                                     }
                                                 }}
                                             >
-                                                {/* Use StreamingMessage for streaming messages, regular MarkdownRenderer for static messages */}
-                                                {message.isStreaming ? (
-                                                    <StreamingMessage
-                                                        messageId={message._id}
-                                                        initialContent={message.content}
-                                                        className="text-purple-100"
-                                                        onStreamingComplete={() => {
-                                                            // Force re-render when streaming completes
-                                                            // This will be handled by the parent component's query
-                                                        }}
-                                                    />
-                                                ) : messageRenderMode === "rendered" ? (
-                                                    <MarkdownRenderer
-                                                        content={message.content || ""}
-                                                        className="text-purple-100"
-                                                        isStreaming={false}
-                                                    />
+                                                {/* Use MarkdownRenderer for all messages, streaming or not */}
+                                                {messageRenderMode ===
+                                                "rendered" ? (
+                                                    <div className="relative">
+                                                        <MarkdownRenderer
+                                                            content={
+                                                                message.content ||
+                                                                ""
+                                                            }
+                                                            className="text-purple-100"
+                                                            isStreaming={
+                                                                message.isStreaming
+                                                            }
+                                                        />
+                                                        {/* Streaming cursor */}
+                                                        {message.isStreaming && (
+                                                            <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
+                                                        )}
+                                                    </div>
                                                 ) : (
                                                     <div className="whitespace-pre-wrap break-words font-mono text-sm rounded-lg p-3">
                                                         {message.content || ""}
@@ -806,31 +1342,7 @@ export function MessageList({
                                                 )}
                                             </div>
 
-                                            {/* Collapse/Expand arrow for long messages - only show on hover and NOT for one-line messages */}
-                                            {isLongMessage &&
-                                                !isOneLine &&
-                                                hoveredMessageId ===
-                                                    message._id && (
-                                                    <button
-                                                        onClick={() =>
-                                                            toggleMessageCollapse(
-                                                                message._id
-                                                            )
-                                                        }
-                                                        className="absolute top-3 right-3 p-1 rounded-full bg-purple-600/20 hover:bg-purple-600/40 transition-all duration-200 opacity-0 group-hover:opacity-100"
-                                                        title={
-                                                            isCollapsed
-                                                                ? "Expand message"
-                                                                : "Collapse message"
-                                                        }
-                                                    >
-                                                        {isCollapsed ? (
-                                                            <ChevronDown className="w-4 h-4 text-purple-300" />
-                                                        ) : (
-                                                            <ChevronRight className="w-4 h-4 text-purple-300" />
-                                                        )}
-                                                    </button>
-                                                )}
+                                            {/* Check if message has navigator content to decide layout */}
 
                                             {message.attachments &&
                                                 message.attachments.length >
@@ -844,91 +1356,12 @@ export function MessageList({
                                                     </div>
                                                 )}
 
-                                            <div className="flex items-center justify-between mt-2">
+                                            {/* Always show navigator - simplified positioning */}
+                                            <div className="mt-2 flex items-center justify-end">
                                                 <MessageBranchNavigator
                                                     messageId={message._id}
-                                                    className="mt-3"
                                                 />
                                             </div>
-
-                                            {/* Source Citations - Display at end of AI responses */}
-                                            {message.role === "assistant" &&
-                                                !message.isStreaming &&
-                                                (() => {
-                                                    const citations =
-                                                        extractCitations(
-                                                            message.content,
-                                                            message.metadata
-                                                                ?.citations
-                                                        );
-                                                    if (!citations) return null;
-
-                                                    return (
-                                                        <div className="mt-4 pt-4 border-t border-purple-600/20">
-                                                            <div className="text-sm text-purple-400 mb-3 flex items-center gap-2">
-                                                                <Search className="w-4 h-4" />
-                                                                <span className="font-medium">
-                                                                    Sources
-                                                                </span>
-                                                            </div>
-                                                            <div className="space-y-2">
-                                                                {citations.map(
-                                                                    (
-                                                                        citation,
-                                                                        index
-                                                                    ) => (
-                                                                        <div
-                                                                            key={
-                                                                                index
-                                                                            }
-                                                                            className="group flex items-center gap-3 p-3 bg-gradient-to-r from-purple-600/5 to-purple-500/5 border border-purple-600/20 rounded-lg hover:border-purple-500/40 hover:from-purple-600/10 hover:to-purple-500/10 transition-all duration-200"
-                                                                        >
-                                                                            {/* Citation Number */}
-                                                                            <div className="flex-shrink-0 w-6 h-6 bg-gradient-to-br from-purple-500 to-purple-600 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                                                                                {
-                                                                                    citation.number
-                                                                                }
-                                                                            </div>
-
-                                                                            {/* Citation Content */}
-                                                                            <div className="flex-1 min-w-0">
-                                                                                <a
-                                                                                    href={
-                                                                                        citation.url
-                                                                                    }
-                                                                                    target="_blank"
-                                                                                    rel="noopener noreferrer"
-                                                                                    className="block group-hover:text-purple-200 transition-colors"
-                                                                                >
-                                                                                    <div className="text-purple-100 font-medium text-sm line-clamp-1 group-hover:text-white transition-colors">
-                                                                                        {
-                                                                                            citation.title
-                                                                                        }
-                                                                                    </div>
-                                                                                    <div className="text-purple-400 text-xs mt-1 truncate">
-                                                                                        {
-                                                                                            citation.url
-                                                                                        }
-                                                                                    </div>
-                                                                                </a>
-                                                                            </div>
-
-                                                                            {/* Source Badge & External Link */}
-                                                                            <div className="flex items-center gap-2">
-                                                                                <span className="px-2 py-1 bg-purple-600/20 text-purple-300 text-xs rounded-full border border-purple-500/30">
-                                                                                    {
-                                                                                        citation.source
-                                                                                    }
-                                                                                </span>
-                                                                                <ExternalLink className="w-4 h-4 text-purple-400 group-hover:text-purple-300 transition-colors" />
-                                                                            </div>
-                                                                        </div>
-                                                                    )
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })()}
                                         </div>
                                     )}
                                 </div>
@@ -945,11 +1378,7 @@ export function MessageList({
                                             setHoveredMessageId(message._id)
                                         }
                                         onMouseLeave={() => {
-                                            if (
-                                                showRetryModels !== message._id
-                                            ) {
-                                                setHoveredMessageId(null);
-                                            }
+                                            setHoveredMessageId(null);
                                         }}
                                     >
                                         {/* Timestamp */}
@@ -998,137 +1427,310 @@ export function MessageList({
                                                         size="sm"
                                                         variant="ghost"
                                                         onClick={() =>
-                                                            setShowRetryModels(
-                                                                showRetryModels ===
+                                                            setShowRetryDropdown(
+                                                                showRetryDropdown ===
                                                                     message._id
                                                                     ? null
                                                                     : message._id
                                                             )
                                                         }
                                                         className="h-6 w-6 p-0 text-purple-300 hover:text-purple-100"
-                                                        title="Retry with different model"
+                                                        title="Retry"
                                                     >
                                                         <RotateCcw className="w-3 h-3" />
                                                     </Button>
 
-                                                    {showRetryModels ===
+                                                    {/* Simplified Retry Dropdown with only 2 options */}
+                                                    {showRetryDropdown ===
                                                         message._id && (
-                                                        <div className="absolute bottom-full -right-10 mb-2 w-[17rem] bg-gray-900/95 backdrop-blur-sm border border-purple-600/30 rounded-lg shadow-xl z-40 overflow-hidden">
+                                                        <div className="absolute bottom-full -right-10 mb-2 w-[20rem] bg-gray-900/95 backdrop-blur-sm border border-purple-600/30 rounded-lg shadow-xl z-40 overflow-hidden">
                                                             <div className="p-2">
-                                                                <div className="text-xs text-orange-300 mb-2 p-2 bg-orange-600/10 rounded border border-orange-600/20">
-                                                                    ⚠️ Messages
-                                                                    after this
-                                                                    point will
-                                                                    be lost
-                                                                </div>
+                                                                {/* Option 1: Retry with same model */}
                                                                 {message.model && (
                                                                     <button
                                                                         onClick={() => {
                                                                             if (
-                                                                                onRetryMessage
-                                                                            )
-                                                                                onRetryMessage(
-                                                                                    message._id
+                                                                                onRetryMessage &&
+                                                                                message.model
+                                                                            ) {
+                                                                                void onRetryMessage(
+                                                                                    message._id,
+                                                                                    message.model
                                                                                 );
-                                                                            setShowRetryModels(
+                                                                                toast.success(
+                                                                                    `Retrying with ${message.model}`
+                                                                                );
+                                                                            }
+                                                                            setShowRetryDropdown(
                                                                                 null
                                                                             );
                                                                         }}
-                                                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
+                                                                        className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left mb-1"
                                                                     >
                                                                         <span className="flex-1">
+                                                                            Retry
+                                                                            with{" "}
                                                                             {
                                                                                 message.model
                                                                             }
                                                                         </span>
-                                                                        <span className="text-xs text-purple-400">
-                                                                            Same
-                                                                            model
-                                                                        </span>
+                                                                        <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                                                                            R
+                                                                        </kbd>
                                                                     </button>
                                                                 )}
-                                                                <div className="border-t border-purple-600/20 my-1"></div>
-                                                                {availableModels
-                                                                    .filter(
-                                                                        (
-                                                                            model
-                                                                        ) =>
-                                                                            model.id !==
-                                                                            message.model
-                                                                    )
-                                                                    .map(
-                                                                        (
-                                                                            model
-                                                                        ) => (
-                                                                            <button
-                                                                                key={
-                                                                                    model.id
-                                                                                }
-                                                                                onClick={() => {
-                                                                                    if (
-                                                                                        onRetryMessage
-                                                                                    )
-                                                                                        onRetryMessage(
-                                                                                            message._id
-                                                                                        );
-                                                                                    setShowRetryModels(
-                                                                                        null
-                                                                                    );
-                                                                                    toast.success(
-                                                                                        `Retrying with ${model.name}`
-                                                                                    );
-                                                                                }}
-                                                                                className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
-                                                                            >
-                                                                                <span>
-                                                                                    {
-                                                                                        model.name
-                                                                                    }
-                                                                                </span>
-                                                                                <span className="text-xs text-purple-400">
-                                                                                    {
-                                                                                        model.provider
-                                                                                    }
-                                                                                </span>
-                                                                            </button>
-                                                                        )
-                                                                    )}
+
+                                                                {/* Option 2: Retry with different model */}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setShowRetryDropdown(
+                                                                            null
+                                                                        );
+                                                                        setShowRetryModelSelector(
+                                                                            message._id
+                                                                        );
+                                                                    }}
+                                                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
+                                                                >
+                                                                    <span className="flex-1">
+                                                                        Retry
+                                                                        with
+                                                                        different
+                                                                        model
+                                                                    </span>
+                                                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                                                                        Shift +
+                                                                        R
+                                                                    </kbd>
+                                                                </button>
                                                             </div>
                                                         </div>
                                                     )}
                                                 </div>
                                             )}
 
+                                            {/* Edit button for AI messages (like Google AI Studio) */}
                                             {message.role === "assistant" && (
                                                 <Button
                                                     size="sm"
                                                     variant="ghost"
-                                                    onClick={() => {
-                                                        void handleForkChat(
-                                                            message._id
-                                                        );
-                                                    }}
+                                                    onClick={() =>
+                                                        handleEdit(message)
+                                                    }
                                                     className="h-6 w-6 p-0 text-purple-300 hover:text-purple-100"
-                                                    title="Fork conversation from here"
+                                                    title="Edit AI message"
                                                 >
-                                                    <GitBranch className="w-3 h-3" />
+                                                    <Edit3 className="w-3 h-3" />
                                                 </Button>
                                             )}
 
-                                            {message.role === "user" && (
+                                            {/* Collapse/Expand button - 4th action button for long messages */}
+                                            {isLongMessage && !isOneLine && (
                                                 <Button
                                                     size="sm"
                                                     variant="ghost"
-                                                    onClick={() => {
-                                                        void handleDeleteMessage(
+                                                    onClick={() =>
+                                                        toggleMessageCollapse(
                                                             message._id
-                                                        );
-                                                    }}
-                                                    className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
-                                                    title="Delete message"
+                                                        )
+                                                    }
+                                                    className="h-6 w-6 p-0 text-purple-300 hover:text-purple-100"
+                                                    title={
+                                                        isCollapsed
+                                                            ? "Expand message"
+                                                            : "Collapse message"
+                                                    }
                                                 >
-                                                    <Trash2 className="w-3 h-3" />
+                                                    {isCollapsed ? (
+                                                        <ChevronDown className="w-4 h-4" />
+                                                    ) : (
+                                                        <ChevronUp className="w-4 h-4" />
+                                                    )}
                                                 </Button>
+                                            )}
+
+                                            {/* Enhanced Deep Link Dropdown - 5th action button with 2 options */}
+                                            <div className="relative">
+                                                <Button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        setShowDeepLinkDropdown(
+                                                            showDeepLinkDropdown ===
+                                                                message._id
+                                                                ? null
+                                                                : message._id
+                                                        )
+                                                    }
+                                                    className="h-6 w-6 p-0 text-purple-300 hover:text-purple-100"
+                                                    title="Copy message link"
+                                                >
+                                                    <Link className="w-3 h-3" />
+                                                </Button>
+
+                                                {/* Enhanced Deep Link Dropdown - matching glassmorphism design */}
+                                                {showDeepLinkDropdown ===
+                                                    message._id && (
+                                                    <div className="absolute bottom-full -right-10 mb-2 w-[20rem] bg-gray-900/95 backdrop-blur-sm border border-purple-600/30 rounded-lg shadow-xl z-40 overflow-hidden">
+                                                        <div className="p-2">
+                                                            {/* Option 1: Direct message link */}
+                                                            <button
+                                                                onClick={() => {
+                                                                    void handleCopyMessageLink(
+                                                                        message._id
+                                                                    );
+                                                                    setShowDeepLinkDropdown(
+                                                                        null
+                                                                    );
+                                                                }}
+                                                                className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left mb-1"
+                                                            >
+                                                                <div className="flex items-center gap-2">
+                                                                    <Link className="w-4 h-4 text-purple-400" />
+                                                                    <span>
+                                                                        Copy
+                                                                        direct
+                                                                        link
+                                                                    </span>
+                                                                </div>
+                                                                <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                                                                    L
+                                                                </kbd>
+                                                            </button>
+
+                                                            {/* Option 2: Shared message link */}
+                                                            <button
+                                                                onClick={() => {
+                                                                    void handleCreateSharedMessageLink(
+                                                                        message._id
+                                                                    );
+                                                                    setShowDeepLinkDropdown(
+                                                                        null
+                                                                    );
+                                                                }}
+                                                                className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
+                                                            >
+                                                                <div className="flex items-center gap-2">
+                                                                    <ExternalLink className="w-4 h-4 text-purple-400" />
+                                                                    <span>
+                                                                        Create
+                                                                        shared
+                                                                        link
+                                                                    </span>
+                                                                </div>
+                                                                <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                                                                    Shift+L
+                                                                </kbd>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {message.role === "user" && (
+                                                <div className="relative">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() =>
+                                                            setShowDeleteDropdown(
+                                                                showDeleteDropdown ===
+                                                                    message._id
+                                                                    ? null
+                                                                    : message._id
+                                                            )
+                                                        }
+                                                        className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
+                                                        title="Delete options"
+                                                    >
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </Button>
+
+                                                    {/* Enhanced Delete Dropdown - matching glassmorphism design */}
+                                                    {showDeleteDropdown ===
+                                                        message._id && (
+                                                        <div className="absolute bottom-full -right-10 mb-2 w-[22rem] bg-gray-900/95 backdrop-blur-sm border border-purple-600/30 rounded-lg shadow-xl z-40 overflow-hidden">
+                                                            <div className="p-2">
+                                                                {/* Option 1: Delete this message only */}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        void handleDeleteMessage(
+                                                                            message._id
+                                                                        );
+                                                                        setShowDeleteDropdown(
+                                                                            null
+                                                                        );
+                                                                    }}
+                                                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-red-600/20 rounded-lg transition-colors text-left mb-1"
+                                                                >
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Trash className="w-4 h-4 text-red-400" />
+                                                                        <span className="flex-1">
+                                                                            Delete
+                                                                            this
+                                                                            message
+                                                                        </span>
+                                                                    </div>
+                                                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                                                                        Del
+                                                                    </kbd>
+                                                                </button>
+
+                                                                {/* Option 2: Delete all from here */}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        void handleDeleteAllFromHere(
+                                                                            message._id
+                                                                        );
+                                                                        setShowDeleteDropdown(
+                                                                            null
+                                                                        );
+                                                                    }}
+                                                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-red-600/20 rounded-lg transition-colors text-left mb-1"
+                                                                >
+                                                                    <div className="flex items-center gap-2">
+                                                                        <MoreVertical className="w-4 h-4 text-red-400" />
+                                                                        <span className="flex-1">
+                                                                            Delete
+                                                                            all
+                                                                            from
+                                                                            here
+                                                                        </span>
+                                                                    </div>
+                                                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                                                                        Shift+Del
+                                                                    </kbd>
+                                                                </button>
+
+                                                                {/* Option 3: Delete all after this */}
+                                                                <button
+                                                                    onClick={() => {
+                                                                        void handleDeleteAllAfter(
+                                                                            message._id
+                                                                        );
+                                                                        setShowDeleteDropdown(
+                                                                            null
+                                                                        );
+                                                                    }}
+                                                                    className="w-full flex items-center justify-between px-3 py-2 text-sm text-purple-100 hover:bg-red-600/20 rounded-lg transition-colors text-left"
+                                                                >
+                                                                    <div className="flex items-center gap-2">
+                                                                        <ChevronDown className="w-4 h-4 text-red-400" />
+                                                                        <span className="flex-1">
+                                                                            Delete
+                                                                            all
+                                                                            after
+                                                                            this
+                                                                        </span>
+                                                                    </div>
+                                                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded text-xs">
+                                                                        Ctrl+Del
+                                                                    </kbd>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
                                     </div>
@@ -1138,8 +1740,6 @@ export function MessageList({
                     );
                 })}
             </div>
-
-            <ScrollToBottom containerRef={containerRef} />
         </div>
     );
 }

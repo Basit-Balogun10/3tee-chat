@@ -5,6 +5,7 @@ import { VoiceInput } from "./VoiceInput";
 import { VoiceChat } from "./VoiceChat";
 import { FileUpload } from "./FileUpload";
 import { ModelSelector } from "./ModelSelector";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import {
     Send,
     Image,
@@ -14,14 +15,16 @@ import {
     Square,
     Video,
     FileText,
-    Phone,
     Zap,
+    Settings,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { getModelCapabilities, getProviderForModel } from "../lib/modelConfig";
+import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
+import { ChatAISettingsModal } from "./ChatAISettingsModal";
 
 interface MessageInputProps {
     message: string;
@@ -40,6 +43,7 @@ interface MessageInputProps {
     selectedModel: string;
     onModelChange: (model: string) => Promise<void> | void;
     showMessageInput?: boolean;
+    sidebarOpen?: boolean;
     chatId?: Id<"chats">;
 }
 
@@ -56,6 +60,7 @@ export function MessageInput({
     selectedModel,
     onModelChange,
     showMessageInput = true,
+    sidebarOpen,
     chatId,
 }: MessageInputProps) {
     const [attachments, setAttachments] = useState<any[]>([]);
@@ -77,6 +82,10 @@ export function MessageInput({
 
     // Voice chat state
     const [showVoiceChat, setShowVoiceChat] = useState(false);
+    const [voiceChatIsConnected, setVoiceChatIsConnected] = useState(false);
+
+    // Chat AI Settings Modal state
+    const [showChatAISettings, setShowChatAISettings] = useState(false);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const defaultPlaceholder = "Type your message here...";
@@ -90,6 +99,9 @@ export function MessageInput({
 
     // Get user preferences for API keys (needed for voice chat)
     const preferences = useQuery(api.preferences.getUserPreferences);
+
+    // Prompt enhancement mutation
+    const enhancePrompt = useMutation(api.messages.enhancePrompt);
 
     // Model capabilities detection - now using actual model config
     const modelCapabilities = useMemo(() => {
@@ -244,25 +256,52 @@ export function MessageInput({
         getCommandRestrictionMessage,
     ]);
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (
-            message.trim() ||
-            attachments.length > 0 ||
-            referencedArtifacts.length > 0
-        ) {
-            // Add to message history (avoid duplicates)
-            const newHistory = [
-                message,
-                ...messageHistory.filter((h) => h !== message),
-            ].slice(0, 50);
-            setMessageHistory(newHistory);
-            setHistoryIndex(-1);
+    // Check if live chat is available based on API keys and preferences
+    const isLiveChatAvailable = useMemo(() => {
+        if (!modelCapabilities.liveChat) return false;
+
+        const apiKeys = preferences?.apiKeys;
+        const apiKeyPreferences = preferences?.apiKeyPreferences;
+
+        if (selectedModel.includes("gemini")) {
+            return !!(apiKeys?.gemini && apiKeyPreferences?.gemini);
+        } else if (selectedModel.includes("gpt")) {
+            // OpenAI models
+            return !!(apiKeys?.openai && apiKeyPreferences?.openai);
         }
-        void onSendMessage(message, attachments, referencedArtifacts);
-        setAttachments([]);
-        setReferencedArtifacts([]);
-    };
+    }, [modelCapabilities.liveChat, preferences, selectedModel]);
+
+    const handleSubmit = useCallback(
+        (transcription?: string) => {
+            const content = message || transcription;
+            if (
+                content?.trim() ||
+                attachments.length > 0 ||
+                referencedArtifacts.length > 0
+            ) {
+                if (textareaRef.current?.value) {
+                    textareaRef.current.value = "";
+                }
+                // Add to message history (avoid duplicates)
+                const newHistory = [
+                    message,
+                    ...messageHistory.filter((h) => h !== message),
+                ].slice(0, 50);
+                setMessageHistory(newHistory);
+                setHistoryIndex(-1);
+                void onSendMessage(content, attachments, referencedArtifacts);
+                setAttachments([]);
+                setReferencedArtifacts([]);
+            }
+        },
+        [
+            attachments,
+            message,
+            messageHistory,
+            onSendMessage,
+            referencedArtifacts,
+        ]
+    );
 
     // Message input keyboard shortcuts
     useEffect(() => {
@@ -270,89 +309,84 @@ export function MessageInput({
             // Only handle shortcuts when textarea is focused
             if (document.activeElement !== textareaRef.current) return;
 
-            const hasModifier = e.metaKey || e.ctrlKey;
-
-            // Message history navigation (Up/Down arrows) - only when at start/end of textarea
-            if (!hasModifier && !e.shiftKey && !e.altKey) {
-                const textarea = textareaRef.current;
-                if (!textarea) return;
-
-                switch (e.key) {
-                    case "ArrowUp": {
-                        // Navigate to previous message in history only if cursor is at the start/first line
-                        const isAtFirstLine =
-                            textarea.selectionStart === 0 ||
-                            textarea.value
-                                .substring(0, textarea.selectionStart)
-                                .indexOf("\n") === -1;
-
-                        if (messageHistory.length > 0 && isAtFirstLine) {
-                            e.preventDefault();
-                            const newIndex = Math.min(
-                                historyIndex + 1,
-                                messageHistory.length - 1
-                            );
-                            setHistoryIndex(newIndex);
-                            onMessageChange(messageHistory[newIndex] || "");
-                        }
-                        return;
-                    }
-
-                    case "ArrowDown": {
-                        // Navigate to next message in history only if cursor is at the end/last line
-                        const isAtLastLine =
-                            textarea.selectionEnd === textarea.value.length ||
-                            textarea.value
-                                .substring(textarea.selectionEnd)
-                                .indexOf("\n") === -1;
-
-                        if (isAtLastLine) {
-                            e.preventDefault();
-                            if (historyIndex > 0) {
-                                const newIndex = historyIndex - 1;
-                                setHistoryIndex(newIndex);
-                                onMessageChange(messageHistory[newIndex] || "");
-                            } else if (historyIndex === 0) {
-                                setHistoryIndex(-1);
-                                onMessageChange("");
-                            }
-                        }
-                        return;
-                    }
-                }
+            // Handle custom shortcuts
+            if (checkShortcutMatch(e, "sendMessage")) {
+                e.preventDefault();
+                handleSubmit();
+                return;
             }
 
-            if (hasModifier) {
-                switch (e.key) {
-                    case "Enter":
-                        // Cmd/Ctrl + Enter to send message
-                        e.preventDefault();
-                        handleSubmit(e as any);
-                        return;
-
-                    case "l":
-                    case "L":
-                        // Cmd/Ctrl + L to clear input
-                        e.preventDefault();
-                        onMessageChange("");
-                        onCommandsChange([]);
-                        setAttachments([]);
-                        setHistoryIndex(-1);
-                        return;
-                }
+            if (checkShortcutMatch(e, "clearInput")) {
+                e.preventDefault();
+                onMessageChange("");
+                onCommandsChange([]);
+                setAttachments([]);
+                return;
             }
 
-            // Voice recording shortcut (Ctrl + Space when input is empty or focused)
-            if (e.ctrlKey && e.key === " " && !message.trim()) {
+            if (checkShortcutMatch(e, "openModelSelector")) {
+                e.preventDefault();
+                const event = new CustomEvent("openModelSelector");
+                document.dispatchEvent(event);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "voiceRecording") && !message.trim()) {
                 e.preventDefault();
                 setIsRecording(!isRecording);
                 return;
+            }
+
+            // Message history navigation - use custom shortcuts
+            if (checkShortcutMatch(e, "navigateHistory")) {
+                const textarea = textareaRef.current;
+                if (!textarea) return;
+
+                const { selectionStart, selectionEnd } = textarea;
+                const lines = message.split("\n");
+                const currentLineIndex =
+                    message.substring(0, selectionStart).split("\n").length - 1;
+
+                if (
+                    e.key === "ArrowUp" &&
+                    currentLineIndex === 0 &&
+                    selectionStart === selectionEnd
+                ) {
+                    // Navigate to previous message in history
+                    e.preventDefault();
+                    const newIndex = Math.min(
+                        historyIndex + 1,
+                        messageHistory.length - 1
+                    );
+                    if (newIndex !== historyIndex && messageHistory[newIndex]) {
+                        setHistoryIndex(newIndex);
+                        onMessageChange(messageHistory[newIndex]);
+                    }
+                    return;
+                } else if (
+                    e.key === "ArrowDown" &&
+                    currentLineIndex === lines.length - 1 &&
+                    selectionStart === selectionEnd
+                ) {
+                    // Navigate to next message in history or clear
+                    e.preventDefault();
+                    const newIndex = historyIndex - 1;
+                    if (newIndex >= 0) {
+                        setHistoryIndex(newIndex);
+                        onMessageChange(messageHistory[newIndex]);
+                    } else if (historyIndex >= 0) {
+                        setHistoryIndex(-1);
+                        onMessageChange("");
+                    }
+                    return;
+                }
             }
         };
 
         document.addEventListener("keydown", handleKeyDown);
         return () => document.removeEventListener("keydown", handleKeyDown);
     }, [
+        checkShortcutMatch,
         message,
         messageHistory,
         historyIndex,
@@ -363,19 +397,56 @@ export function MessageInput({
         handleSubmit,
     ]);
 
+    // Use custom shortcuts hook
+    const { checkShortcutMatch } = useCustomShortcuts();
+
     // Listen for custom events from keyboard shortcuts
     useEffect(() => {
         const handleFocusMessageInput = () => {
             textareaRef.current?.focus();
         };
 
+        const handleOpenLiveChatModal = () => {
+            setShowVoiceChat(true);
+        };
+
+        // Phase 3 & 4 keyboard shortcuts
+        const handleEnhancePrompt = async () => {
+            if (preferences?.aiSettings?.promptEnhancement && message.trim()) {
+                try {
+                    const result = await enhancePrompt({
+                        originalPrompt: message,
+                        context: activeCommands.length > 0 ? `Active commands: ${activeCommands.join(', ')}` : undefined,
+                        responseMode: preferences?.aiSettings?.responseMode,
+                    });
+                    if (result.wasEnhanced) {
+                        onMessageChange(result.enhancedPrompt);
+                        toast.success("Prompt enhanced!");
+                    }
+                } catch (error) {
+                    toast.error("Failed to enhance prompt");
+                }
+            }
+        };
+
+        const handleOpenChatAISettings = () => {
+            if (chatId) {
+                setShowChatAISettings(true);
+            }
+        };
+
         document.addEventListener("focusMessageInput", handleFocusMessageInput);
-        return () =>
-            document.removeEventListener(
-                "focusMessageInput",
-                handleFocusMessageInput
-            );
-    }, []);
+        document.addEventListener("openLiveChatModal", handleOpenLiveChatModal);
+        document.addEventListener("enhancePrompt", handleEnhancePrompt);
+        document.addEventListener("openChatAISettings", handleOpenChatAISettings);
+
+        return () => {
+            document.removeEventListener("focusMessageInput", handleFocusMessageInput);
+            document.removeEventListener("openLiveChatModal", handleOpenLiveChatModal);
+            document.removeEventListener("enhancePrompt", handleEnhancePrompt);
+            document.removeEventListener("openChatAISettings", handleOpenChatAISettings);
+        };
+    }, [preferences, message, activeCommands, enhancePrompt, onMessageChange, chatId]);
 
     useEffect(() => {
         if (textareaRef.current) {
@@ -591,7 +662,7 @@ export function MessageInput({
                 return;
             }
             if (e.key === "Escape") {
-                e.preventDefault();
+               
                 setShowCommandsPopup(false);
                 return;
             }
@@ -626,11 +697,6 @@ export function MessageInput({
                 return;
             }
         }
-
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            handleSubmit(e as any);
-        }
     };
 
     // Listen for custom events from keyboard shortcuts
@@ -639,17 +705,51 @@ export function MessageInput({
             textareaRef.current?.focus();
         };
 
+        const handleOpenLiveChatModal = () => {
+            setShowVoiceChat(true);
+        };
+
+        // Phase 3 & 4 keyboard shortcuts
+        const handleEnhancePrompt = async () => {
+            if (preferences?.aiSettings?.promptEnhancement && message.trim()) {
+                try {
+                    const result = await enhancePrompt({
+                        originalPrompt: message,
+                        context: activeCommands.length > 0 ? `Active commands: ${activeCommands.join(', ')}` : undefined,
+                        responseMode: preferences?.aiSettings?.responseMode,
+                    });
+                    if (result.wasEnhanced) {
+                        onMessageChange(result.enhancedPrompt);
+                        toast.success("Prompt enhanced!");
+                    }
+                } catch (error) {
+                    toast.error("Failed to enhance prompt");
+                }
+            }
+        };
+
+        const handleOpenChatAISettings = () => {
+            if (chatId) {
+                setShowChatAISettings(true);
+            }
+        };
+
         document.addEventListener("focusMessageInput", handleFocusMessageInput);
-        return () =>
-            document.removeEventListener(
-                "focusMessageInput",
-                handleFocusMessageInput
-            );
-    }, []);
+        document.addEventListener("openLiveChatModal", handleOpenLiveChatModal);
+        document.addEventListener("enhancePrompt", handleEnhancePrompt);
+        document.addEventListener("openChatAISettings", handleOpenChatAISettings);
+
+        return () => {
+            document.removeEventListener("focusMessageInput", handleFocusMessageInput);
+            document.removeEventListener("openLiveChatModal", handleOpenLiveChatModal);
+            document.removeEventListener("enhancePrompt", handleEnhancePrompt);
+            document.removeEventListener("openChatAISettings", handleOpenChatAISettings);
+        };
+    }, [preferences, message, activeCommands, enhancePrompt, onMessageChange, chatId]);
 
     return (
         <div
-            className={`relative w-4/5 mx-auto z-[999] transition-all duration-300 ease-in-out ${showMessageInput ? "transform translate-y-0 opacity-100" : "transform translate-y-full opacity-0 pointer-events-none"}`}
+            className={`fixed -bottom-1 ${sidebarOpen ? "w-[58%]" : "w-4/5"} px-4 z-[999] transition-all duration-300 ease-in-out ${showMessageInput ? "transform translate-y-0 opacity-100" : "transform translate-y-full opacity-0 pointer-events-none"}`}
         >
             {/* Commands Popup */}
             {showCommandsPopup && filteredCommands.length > 0 && (
@@ -695,7 +795,7 @@ export function MessageInput({
                                     </div>
                                     <div className="flex-1">
                                         <div
-                                            className={`font-medium flex items-center gap-2 ${isDisabled ? "text-gray-400" : "text-purple-100"}`}
+                                            className={`font-mono flex items-center gap-2 ${isDisabled ? "text-gray-400" : "text-purple-100"}`}
                                         >
                                             {cmd.command}
                                             {cmd.isAlreadyActive && (
@@ -792,7 +892,7 @@ export function MessageInput({
                 </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="space-y-3">
                 <div className="relative border border-purple-600/20 rounded-xl bg-black/20 backdrop-blur-md p-3 focus-within:border-purple-500 transition-colors">
                     <div className="flex items-center justify-between mb-3 pb-3 border-b border-purple-600/20">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -807,6 +907,10 @@ export function MessageInput({
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
+                                    if (showCommandsPopup) {
+                                        setShowCommandsPopup(false);
+                                        return;
+                                    }
                                     setShowCommandsPopup(true);
                                     setFilteredCommands(commandsWithValidation);
                                     setIsToolboxOpen(true);
@@ -876,14 +980,15 @@ export function MessageInput({
                             })}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-purple-400">
-                            <span className="flex items-center gap-1">
+                            <span className="items-center gap-1 hidden md:flex">
                                 <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
                                     Ctrl+Enter
                                 </kbd>{" "}
                                 <span>to send</span>
                             </span>
-                            <span className="text-purple-500">•</span>
-                            <span className="flex items-center gap-1">
+                            <span className="text-purple-500 hidden md:inline">
+                                •
+                            </span>
                                 <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
                                     /
                                 </kbd>{" "}
@@ -984,15 +1089,52 @@ export function MessageInput({
                             />
                         </div>
                         <div className="flex items-center gap-1">
-                            {/* Voice Input - only show for voice-capable models */}
-                            {modelCapabilities.voice && (
-                                <VoiceInput
-                                    onTranscription={handleInputChange}
-                                    isRecording={isRecording}
-                                    onRecordingChange={setIsRecording}
-                                />
+                            <VoiceInput
+                                onTranscription={handleInputChange}
+                                isRecording={isRecording}
+                                onRecordingChange={setIsRecording}
+                                sendMessage={handleSubmit}
+                            />
+                            {/* 1-Click Prompt Enhancement Button - Phase 4 */}
+                            {preferences?.aiSettings?.promptEnhancement && message.trim() && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={async () => {
+                                        try {
+                                            const result = await enhancePrompt({
+                                                originalPrompt: message,
+                                                context: activeCommands.length > 0 ? `Active commands: ${activeCommands.join(', ')}` : undefined,
+                                                responseMode: preferences?.aiSettings?.responseMode,
+                                            });
+                                            if (result.wasEnhanced) {
+                                                onMessageChange(result.enhancedPrompt);
+                                                toast.success("Prompt enhanced!");
+                                            }
+                                        } catch (error) {
+                                            toast.error("Failed to enhance prompt");
+                                        }
+                                    }}
+                                    className="h-8 w-8 p-0 text-yellow-400 bg-yellow-600/20 hover:bg-yellow-600/30 transition-colors duration-200 ease-in-out"
+                                    title="Enhance this prompt with AI (Ctrl+Shift+E)"
+                                >
+                                    <Zap className="w-4 h-4" />
+                                </Button>
                             )}
-
+                            {/* Chat AI Settings Button - Phase 4 */}
+                            {chatId && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setShowChatAISettings(true)}
+                                    className="h-8 w-8 p-0 text-indigo-400 bg-indigo-600/20 hover:bg-indigo-600/30 transition-colors duration-200 ease-in-out"
+                                    title="Chat AI Settings (Ctrl+Shift+A)"
+                                >
+                                    <Settings className="w-4 h-4" />
+                                </Button>
+                            )}
                             {/* Voice Chat Button - only show for live chat capable models */}
                             {modelCapabilities.liveChat && (
                                 <Button
@@ -1000,10 +1142,10 @@ export function MessageInput({
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => setShowVoiceChat(true)}
-                                    className="h-8 w-8 p-0 text-green-400 bg-green-600/20 hover:bg-green-600/30"
-                                    title="Start real-time voice chat"
+                                    className="h-8 w-8 p-0 text-purple-400 bg-purple-600/20 hover:bg-purple-600/30 transition-colors duration-200 ease-in-out"
+                                    title="Start real-time live chat"
                                 >
-                                    <Phone className="w-4 h-4" />
+                                    <Zap className="w-4 h-4" />
                                 </Button>
                             )}
                             {/* File Upload - only show for models that support files or vision */}
@@ -1032,7 +1174,7 @@ export function MessageInput({
                                 </Button>
                             ) : (
                                 <Button
-                                    type="submit"
+                                    onClick={() => handleSubmit()}
                                     disabled={
                                         isLoading ||
                                         (!message.trim() &&
@@ -1054,66 +1196,125 @@ export function MessageInput({
                         </div>
                     </div>
                 </div>
-            </form>
+            </div>
 
-            {/* Voice Chat Modal - only show when voice chat is active */}
-            {showVoiceChat && (
-                <div className="fixed inset-0 flex items-center justify-center bg-black/80 z-[1000]">
-                    <div className="bg-gray-900/95 backdrop-blur-md border border-green-600/30 rounded-xl p-6 shadow-xl max-w-lg w-full mx-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-medium text-green-100">
-                                Real-time Voice Chat
-                            </h3>
+            {/* Chat AI Settings Modal - Phase 4 */}
+            {chatId && (
+                <ChatAISettingsModal
+                    open={showChatAISettings}
+                    onOpenChange={setShowChatAISettings}
+                    chatId={chatId}
+                />
+            )}
+
+            {/* Voice Chat Modal - Centered like ShareModal and ModelSelector */}
+            <Dialog open={showVoiceChat} onOpenChange={setShowVoiceChat}>
+                <DialogContent
+                    className={`bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 ${voiceChatIsConnected ? "max-w-4xl" : "max-w-md"} max-h-[85vh] overflow-hidden flex flex-col`}
+                    hideCloseButton
+                >
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <Zap className="w-5 h-5 text-purple-400" />
+                                <span className="text-purple-100">
+                                    Real-time Live Chat
+                                </span>
+                            </div>
                             <button
                                 onClick={() => setShowVoiceChat(false)}
-                                className="p-2 rounded-lg hover:bg-green-600/20 transition-colors text-green-400 hover:text-green-300"
+                                className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors text-purple-400 hover:text-purple-300"
                                 title="Close voice chat"
                             >
                                 <X className="w-5 h-5" />
                             </button>
-                        </div>
+                        </DialogTitle>
+                    </DialogHeader>
 
+                    <div className="space-y-4">
                         <VoiceChat
-                            onTranscription={(transcript) => {
-                                // Voice chat transcriptions can be used to auto-populate the message input
-                                handleInputChange(transcript);
-                                // Optionally close the modal after transcription
-                                // setShowVoiceChat(false);
-                            }}
-                            apiKey={
-                                selectedModel.includes("gemini")
-                                    ? preferences?.apiKeys?.gemini
-                                    : preferences?.apiKeys?.openai
-                            }
+                            isConnected={voiceChatIsConnected}
+                            setIsConnected={setVoiceChatIsConnected}
+                            // onTranscription={(transcript) => {
+                            //     // Voice chat transcriptions can be used to auto-populate the message input
+                            //     // handleInputChange(transcript);
+                            //     console.log('transcript: ', transcript)
+                            //     // Optionally close the modal after transcription
+                            //     // setShowVoiceChat(false);
+                            // }}
                             provider={
                                 selectedModel.includes("gemini")
                                     ? "gemini"
                                     : "openai"
                             }
                             className="w-full"
+                            disabled={!isLiveChatAvailable}
                         />
 
-                        <div className="mt-4 p-3 bg-green-600/10 rounded-lg border border-green-600/20">
-                            <div className="text-xs text-green-300 mb-2">
-                                💡 <strong>Voice Chat Features:</strong>
-                            </div>
-                            <ul className="text-xs text-green-400 space-y-1">
-                                <li>• Real-time conversation with AI</li>
-                                <li>• Automatic speech recognition</li>
-                                <li>• Natural voice responses</li>
-                                <li>• Hands-free interaction</li>
-                                {!preferences?.apiKeys?.gemini &&
-                                    !preferences?.apiKeys?.openai && (
-                                        <li className="text-orange-300">
-                                            • Configure API keys in settings for
-                                            full functionality
+                        {!voiceChatIsConnected && (
+                            <div className="p-4 bg-purple-600/10 rounded-lg border border-purple-600/20">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-4 h-4 rounded-full bg-purple-400 flex items-center justify-center">
+                                        <span className="text-xs">💡</span>
+                                    </div>
+                                    <h4 className="text-sm font-medium text-purple-200">
+                                        Voice Chat Features
+                                    </h4>
+                                </div>
+                                <ul className="text-sm text-purple-300 space-y-2">
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-purple-400 mt-0.5">
+                                            •
+                                        </span>
+                                        <span>
+                                            Real-time conversation with AI using
+                                            live connection
+                                        </span>
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-purple-400 mt-0.5">
+                                            •
+                                        </span>
+                                        <span>
+                                            Voice, video, and text interaction
+                                            in one interface
+                                        </span>
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-purple-400 mt-0.5">
+                                            •
+                                        </span>
+                                        <span>
+                                            Hands-free interaction with voice
+                                            and visual controls
+                                        </span>
+                                    </li>
+                                    <li className="flex items-center gap-2">
+                                        <span className="text-purple-400 mt-0.5">
+                                            •
+                                        </span>
+                                        <span>
+                                            Secure connection using ephemeral
+                                            keys
+                                        </span>
+                                    </li>
+                                    {!isLiveChatAvailable && (
+                                        <li className="flex items-center justify-center gap-2 text-orange-300">
+                                            <span className="text-orange-400 mt-0.5">
+                                                ⚠️
+                                            </span>
+                                            <span>
+                                                Configure API keys in settings
+                                                to use live chat
+                                            </span>
                                         </li>
                                     )}
-                            </ul>
-                        </div>
+                                </ul>
+                            </div>
+                        )}
                     </div>
-                </div>
-            )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -13,8 +13,10 @@ import { KeyboardShortcuts } from "./KeyboardShortcuts";
 import { WelcomeTour } from "./WelcomeTour";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
-import { Edit3, PanelLeft, PanelRight } from "lucide-react";
+import { Edit3, PanelLeft, PanelRight, ChevronDown } from "lucide-react";
+import { Button } from "./ui/button";
 import { toast } from "sonner";
+import { ShareModal } from "./ShareModal";
 
 export function ChatInterface() {
     // React Router hooks for URL management
@@ -60,6 +62,9 @@ export function ChatInterface() {
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [editTitle, setEditTitle] = useState("");
     const [isCreatingInitialChat, setIsCreatingInitialChat] = useState(false);
+    const [isShowingScrollToBottomButton, setIsShowingScrollToBottomButton] =
+        useState(false);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
 
     const [showMessageInput, setShowMessageInput] = useLocalStorage(
         "showMessageInput",
@@ -83,6 +88,10 @@ export function ChatInterface() {
         selectedChatId ? { chatId: selectedChatId } : "skip"
     );
     const createChat = useMutation(api.chats.createChat);
+    const createTemporaryChat = useMutation(api.chats.createTemporaryChat);
+    const convertTemporaryToPermanent = useMutation(
+        api.chats.convertTemporaryToPermanent
+    );
     const updateChatTitle = useMutation(api.chats.updateChatTitle);
 
     // Mock artifacts for now - in real implementation, these would come from the backend
@@ -149,7 +158,18 @@ export function ChatInterface() {
 
     const handleNewChat = useCallback(
         async (projectId?: Id<"projects">) => {
-            const defaultModel = preferences?.defaultModel || "gpt-4o-mini";
+            const defaultModel =
+                preferences?.defaultModel || "gemini-2.0-flash";
+
+            // Phase 2: Check if temporary chats should be default
+            const shouldCreateTemporary =
+                preferences?.temporaryChatsSettings?.defaultToTemporary ||
+                false;
+
+            if (shouldCreateTemporary) {
+                // Use temporary chat as default
+                return await handleNewTemporaryChat(projectId);
+            }
 
             const chatId = await createChat({
                 title: "New Chat",
@@ -172,8 +192,85 @@ export function ChatInterface() {
             void navigate(`/chat/${chatId}`);
             return chatId;
         },
-        [preferences?.defaultModel, createChat, setLastSelectedChatId, navigate]
+        [
+            preferences?.defaultModel,
+            preferences?.temporaryChatsSettings?.defaultToTemporary,
+            createChat,
+            handleNewTemporaryChat,
+            setLastSelectedChatId,
+            navigate,
+        ]
     );
+
+    // Phase 2: Temporary Chat Handlers
+    const handleNewTemporaryChat = useCallback(
+        async (projectId?: Id<"projects">) => {
+            const defaultModel =
+                preferences?.defaultModel || "gemini-2.0-flash";
+            const defaultLifespanHours =
+                preferences?.temporaryChatsSettings?.defaultLifespanHours || 24;
+
+            const result = await createTemporaryChat({
+                title: "Temporary Chat",
+                model: defaultModel,
+                lifespanHours: defaultLifespanHours,
+                ...(projectId
+                    ? {
+                          projectId,
+                      }
+                    : {}),
+            });
+
+            setSelectedChatId(result.chatId);
+            setLastSelectedChatId(result.chatId);
+
+            const expiresIn = Math.floor(result.lifespanHours);
+            const expiresText =
+                expiresIn === 24 ? "24 hours" : `${expiresIn} hours`;
+
+            if (projectId) {
+                toast.success(
+                    `Temporary chat created in project (expires in ${expiresText})`
+                );
+            } else {
+                toast.success(
+                    `Temporary chat created (expires in ${expiresText})`
+                );
+            }
+
+            // Navigate to the new temporary chat URL
+            void navigate(`/chat/${result.chatId}`);
+            return result.chatId;
+        },
+        [
+            preferences?.defaultModel,
+            preferences?.temporaryChatsSettings?.defaultLifespanHours,
+            createTemporaryChat,
+            setLastSelectedChatId,
+            navigate,
+        ]
+    );
+
+    const handleConvertTemporaryToPermanent = useCallback(async () => {
+        if (!selectedChatId || !selectedChat?.isTemporary) {
+            toast.error("No temporary chat selected");
+            return;
+        }
+
+        try {
+            await convertTemporaryToPermanent({
+                chatId: selectedChatId,
+            });
+
+            toast.success("Chat saved as permanent!", {
+                description:
+                    "This chat will no longer expire and has been added to your regular chats.",
+            });
+        } catch (error) {
+            console.error("Failed to convert temporary chat:", error);
+            toast.error("Failed to save chat as permanent");
+        }
+    }, [selectedChatId, selectedChat, convertTemporaryToPermanent]);
 
     // Update localStorage and URL when selectedChatId changes
     const handleSelectChat = useCallback(
@@ -216,6 +313,15 @@ export function ChatInterface() {
         }
     }, [selectedChat, editTitle, updateChatTitle]);
 
+    const scrollToBottom = useCallback(() => {
+        if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTo({
+                top: Number.MAX_SAFE_INTEGER,
+                behavior: "smooth",
+            });
+        }
+    }, []);
+
     const handleTitleKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
             if (e.key === "Enter") {
@@ -227,6 +333,31 @@ export function ChatInterface() {
         },
         [handleSaveEditTitle, handleCancelEditTitle]
     );
+
+    const handleScroll = useCallback(() => {
+        if (scrollContainerRef.current) {
+            const { scrollTop, scrollHeight, clientHeight } =
+                scrollContainerRef.current;
+
+            // Show button if not at bottom (with small threshold for precision)
+            const isAtBottom = scrollTop + clientHeight >= scrollHeight - 50;
+            setIsShowingScrollToBottomButton(!isAtBottom);
+        }
+    }, []);
+
+    useEffect(() => {
+        const scrollContainer = scrollContainerRef.current;
+        if (scrollContainer) {
+            scrollContainer.addEventListener("scroll", handleScroll);
+
+            // Check initial position
+            handleScroll();
+
+            return () => {
+                scrollContainer.removeEventListener("scroll", handleScroll);
+            };
+        }
+    }, [handleScroll]);
 
     // Handle export and share events from keyboard shortcuts
     useEffect(() => {
@@ -421,6 +552,37 @@ export function ChatInterface() {
             }
         };
 
+        // Enhanced Deep Link Event Handlers
+        const handleCheckChatSharingStatus = (e: Event) => {
+            const { chatId, callback } = (e as CustomEvent).detail;
+            if (selectedChat && selectedChatId === chatId) {
+                // Check if current chat is already shared
+                const isShared = !!(
+                    selectedChat.shareId && selectedChat.isPublic
+                );
+                callback(isShared, selectedChat.shareId);
+            } else {
+                // Chat not found or not selected
+                callback(false);
+            }
+        };
+
+        const handleOpenShareModalWithMessage = (e: Event) => {
+            const { chatId, messageId, deepLinkHash, reason } = (
+                e as CustomEvent
+            ).detail;
+            if (selectedChat && selectedChatId === chatId) {
+                // Set the share modal context and open it directly
+                setShareModalContext({
+                    chatId,
+                    messageId,
+                    deepLinkHash,
+                    reason,
+                });
+                setShowShareModal(true);
+            }
+        };
+
         document.addEventListener("exportMarkdown", handleExportMarkdown);
         document.addEventListener("exportJSON", handleExportJSON);
         document.addEventListener("shareChat", handleShareChat);
@@ -430,6 +592,14 @@ export function ChatInterface() {
             handleShareCollaboration
         );
         document.addEventListener("openShareModal", handleOpenShareModal);
+        document.addEventListener(
+            "checkChatSharingStatus",
+            handleCheckChatSharingStatus
+        );
+        document.addEventListener(
+            "openShareModalWithMessage",
+            handleOpenShareModalWithMessage
+        );
 
         return () => {
             document.removeEventListener(
@@ -447,21 +617,24 @@ export function ChatInterface() {
                 "openShareModal",
                 handleOpenShareModal
             );
+            document.removeEventListener(
+                "checkChatSharingStatus",
+                handleCheckChatSharingStatus
+            );
+            document.removeEventListener(
+                "openShareModalWithMessage",
+                handleOpenShareModalWithMessage
+            );
         };
     }, [selectedChatId, selectedChat, messagesResult]);
 
     // Use custom shortcuts hook
     const { checkShortcutMatch } = useCustomShortcuts();
+    const updatePreferences = useMutation(api.preferences.updatePreferences);
 
     // Comprehensive keyboard shortcuts (avoiding browser conflicts)
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Skip shortcuts if user is typing in an input/textarea or if a modal is open
-            const isTyping =
-                e.target instanceof HTMLInputElement ||
-                e.target instanceof HTMLTextAreaElement ||
-                (e.target as HTMLElement)?.isContentEditable;
-
             // Check custom shortcuts using the new system
             if (checkShortcutMatch(e, "toggleSidebar")) {
                 e.preventDefault();
@@ -485,6 +658,72 @@ export function ChatInterface() {
                 e.stopPropagation();
                 const toggleThemeEvent = new CustomEvent("toggleTheme");
                 document.dispatchEvent(toggleThemeEvent);
+                return;
+            }
+
+            // Toggle notifications shortcut - Ctrl+Shift+N
+            if (checkShortcutMatch(e, "toggleNotifications")) {
+                e.preventDefault();
+                e.stopPropagation();
+                void (async () => {
+                    try {
+                        const currentSettings = preferences;
+                        const newNotificationState = !currentSettings?.notificationSettings?.soundEnabled;
+                        
+                        await updatePreferences({
+                            notificationSettings: {
+                                ...currentSettings?.notificationSettings,
+                                soundEnabled: newNotificationState,
+                            }
+                        });
+                        
+                        toast.success(
+                            newNotificationState ? "🔔 Notifications enabled" : "🔕 Notifications disabled"
+                        );
+                    } catch (error) {
+                        toast.error("Failed to toggle notifications");
+                    }
+                })();
+                return;
+            }
+
+            // Adjust notification volume shortcut - Ctrl+Shift+V
+            if (checkShortcutMatch(e, "adjustNotificationVolume")) {
+                e.preventDefault();
+                e.stopPropagation();
+                void (async () => {
+                    try {
+                        const currentSettings = preferences;
+                        const currentVolume = currentSettings?.notificationSettings?.soundVolume || 0.5;
+                        
+                        // Cycle through volume levels: 0.2 -> 0.5 -> 0.8 -> 1.0 -> 0.2
+                        let newVolume = 0.5;
+                        if (currentVolume <= 0.2) newVolume = 0.5;
+                        else if (currentVolume <= 0.5) newVolume = 0.8;
+                        else if (currentVolume <= 0.8) newVolume = 1.0;
+                        else newVolume = 0.2;
+                        
+                        await updatePreferences({
+                            notificationSettings: {
+                                ...currentSettings?.notificationSettings,
+                                soundVolume: newVolume,
+                            }
+                        });
+                        
+                        toast.success(`🔊 Notification volume: ${Math.round(newVolume * 100)}%`);
+                    } catch (error) {
+                        toast.error("Failed to adjust notification volume");
+                    }
+                })();
+                return;
+            }
+
+            // Advanced Search shortcut - Ctrl+Shift+F
+            if (checkShortcutMatch(e, "advancedSearch")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const advancedSearchEvent = new CustomEvent("openAdvancedSearch");
+                document.dispatchEvent(advancedSearchEvent);
                 return;
             }
 
@@ -607,9 +846,17 @@ export function ChatInterface() {
                 e.preventDefault();
                 e.stopPropagation();
                 const voiceRecordingToggleEvent = new CustomEvent(
-                    "focusMessageInput"
+                    "toggleVoiceRecording"
                 );
                 document.dispatchEvent(voiceRecordingToggleEvent);
+                return;
+            }
+
+            if (checkShortcutMatch(e, "openLiveChatModal") && selectedChatId) {
+                e.preventDefault();
+                e.stopPropagation();
+                const liveChatModalEvent = new CustomEvent("openLiveChatModal");
+                document.dispatchEvent(liveChatModalEvent);
                 return;
             }
 
@@ -654,6 +901,23 @@ export function ChatInterface() {
                 return;
             }
 
+            if (checkShortcutMatch(e, "newTemporaryChat")) {
+                e.preventDefault();
+                e.stopPropagation();
+                void handleNewTemporaryChat();
+                return;
+            }
+
+            if (
+                checkShortcutMatch(e, "convertTemporaryToPermanent") &&
+                selectedChat?.isTemporary
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                void handleConvertTemporaryToPermanent();
+                return;
+            }
+
             if (checkShortcutMatch(e, "showShortcuts")) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -676,11 +940,8 @@ export function ChatInterface() {
                 return;
             }
 
-            // Skip other shortcuts if typing
-            if (isTyping) return;
-
-            // Simple navigation shortcuts (no modifiers needed) - these are not customizable
-            if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+            // Chat navigation shortcuts with Alt + arrow keys
+            if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
                 const allChats = chats
                     ? [...chats.starred, ...chats.regular]
                     : [];
@@ -707,7 +968,12 @@ export function ChatInterface() {
                             handleSelectChat(allChats[currentIndex + 1]._id);
                         }
                         return;
+                }
+            }
 
+            // Other simple navigation shortcuts (no modifiers needed)
+            if (!e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+                switch (e.key) {
                     case "Escape":
                         // Close modals/cancel actions
                         if (showSettings) {
@@ -729,7 +995,10 @@ export function ChatInterface() {
             });
     }, [
         checkShortcutMatch,
+        updatePreferences,
+        preferences,
         handleNewChat,
+        handleNewTemporaryChat,
         sidebarOpen,
         setSidebarOpen,
         rightSidebarOpen,
@@ -751,7 +1020,7 @@ export function ChatInterface() {
         setShowHeader,
         zenMode,
         setZenMode,
-        messagesResult,
+        handleConvertTemporaryToPermanent,
     ]);
 
     // URL synchronization - handle URL parameters
@@ -776,13 +1045,6 @@ export function ChatInterface() {
             }
         }
     }, [urlChatId, chats, selectedChatId, setLastSelectedChatId, navigate]);
-
-    // Update URL when selectedChatId changes (but not from URL parameter)
-    useEffect(() => {
-        if (selectedChatId && selectedChatId !== urlChatId) {
-            void navigate(`/chat/${selectedChatId}`, { replace: true });
-        }
-    }, [selectedChatId, urlChatId, navigate]);
 
     // Handle root path - redirect to last selected chat or first available
     useEffect(() => {
@@ -835,35 +1097,6 @@ export function ChatInterface() {
 
         void createInitialChat();
     }, [chats, isCreatingInitialChat, handleNewChat]);
-
-    // Smart chat selection - try last selected, then first available
-    useEffect(() => {
-        if (
-            !selectedChatId &&
-            chats &&
-            (chats.starred.length > 0 || chats.regular.length > 0)
-        ) {
-            const allChats = [...chats.starred, ...chats.regular];
-
-            // Try to select the last selected chat if it still exists
-            if (lastSelectedChatId) {
-                const lastChat = allChats.find(
-                    (chat) => chat._id === lastSelectedChatId
-                );
-                if (lastChat) {
-                    setSelectedChatId(lastChat._id);
-                    return;
-                }
-            }
-
-            // Fallback to first available chat
-            const firstChat = chats.starred[0] || chats.regular[0];
-            if (firstChat) {
-                setSelectedChatId(firstChat._id);
-                setLastSelectedChatId(firstChat._id);
-            }
-        }
-    }, [chats, selectedChatId, lastSelectedChatId, setLastSelectedChatId]);
 
     // Show welcome tour for new users
     useEffect(() => {
@@ -920,6 +1153,7 @@ export function ChatInterface() {
             );
 
             if (!isStillShared) {
+                console.log("not still shared...");
                 // Shared content no longer available, fallback to first regular chat
                 const allChats = [
                     ...(chats?.starred || []),
@@ -928,6 +1162,7 @@ export function ChatInterface() {
                 const fallbackChat = allChats[0];
 
                 if (fallbackChat) {
+                    console.log("falling back to first chat");
                     setSelectedChatId(fallbackChat._id);
                     setIsSharedContent(false);
                     setSharedContentType(null);
@@ -943,21 +1178,41 @@ export function ChatInterface() {
                         }
                     );
                 } else {
+                    console.log("navigating to home");
                     // No fallback available, navigate to home
                     void navigate("/", { replace: true });
                     toast.warning("Shared content is no longer available.");
                 }
+            } else {
+                console.log("still shared...");
             }
         }
     }, [selectedChatId, isSharedContent, sharedContent, chats, navigate]);
 
+    // Enhanced state for ShareModal with message context
+    const [showShareModal, setShowShareModal] = useState(false);
+    const [shareModalContext, setShareModalContext] = useState<{
+        chatId: string;
+        messageId?: string;
+        deepLinkHash?: string;
+        reason?: string;
+    } | null>(null);
+
     return (
         <div className="h-screen flex relative overflow-hidden">
             <div
-                className={`${sidebarOpen ? "w-80" : "w-0"} transition-all duration-300 overflow-hidden relative z-10`}
+                className={`${sidebarOpen ? "w-full md:w-80 md:min-w-80" : "w-0"} transition-all duration-300 overflow-hidden relative z-10`}
             >
                 <Sidebar
-                    chats={chats || { starred: [], regular: [] }}
+                    chats={
+                        chats || {
+                            starred: [],
+                            regular: [],
+                            archived: [],
+                            temporary: [],
+                            protected: [], // Add protected chats section
+                        }
+                    }
                     selectedChatId={selectedChatId}
                     onSelectChat={handleSelectChat}
                     onNewChat={handleNewChat}
@@ -974,7 +1229,7 @@ export function ChatInterface() {
                 {/* Header */}
                 {showHeader && (
                     <header
-                        className={`transition-all duration-300 ease-in-out overflow-hidden ${showHeader ? "h-16 opacity-100" : "h-0 opacity-0"} flex items-center justify-between px-4 pt-2`}
+                        className={`transition-all duration-300 ease-in-out overflow-hidden ${showHeader ? "min-h-16 opacity-100" : "h-0 opacity-0"} flex items-center justify-between px-4 pt-2`}
                     >
                         <div className="flex items-center gap-4">
                             {!sidebarOpen && (
@@ -1073,7 +1328,10 @@ export function ChatInterface() {
                 )}
 
                 {/* Chat Content */}
-                <div className="flex-1 overflow-y-scroll overflow-x-hidden">
+                <div
+                    ref={scrollContainerRef}
+                    className="flex-1 overflow-y-scroll overflow-x-hidden"
+                >
                     {isLoading ? (
                         <div className="h-full flex items-center justify-center">
                             <div className="text-center">
@@ -1118,6 +1376,8 @@ export function ChatInterface() {
                             chatId={selectedChatId}
                             setSelectedChatId={setSelectedChatId}
                             showMessageInput={showMessageInput}
+                            sidebarOpen={sidebarOpen}
+                            scrollToBottom={scrollToBottom}
                             // onSelectArtifact={handleSelectArtifact}
                         />
                     ) : null}
@@ -1146,11 +1406,44 @@ export function ChatInterface() {
                 />
             )}
 
+            <div
+                className={`fixed bottom-36 ${sidebarOpen ? "left-[59%]" : "left-1/2 -translate-x-1/2"} transform z-50 transition-all duration-200 ease-out ${
+                    isShowingScrollToBottomButton
+                        ? "opacity-100"
+                        : "opacity-0 pointer-events-none"
+                }`}
+            >
+                <Button
+                    onClick={scrollToBottom}
+                    size="icon"
+                    className="w-[2.5rem] h-[2.5rem] rounded-full shadow-lg bg-transparent backdrop-blur-sm border border-purple-600 text-white transition-all duration-200 hover:scale-105"
+                    title="Jump to bottom"
+                >
+                    <ChevronDown className="w-7 h-7" />
+                </Button>
+            </div>
+
             {/* Keyboard Shortcuts */}
             <KeyboardShortcuts
                 open={showKeyboardShortcuts}
                 onOpenChange={setShowKeyboardShortcuts}
             />
+
+            {/* ShareModal */}
+            {showShareModal && shareModalContext && (
+                <ShareModal
+                    open={showShareModal}
+                    onOpenChange={setShowShareModal}
+                    chatId={shareModalContext.chatId as Id<"chats">}
+                    messageId={
+                        shareModalContext.messageId as
+                            | Id<"messages">
+                            | undefined
+                    }
+                    deepLinkHash={shareModalContext.deepLinkHash}
+                    reason={shareModalContext.reason}
+                />
+            )}
 
             {/* Welcome Tour */}
             {showTour && <WelcomeTour onComplete={handleTourComplete} />}
@@ -1196,6 +1489,29 @@ export function ChatInterface() {
                     50% {
                         background: rgba(147, 51, 234, 0.3);
                         transform: scale(1.02);
+                    }
+                }
+
+                @keyframes deep-link-highlight {
+                    0% {
+                        box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.8);
+                        transform: scale(1);
+                    }
+                    25% {
+                        box-shadow: 0 0 0 10px rgba(147, 51, 234, 0.4);
+                        transform: scale(1.02);
+                    }
+                    50% {
+                        box-shadow: 0 0 0 20px rgba(147, 51, 234, 0.2);
+                        transform: scale(1.04);
+                    }
+                    75% {
+                        box-shadow: 0 0 0 10px rgba(147, 51, 234, 0.4);
+                        transform: scale(1.02);
+                    }
+                    100% {
+                        box-shadow: 0 0 0 0 rgba(147, 51, 234, 0);
+                        transform: scale(1);
                     }
                 }
             `}</style>

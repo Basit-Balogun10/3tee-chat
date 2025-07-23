@@ -5,7 +5,6 @@ export interface ShortcutConfig {
     action: string;
     category: string;
     isEditable: boolean;
-    description?: string;
     warningMessage?: string;
 }
 
@@ -84,15 +83,28 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
         category: "Chat Management",
         isEditable: true,
     },
+    {
+        id: "new-chat",
+        defaultKey: "Ctrl + N",
+        action: "Create new chat",
+        category: "Chat Management",
+        isEditable: true,
+    },
+    {
+        id: "new-temporary-chat",
+        defaultKey: "Ctrl + Shift + N",
+        action: "Create new temporary chat",
+        category: "Chat Management",
+        isEditable: true,
+    },
 
-    // Navigation (non-editable)
+    // Navigation
     {
         id: "navigate-chats",
-        defaultKey: "↑/↓",
+        defaultKey: "Alt + ↑/↓",
         action: "Navigate between chats",
         category: "Navigation",
-        isEditable: false,
-        warningMessage: "Navigation shortcuts cannot be customized",
+        isEditable: true,
     },
     {
         id: "focusInput",
@@ -108,8 +120,7 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
         defaultKey: "↑/↓",
         action: "Navigate message history",
         category: "Message Input",
-        isEditable: false,
-        warningMessage: "History navigation cannot be customized",
+        isEditable: true,
     },
     {
         id: "sendMessage",
@@ -140,12 +151,20 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
         isEditable: true,
     },
     {
+        id: "openLiveChatModal",
+        defaultKey: "Ctrl + Alt + L",
+        action: "Open live chat modal",
+        category: "Message Input",
+        isEditable: true,
+    },
+    {
         id: "show-commands",
         defaultKey: "/",
         action: "Show available commands",
         category: "Message Input",
         isEditable: false,
-        warningMessage: "Command shortcuts cannot be customized",
+        warningMessage:
+            "Command shortcuts are contextual and cannot be customized",
     },
     {
         id: "reference-artifacts",
@@ -153,121 +172,192 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
         action: "Reference artifacts",
         category: "Message Input",
         isEditable: false,
-        warningMessage: "Command shortcuts cannot be customized",
+        warningMessage:
+            "Command shortcuts are contextual and cannot be customized",
     },
 
-    // Message Actions (non-editable - contextual)
-    {
-        id: "copy-message",
-        defaultKey: "C",
-        action: "Copy message content",
-        category: "Message Actions (When Hovering)",
-        isEditable: false,
-        warningMessage:
-            "Message actions are contextual and cannot be customized",
-    },
-    {
-        id: "edit-message",
-        defaultKey: "E",
-        action: "Edit message (user messages)",
-        category: "Message Actions (When Hovering)",
-        isEditable: false,
-        warningMessage:
-            "Message actions are contextual and cannot be customized",
-    },
-    {
-        id: "delete-message",
-        defaultKey: "Delete",
-        action: "Delete message (user messages)",
-        category: "Message Actions (When Hovering)",
-        isEditable: false,
-        warningMessage:
-            "Message actions are contextual and cannot be customized",
-    },
-    {
-        id: "retry-response",
-        defaultKey: "R",
-        action: "Retry AI response",
-        category: "Message Actions (When Hovering)",
-        isEditable: false,
-        warningMessage:
-            "Message actions are contextual and cannot be customized",
-    },
-    {
-        id: "fork-conversation",
-        defaultKey: "F",
-        action: "Fork conversation from message",
-        category: "Message Actions (When Hovering)",
-        isEditable: false,
-        warningMessage:
-            "Message actions are contextual and cannot be customized",
-    },
-    {
-        id: "navigate-branches",
-        defaultKey: "←/→",
-        action: "Navigate message branches",
-        category: "Message Actions (When Hovering)",
-        isEditable: false,
-        warningMessage: "Navigation shortcuts cannot be customized",
-    },
-
-    // Export & Share
-    {
-        id: "exportMarkdown",
-        defaultKey: "Cmd/Ctrl + Shift + E",
-        action: "Export as Markdown",
-        category: "Export & Share",
-        isEditable: true,
-    },
-    {
-        id: "exportJson",
-        defaultKey: "Cmd/Ctrl + Shift + J",
-        action: "Export as JSON",
-        category: "Export & Share",
-        isEditable: true,
-    },
+    // Sharing
     {
         id: "shareChat",
         defaultKey: "Cmd/Ctrl + Shift + S",
-        action: "Share chat",
-        category: "Export & Share",
+        action: "Share current chat (read-only)",
+        category: "Sharing",
         isEditable: true,
     },
     {
         id: "shareCollaboration",
         defaultKey: "Cmd/Ctrl + Alt + C",
-        action: "Share chat (collaboration mode)",
-        category: "Export & Share",
+        action: "Share for collaboration",
+        category: "Sharing",
+        isEditable: true,
+    },
+    {
+        id: "exportMarkdown",
+        defaultKey: "Cmd/Ctrl + Shift + E",
+        action: "Export chat as Markdown",
+        category: "Sharing",
+        isEditable: true,
+    },
+    {
+        id: "exportJson",
+        defaultKey: "Cmd/Ctrl + Shift + J",
+        action: "Export chat as JSON",
+        category: "Sharing",
         isEditable: true,
     },
 
     // Theme & UI
     {
         id: "toggleTheme",
-        defaultKey: "Cmd/Ctrl + Shift + D",
-        action: "Toggle dark/light mode",
+        defaultKey: "Cmd/Ctrl + Shift + T",
+        action: "Toggle theme",
         category: "Theme & UI",
         isEditable: true,
     },
     {
         id: "toggleMessageInput",
-        defaultKey: "Cmd/Ctrl + Alt + M",
-        action: "Toggle message input visibility",
+        defaultKey: "Cmd/Ctrl + Shift + I",
+        action: "Toggle message input",
         category: "Theme & UI",
         isEditable: true,
     },
     {
         id: "toggleHeader",
-        defaultKey: "Cmd/Ctrl + Alt + H",
-        action: "Toggle chat header visibility",
+        defaultKey: "Cmd/Ctrl + Shift + H",
+        action: "Toggle header",
         category: "Theme & UI",
         isEditable: true,
     },
     {
         id: "toggleZenMode",
-        defaultKey: "Cmd/Ctrl + Alt + Z",
-        action: "Toggle zen mode (toggles sidebar, header & input)",
+        defaultKey: "Cmd/Ctrl + Shift + Z",
+        action: "Toggle zen mode",
         category: "Theme & UI",
+        isEditable: true,
+    },
+
+    // Message Actions (When Hovering)
+    {
+        id: "navigate-versions-branches",
+        defaultKey: "Ctrl + ←/→",
+        action: "Navigate message versions/branches",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "collapse-message",
+        defaultKey: "Ctrl + ↑",
+        action: "Collapse message (when hovering)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "expand-message",
+        defaultKey: "Ctrl + ↓",
+        action: "Expand message (when hovering)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "scroll-to-message-end",
+        defaultKey: "Ctrl + End",
+        action: "Scroll to end of message (when hovering)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "copy-message",
+        defaultKey: "C",
+        action: "Copy message content (when hovering)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "edit-message",
+        defaultKey: "E",
+        action: "Edit message (when hovering over user messages)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "retry-message",
+        defaultKey: "R",
+        action: "Retry AI response (when hovering over AI messages)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "retry-different-model",
+        defaultKey: "Shift + R",
+        action: "Retry with different model (when hovering over AI messages)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "delete-message",
+        defaultKey: "Delete/Backspace",
+        action: "Delete message (when hovering over user messages)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "fork-conversation",
+        defaultKey: "F",
+        action: "Fork conversation from message (when hovering over AI messages)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "copyDirectMessageLink",
+        defaultKey: "L",
+        action: "Copy direct link to message",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "createSharedMessageLink",
+        defaultKey: "Shift + L",
+        action: "Create shared link to message",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+
+    // Phase 3 & 4 shortcuts
+    {
+        id: "advancedSearch",
+        defaultKey: "Ctrl + Shift + F",
+        action: "Open advanced search modal",
+        category: "Search",
+        isEditable: true,
+    },
+    {
+        id: "enhancePrompt",
+        defaultKey: "Ctrl + Shift + E",
+        action: "Enhance current prompt with AI (1-click)",
+        category: "AI",
+        isEditable: true,
+    },
+    {
+        id: "openChatAISettings",
+        defaultKey: "Ctrl + Shift + A",
+        action: "Open per-chat AI settings modal",
+        category: "AI",
+        isEditable: true,
+    },
+    
+    // Phase 2 notification shortcuts
+    {
+        id: "toggleNotifications",
+        defaultKey: "Ctrl + Shift + N",
+        action: "Toggle sound notifications on/off",
+        category: "Notifications",
+        isEditable: true,
+    },
+    {
+        id: "adjustNotificationVolume",
+        defaultKey: "Ctrl + Shift + V",
+        action: "Adjust notification sound volume",
+        category: "Notifications",
         isEditable: true,
     },
 ];

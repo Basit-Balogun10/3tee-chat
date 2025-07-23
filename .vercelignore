@@ -1,0 +1,13 @@
+node_modules
+*.log
+.env*
+.vscode
+.git
+dist
+build
+.next
+.turbo
+coverage
+*.tsbuildinfo
+*.cache
+*.lock

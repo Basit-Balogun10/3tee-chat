@@ -1,13 +1,29 @@
 import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { Button } from "./ui/button";
 import { ShareModal } from "./ShareModal";
-import { Share2, Link, FileText, Code, FileDown } from "lucide-react";
+import { PasswordProtectionModal } from "./PasswordProtectionModal";
+import {
+    Share2,
+    Link,
+    FileText,
+    Code,
+    FileDown,
+    Lock,
+    Unlock,
+    Shield,
+} from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
+import {
+    Document,
+    Packer,
+    Paragraph,
+    TextRun,
+    HeadingLevel,
+} from "docx";
 
 interface ShareMenuProps {
     chatId: Id<"chats">;
@@ -16,16 +32,16 @@ interface ShareMenuProps {
 export function ShareMenu({ chatId }: ShareMenuProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [showShareModal, setShowShareModal] = useState(false);
-    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, right: 0 });
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [passwordMode, setPasswordMode] = useState<"set" | "remove">("set");
+
     const menuRef = useRef<HTMLDivElement>(null);
-    const buttonRef = useRef<HTMLButtonElement>(null);
     const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // Get chat data and messages for export
     const chat = useQuery(api.chats.getChat, { chatId });
     const messages = useQuery(api.chats.getChatMessages, { chatId }) || [];
+    const passwordStatus = useQuery(api.chats.checkPasswordStatus, { chatId });
 
-    // Close dropdown when clicking outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (
@@ -35,56 +51,39 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
                 setIsOpen(false);
             }
         }
-
         if (isOpen) {
             document.addEventListener("mousedown", handleClickOutside);
         }
-
-        return () =>
+        return () => {
             document.removeEventListener("mousedown", handleClickOutside);
+        };
     }, [isOpen]);
 
-    // Listen for keyboard shortcut events to open share modal
     useEffect(() => {
         const handleOpenShareModalFromMenu = (e: Event) => {
-            const { chatId, mode } = (e as CustomEvent).detail;
-            if (chatId === chatId) {
+            const { chatId: eventChatId } = (e as CustomEvent).detail;
+            if (eventChatId === chatId) {
                 setShowShareModal(true);
                 setIsOpen(false);
             }
         };
-
         document.addEventListener(
             "openShareModalFromMenu",
             handleOpenShareModalFromMenu
         );
-        return () =>
+        return () => {
             document.removeEventListener(
                 "openShareModalFromMenu",
                 handleOpenShareModalFromMenu
             );
+        };
     }, [chatId]);
-
-    // Calculate dropdown position when opening
-    const updateDropdownPosition = () => {
-        if (buttonRef.current) {
-            const rect = buttonRef.current.getBoundingClientRect();
-            setDropdownPosition({
-                top: rect.bottom + 8, // 8px gap below button
-                right: window.innerWidth - rect.right, // Distance from right edge
-            });
-        }
-    };
 
     const handleToggleDropdown = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (!isOpen) {
-            updateDropdownPosition();
-        }
         setIsOpen(!isOpen);
     };
 
-    // Clear any pending close timeout
     const clearCloseTimeout = () => {
         if (closeTimeoutRef.current) {
             clearTimeout(closeTimeoutRef.current);
@@ -92,461 +91,476 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
         }
     };
 
-    // Schedule dropdown close with delay
     const scheduleClose = () => {
         clearCloseTimeout();
         closeTimeoutRef.current = setTimeout(() => {
             setIsOpen(false);
-        }, 100); // 0.1 second delay
+        }, 100);
+    };
+
+    const downloadFile = (
+        content: string | Blob,
+        filename: string,
+        mimeType: string
+    ) => {
+        const blob =
+            content instanceof Blob
+                ? content
+                : new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     const handleMouseEnter = () => {
-        clearCloseTimeout(); // Cancel any pending close
-        updateDropdownPosition();
+        clearCloseTimeout();
         setIsOpen(true);
     };
 
     const handleMouseLeave = () => {
-        scheduleClose(); // Schedule close with delay instead of immediate close
+        scheduleClose();
     };
 
     const handleDropdownMouseEnter = () => {
-        clearCloseTimeout(); // Cancel close when mouse enters dropdown
+        clearCloseTimeout();
     };
 
     const handleDropdownMouseLeave = () => {
-        scheduleClose(); 
+        scheduleClose();
     };
 
-    // Update position on window resize
-    useEffect(() => {
-        const handleResize = () => {
-            if (isOpen) {
-                updateDropdownPosition();
+    const handlePasswordProtection = (mode: "set" | "remove") => {
+        setPasswordMode(mode);
+        setShowPasswordModal(true);
+        setIsOpen(false);
+    };
+
+    // Enhanced Export System from SettingsModal (adapted for a single chat)
+
+    const generateEnhancedExportData = (chatData: any, messagesData: any[]) => {
+        const timestamp = new Date().toISOString();
+        let totalBranches = 0;
+        let branchedConversations = 0;
+
+        const chatBranches = messagesData.reduce((count: number, msg: any) => {
+            if (msg.branches && msg.branches.length > 1) {
+                return count + msg.branches.length;
             }
-        };
+            return count;
+        }, 0);
 
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, [isOpen]);
-
-    const handleExportmarkdown = () => {
-        if (!chat || !messages.length) {
-            toast.error("No messages to export");
-            return;
+        if (chatBranches > 0) {
+            branchedConversations = 1;
+            totalBranches = chatBranches;
         }
 
-        const chatTitle = chat.title || "Chat Export";
-        const timestamp = new Date().toLocaleDateString();
+        const enhancedChat = {
+            id: chatData._id,
+            title: chatData.title,
+            model: chatData.model,
+            createdAt: chatData._creationTime,
+            updatedAt: chatData.updatedAt,
+            isStarred: chatData.isStarred,
+            activeBranchId: chatData.activeBranchId,
+            baseMessages: chatData.baseMessages || [],
+            hasBranches: chatBranches > 0,
+            messages: messagesData.map((msg: any) => ({
+                id: msg._id,
+                role: msg.role,
+                content: msg.content,
+                timestamp: msg.timestamp,
+                model: msg.model,
+                attachments: msg.attachments,
+                metadata: msg.metadata,
+                branchId: msg.branchId,
+                branches: msg.branches || [],
+                activeBranchId: msg.activeBranchId,
+                hasBranches: msg.branches && msg.branches.length > 1,
+            })),
+        };
 
-        let markdown = `# ${chatTitle}\n\n`;
-        markdown += `*Exported on ${timestamp}*\n\n`;
-        markdown += `**Model:** ${chat.model}\n\n`;
-        markdown += `---\n\n`;
+        return {
+            exportInfo: {
+                version: "2.0.0",
+                timestamp,
+                totalChats: 1,
+                branchingSystemVersion: "1.0.0",
+                branchCount: totalBranches,
+                branchedConversations,
+            },
+            chats: [enhancedChat],
+        };
+    };
 
-        messages.forEach((message, index) => {
-            const role =
-                message.role === "user" ? "👤 **You**" : "🤖 **Assistant**";
-            const time = new Date(message.timestamp).toLocaleTimeString();
+    const generateEnhancedMarkdownExport = (data: any) => {
+        let markdown = `# Advanced Chat Export (with Branching Support)\n\n`;
+        markdown += `**Exported on:** ${new Date(
+            data.exportInfo.timestamp
+        ).toLocaleString()}\n`;
+        if (data.exportInfo.branchCount > 0) {
+            markdown += `**Total Branches:** ${data.exportInfo.branchCount}\n`;
+        }
+        markdown += `\n`;
 
-            markdown += `## ${role} *(${time})*\n\n`;
-
-            // Handle attachments
-            if (message.attachments && message.attachments.length > 0) {
-                markdown += `📎 **Attachments:**\n`;
-                message.attachments.forEach((attachment) => {
-                    markdown += `- ${attachment.name} (${attachment.type})\n`;
-                });
-                markdown += `\n`;
-            }
-
-            // Handle metadata (search results, images, etc.)
-            if (message.metadata) {
-                if (message.metadata.audioTranscription) {
-                    markdown += `🎤 **Voice Input:** "${message.metadata.audioTranscription}"\n\n`;
+        data.chats.forEach((chat: any) => {
+            markdown += `## ${chat.title}${chat.hasBranches ? " 🌿" : ""}\n\n`;
+            markdown += `**Model:** ${chat.model} | **Created:** ${new Date(
+                chat.createdAt
+            ).toLocaleDateString()}\n\n`;
+            chat.messages.forEach((message: any) => {
+                const role =
+                    message.role === "user" ? "👤 **You**" : "🤖 **Assistant**";
+                const time = new Date(message.timestamp).toLocaleTimeString();
+                markdown += `### ${role} *(${time})*`;
+                if (message.hasBranches) {
+                    markdown += ` 🌿 *[${message.branches.length} branches]*`;
                 }
+                markdown += `\n\n${message.content}\n\n---\n\n`;
+            });
+        });
+        return markdown;
+    };
 
-                if (message.metadata.imagePrompt) {
-                    markdown += `🎨 **Image Prompt:** "${message.metadata.imagePrompt}"\n\n`;
-                }
+    const generateEnhancedPDFExport = async (data: any) => {
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const margin = 20;
+        const maxLineWidth = pageWidth - 2 * margin;
+        let yPosition = margin;
 
-                if (message.metadata.searchResults) {
-                    markdown += `🔍 **Web Search Results:**\n`;
-                    message.metadata.searchResults.forEach((result: any) => {
-                        markdown += `- [${result.title}](${result.url})\n`;
-                        markdown += `  *${result.snippet}*\n`;
-                    });
-                    markdown += `\n`;
-                }
-            }
+        const chat = data.chats[0];
 
-            markdown += `${message.content}\n\n`;
+        doc.setFontSize(22);
+        doc.setFont("helvetica", "bold");
+        doc.text(chat.title || "Chat Export", pageWidth / 2, yPosition, {
+            align: "center",
+        });
+        yPosition += 15;
 
-            if (index < messages.length - 1) {
-                markdown += `---\n\n`;
-            }
+        if (chat.hasBranches) {
+            doc.setFontSize(14);
+            doc.setTextColor(100, 100, 200);
+            doc.text(
+                "🌿 (Includes Conversation Branches)",
+                pageWidth / 2,
+                yPosition,
+                { align: "center" }
+            );
+            yPosition += 15;
+        }
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(0, 0, 0);
+        const metadataLines = [
+            `Exported on: ${new Date(
+                data.exportInfo.timestamp
+            ).toLocaleString()}`,
+            `Model: ${chat.model}`,
+        ];
+        metadataLines.forEach((line) => {
+            doc.text(line, pageWidth / 2, yPosition, { align: "center" });
+            yPosition += 7;
         });
 
-        const filename = `${chatTitle.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_${Date.now()}.md`;
-        downloadFile(markdown, filename, "text/markdown");
+        doc.addPage();
+        yPosition = margin;
 
-        toast.success("Exporting chat as markdown...");
-        setIsOpen(false);
-    };
+        for (const message of chat.messages) {
+            const role = message.role === "user" ? "👤 You" : "🤖 Assistant";
+            const timestamp = new Date(message.timestamp).toLocaleString();
+            let messageHeader = `${role} - ${timestamp}`;
+            if (message.hasBranches) {
+                messageHeader += ` 🌿 (${message.branches.length} branches)`;
+            }
 
-    const handleExportJSON = () => {
-        if (!chat || !messages.length) {
-            toast.error("No messages to export");
-            return;
-        }
+            if (yPosition > doc.internal.pageSize.getHeight() - 40) {
+                doc.addPage();
+                yPosition = margin;
+            }
 
-        const exportData = {
-            chat: {
-                id: chatId,
-                title: chat.title,
-                model: chat.model,
-                createdAt: chat._creationTime,
-                updatedAt: chat.updatedAt,
-                exportedAt: new Date().toISOString(),
-            },
-            messages: messages.map((message) => ({
-                id: message._id,
-                role: message.role,
-                content: message.content,
-                timestamp: message.timestamp,
-                model: message.model,
-                attachments: message.attachments,
-                metadata: message.metadata,
-            })),
-            statistics: {
-                totalMessages: messages.length,
-                userMessages: messages.filter((m) => m.role === "user").length,
-                assistantMessages: messages.filter(
-                    (m) => m.role === "assistant"
-                ).length,
-                totalCharacters: messages.reduce(
-                    (sum, m) => sum + m.content.length,
-                    0
-                ),
-            },
-        };
-
-        const jsonString = JSON.stringify(exportData, null, 2);
-        const filename = `${chat.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_${Date.now()}.json`;
-        downloadFile(jsonString, filename, "application/json");
-
-        toast.success("Exporting file as JSON...");
-        setIsOpen(false);
-    };
-
-    const handleExportPDF = async () => {
-        if (!chat || !messages.length) {
-            toast.error("No messages to export");
-            return;
-        }
-
-        try {
-            toast.info("Generating PDF...", { duration: 2000 });
-
-            const doc = new jsPDF();
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            const margin = 20;
-            const maxLineWidth = pageWidth - 2 * margin;
-            let yPosition = margin;
-
-            // Title Page
-            doc.setFontSize(24);
-            doc.setFont("helvetica", "bold");
-            doc.text(chat.title || "Chat Export", pageWidth / 2, yPosition, {
-                align: "center",
-            });
-            yPosition += 20;
-
-            // Metadata
             doc.setFontSize(12);
-            doc.setFont("helvetica", "normal");
-            const metadataLines = [
-                `Exported on: ${new Date().toLocaleString()}`,
-                `Model: ${chat.model}`,
-                `Chat ID: ${chatId}`,
-                `Total Messages: ${messages.length}`,
-                `Created: ${new Date(chat._creationTime).toLocaleString()}`,
-                `Last Updated: ${new Date(chat.updatedAt).toLocaleString()}`,
-            ];
-
-            metadataLines.forEach((line) => {
-                doc.text(line, pageWidth / 2, yPosition, { align: "center" });
-                yPosition += 8;
-            });
-
-            yPosition += 20;
-
-            // Statistics
-            const userMessages = messages.filter(
-                (m) => m.role === "user"
-            ).length;
-            const assistantMessages = messages.filter(
-                (m) => m.role === "assistant"
-            ).length;
-            const totalChars = messages.reduce(
-                (sum, m) => sum + m.content.length,
-                0
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(
+                message.role === "user" ? 60 : 120,
+                message.role === "user" ? 120 : 60,
+                message.role === "user" ? 220 : 180
             );
+            doc.text(messageHeader, margin, yPosition);
+            yPosition += 10;
 
-            doc.setFontSize(14);
-            doc.setFont("helvetica", "bold");
-            doc.text("Chat Statistics", margin, yPosition);
-            yPosition += 15;
-
-            doc.setFontSize(10);
             doc.setFont("helvetica", "normal");
-            const statsLines = [
-                `User Messages: ${userMessages}`,
-                `Assistant Messages: ${assistantMessages}`,
-                `Total Characters: ${totalChars.toLocaleString()}`,
-                `Average Message Length: ${Math.round(totalChars / messages.length)} characters`,
-            ];
-
-            statsLines.forEach((line) => {
-                doc.text(line, margin, yPosition);
-                yPosition += 6;
-            });
-
-            // Start new page for messages
-            doc.addPage();
-            yPosition = margin;
-
-            // Messages header
-            doc.setFontSize(16);
-            doc.setFont("helvetica", "bold");
-            doc.text("Chat Messages", margin, yPosition);
-            yPosition += 20;
-
-            // Process each message
-            messages.forEach((message, index) => {
-                const role =
-                    message.role === "user" ? "👤 You" : "🤖 Assistant";
-                const timestamp = new Date(message.timestamp).toLocaleString();
-
-                // Check if we need a new page
-                if (yPosition > pageHeight - 60) {
+            doc.setTextColor(0, 0, 0);
+            const lines = doc.splitTextToSize(message.content, maxLineWidth);
+            lines.forEach((line: string) => {
+                if (yPosition > doc.internal.pageSize.getHeight() - 20) {
                     doc.addPage();
                     yPosition = margin;
                 }
-
-                // Message header
-                doc.setFontSize(12);
-                doc.setFont("helvetica", "bold");
-                doc.setTextColor(
-                    message.role === "user" ? [0, 100, 200] : [150, 0, 150]
-                );
-                doc.text(`${role} - ${timestamp}`, margin, yPosition);
-                yPosition += 10;
-
-                // Message content
-                doc.setFont("helvetica", "normal");
-                doc.setTextColor(0, 0, 0);
-
-                // Split long content into lines
-                const lines = doc.splitTextToSize(
-                    message.content,
-                    maxLineWidth
-                );
-                lines.forEach((line: string) => {
-                    if (yPosition > pageHeight - 20) {
-                        doc.addPage();
-                        yPosition = margin;
-                    }
-                    doc.text(line, margin, yPosition);
-                    yPosition += 6;
-                });
-
-                // Handle attachments
-                if (message.attachments && message.attachments.length > 0) {
-                    yPosition += 5;
-                    doc.setFont("helvetica", "italic");
-                    doc.setTextColor(100, 100, 100);
-                    message.attachments.forEach((attachment) => {
-                        if (yPosition > pageHeight - 20) {
-                            doc.addPage();
-                            yPosition = margin;
-                        }
-                        doc.text(
-                            `📎 Attachment: ${attachment.name} (${attachment.type})`,
-                            margin,
-                            yPosition
-                        );
-                        yPosition += 6;
-                    });
-                }
-
-                // Handle metadata
-                if (message.metadata) {
-                    if (message.metadata.audioTranscription) {
-                        yPosition += 3;
-                        doc.setFont("helvetica", "italic");
-                        doc.setTextColor(0, 150, 0);
-                        const transcriptLines = doc.splitTextToSize(
-                            `🎤 Voice Input: "${message.metadata.audioTranscription}"`,
-                            maxLineWidth
-                        );
-                        transcriptLines.forEach((line: string) => {
-                            if (yPosition > pageHeight - 20) {
-                                doc.addPage();
-                                yPosition = margin;
-                            }
-                            doc.text(line, margin, yPosition);
-                            yPosition += 6;
-                        });
-                    }
-
-                    if (message.metadata.searchResults) {
-                        yPosition += 5;
-                        doc.setFont("helvetica", "italic");
-                        doc.setTextColor(200, 100, 0);
-                        doc.text("🔍 Web Search Results:", margin, yPosition);
-                        yPosition += 6;
-
-                        message.metadata.searchResults.forEach(
-                            (result: any) => {
-                                if (yPosition > pageHeight - 30) {
-                                    doc.addPage();
-                                    yPosition = margin;
-                                }
-                                const resultLines = doc.splitTextToSize(
-                                    `• ${result.title} - ${result.snippet}`,
-                                    maxLineWidth - 10
-                                );
-                                resultLines.forEach((line: string) => {
-                                    doc.text(line, margin + 5, yPosition);
-                                    yPosition += 5;
-                                });
-                                yPosition += 2;
-                            }
-                        );
-                    }
-                }
-
-                yPosition += 15; // Space between messages
-
-                // Add separator line
-                if (index < messages.length - 1) {
-                    doc.setDrawColor(200, 200, 200);
-                    doc.line(
-                        margin,
-                        yPosition - 8,
-                        pageWidth - margin,
-                        yPosition - 8
-                    );
-                }
+                doc.text(line, margin, yPosition);
+                yPosition += 6;
             });
+            yPosition += 10;
+        }
 
-            // Save the PDF
-            const filename = `${chat.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_${Date.now()}.pdf`;
-            doc.save(filename);
+        const pdfBlob = doc.output("blob");
+        return pdfBlob;
+    };
 
-            toast.success("PDF exported successfully!");
-            setIsOpen(false);
+    const generateEnhancedDOCXExport = async (data: any) => {
+        const doc = new Document({
+            sections: [
+                {
+                    properties: {},
+                    children: [],
+                },
+            ],
+        });
+
+        const chat = data.chats[0];
+
+        // Title
+        doc.addSection({
+            children: [
+                new Paragraph({
+                    text: chat.title || "Chat Export",
+                    heading: HeadingLevel.HEADING_1,
+                }),
+            ],
+        });
+
+        if (chat.hasBranches) {
+            doc.addSection({
+                children: [
+                    new Paragraph({
+                        text: "🌿 (Includes Conversation Branches)",
+                        heading: HeadingLevel.HEADING_2,
+                    }),
+                ],
+            });
+        }
+
+        // Metadata
+        const metadataTable = [
+            [
+                "Exported on",
+                new Date(data.exportInfo.timestamp).toLocaleString(),
+            ],
+            ["Model", chat.model],
+        ];
+
+        doc.addSection({
+            children: [
+                new Table({
+                    rows: metadataTable.map((row) =>
+                        new TableRow({
+                            children: row.map(
+                                (cell) =>
+                                    new TableCell({
+                                        children: [
+                                            new Paragraph({
+                                                text: cell,
+                                                heading: HeadingLevel.HEADING_3,
+                                            }),
+                                        ],
+                                    })
+                            ),
+                        })
+                    ),
+                }),
+            ],
+        });
+
+        // Chat Messages
+        for (const message of chat.messages) {
+            const role = message.role === "user" ? "👤 You" : "🤖 Assistant";
+            const timestamp = new Date(message.timestamp).toLocaleString();
+            let messageHeader = `${role} - ${timestamp}`;
+            if (message.hasBranches) {
+                messageHeader += ` 🌿 (${message.branches.length} branches)`;
+            }
+
+            doc.addSection({
+                children: [
+                    new Paragraph({
+                        text: messageHeader,
+                        heading: HeadingLevel.HEADING_2,
+                    }),
+                    new Paragraph({
+                        text: message.content,
+                        heading: HeadingLevel.HEADING_3,
+                    }),
+                ],
+            });
+        }
+
+        const blob = await Packer.toBlob(doc);
+        return blob;
+    };
+
+    const handleExport = async (format: "json" | "markdown" | "pdf" | "docx") => {
+        if (!chat || messages.length === 0) {
+            toast.error("No content to export.");
+            return;
+        }
+
+        toast.info(`Generating ${format.toUpperCase()} export...`);
+
+        try {
+            const exportData = generateEnhancedExportData(chat, messages);
+            const timestamp = new Date().toISOString().split("T")[0];
+            const baseFilename = `${chat.title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_${timestamp}`;
+
+            let content: string | Blob = "";
+            let filename = "";
+            let mimeType = "";
+
+            switch (format) {
+                case "json":
+                    content = JSON.stringify(exportData, null, 2);
+                    filename = `${baseFilename}.json`;
+                    mimeType = "application/json";
+                    break;
+                case "markdown":
+                    content = generateEnhancedMarkdownExport(exportData);
+                    filename = `${baseFilename}.md`;
+                    mimeType = "text/markdown";
+                    break;
+                case "pdf":
+                    content = await generateEnhancedPDFExport(exportData);
+                    filename = `${baseFilename}.pdf`;
+                    mimeType = "application/pdf";
+                    break;
+                case "docx":
+                    content = await generateEnhancedDOCXExport(exportData);
+                    filename = `${baseFilename}.docx`;
+                    mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                    break;
+            }
+
+            downloadFile(content, filename, mimeType);
+            toast.success(
+                `Chat successfully exported as ${format.toUpperCase()}.`
+            );
         } catch (error) {
-            console.error("PDF export error:", error);
-            toast.error("Failed to export PDF");
+            console.error(`Export failed for format: ${format}`, error);
+            toast.error(`Failed to export chat as ${format.toUpperCase()}.`);
+        } finally {
+            setIsOpen(false);
         }
     };
 
-    const dropdownContent = isOpen && (
-        <div
-            className="fixed mt-2 min-w-[200px] bg-gray-900/95 backdrop-blur-md border border-purple-600/30 rounded-lg shadow-xl z-[9999]"
-            style={{
-                top: `${dropdownPosition.top}px`,
-                right: `${dropdownPosition.right}px`,
-            }}
-            onMouseEnter={handleDropdownMouseEnter}
-            onMouseLeave={handleDropdownMouseLeave}
-        >
-            <div className="p-1 space-y-0.5">
-                <button
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowShareModal(true);
-                        clearCloseTimeout(); // Prevent auto-close
-                    }}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
-                >
-                    <Link className="w-4 h-4" />
-                    Share Chat
-                </button>
-
-                <div className="border-t border-purple-600/20 my-1"></div>
-
-                <button
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleExportmarkdown();
-                    }}
-                    disabled={!messages.length}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
-                >
-                    <FileText className="w-4 h-4" />
-                    Export as Markdown
-                </button>
-
-                <button
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleExportJSON();
-                    }}
-                    disabled={!messages.length}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
-                >
-                    <Code className="w-4 h-4" />
-                    Export as JSON
-                </button>
-
-                <button
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleExportPDF();
-                    }}
-                    disabled={!messages.length}
-                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
-                >
-                    <FileDown className="w-4 h-4" />
-                    Export as PDF
-                </button>
-
-                {!messages.length && (
-                    <div className="px-3 py-2 text-xs text-purple-400 text-center border-t border-purple-600/20 mt-1">
-                        No messages to export
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-
     return (
-        <>
-            <div className="relative" ref={menuRef}>
-                <Button
-                    ref={buttonRef}
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleToggleDropdown}
-                    onMouseEnter={handleMouseEnter}
-                    onMouseLeave={handleMouseLeave}
-                    className="p-2 rounded-lg hover:bg-purple-500/30 transition-colors text-purple-200"
-                    title="Share & Export"
-                >
-                    <Share2 className="w-5 h-5" />
-                </Button>
-            </div>
+        <div ref={menuRef}>
+            <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleToggleDropdown}
+                onMouseEnter={handleMouseEnter}
+                onMouseLeave={handleMouseLeave}
+                className="p-2 rounded-lg hover:bg-purple-500/30 transition-colors text-purple-200"
+                title="Share & Export"
+            >
+                <Share2 className="w-5 h-5" />
+            </Button>
 
-            {/* Render dropdown in a portal to avoid clipping */}
-            {dropdownContent && createPortal(dropdownContent, document.body)}
+            {isOpen && (
+                <div
+                    className="absolute right-24 top-14 mt-2 min-w-[220px] bg-gray-900/95 backdrop-blur-md border border-purple-600/30 rounded-lg shadow-xl z-[9999]"
+                    onMouseEnter={handleDropdownMouseEnter}
+                    onMouseLeave={handleDropdownMouseLeave}
+                >
+                    <div className="p-1 space-y-0.5">
+                        <button
+                            onClick={() => {
+                                clearCloseTimeout();
+                                setIsOpen(false);
+                                setShowShareModal(true);
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left"
+                        >
+                            <Link className="w-4 h-4" />
+                            Share Chat
+                        </button>
+
+                        <div className="border-t border-purple-600/20 my-1"></div>
+
+                        <button
+                            onClick={() => handleExport("markdown")}
+                            disabled={!messages.length}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
+                        >
+                            <FileText className="w-4 h-4" />
+                            Export as Markdown
+                        </button>
+
+                        <button
+                            onClick={() => handleExport("json")}
+                            disabled={!messages.length}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
+                        >
+                            <Code className="w-4 h-4" />
+                            Export as JSON
+                        </button>
+
+                        <button
+                            onClick={() => handleExport("pdf")}
+                            disabled={!messages.length}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
+                        >
+                            <FileDown className="w-4 h-4" />
+                            Export as PDF
+                        </button>
+
+                        <button
+                            onClick={() => handleExport("docx")}
+                            disabled={!messages.length}
+                            className="w-full flex items-center gap-3 px-3 py-2 text-sm text-purple-100 hover:bg-purple-600/20 rounded-lg transition-colors text-left disabled:opacity-50"
+                        >
+                            <FileDown className="w-4 h-4" />
+                            Export as DOCX
+                        </button>
+                    </div>
+
+                    <div className="border-t border-purple-600/20 my-1"></div>
+
+                    <div className="px-2 py-1.5">
+                        <div className="text-xs font-medium text-purple-200/80 uppercase tracking-wider mb-2 px-1">
+                            Security
+                        </div>
+                        {passwordStatus?.isPasswordProtected ? (
+                            <>
+                                <button
+                                    onClick={() =>
+                                        handlePasswordProtection("remove")
+                                    }
+                                    className="w-full flex items-center gap-3 px-3 py-2 text-sm text-orange-300 hover:bg-orange-600/20 rounded-lg transition-colors text-left"
+                                >
+                                    <Unlock className="w-4 h-4" />
+                                    Remove Password
+                                </button>
+                                <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-green-400">
+                                    <Shield className="w-3 h-3" />
+                                    <span>Protected</span>
+                                </div>
+                            </>
+                        ) : (
+                            <button
+                                onClick={() => handlePasswordProtection("set")}
+                                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-green-300 hover:bg-green-600/20 rounded-lg transition-colors text-left"
+                            >
+                                <Lock className="w-4 h-4" />
+                                Set Password
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <ShareModal
                 open={showShareModal}
@@ -555,6 +569,14 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
                 itemType="chat"
                 itemTitle={chat?.title}
             />
-        </>
+
+            <PasswordProtectionModal
+                open={showPasswordModal}
+                onOpenChange={setShowPasswordModal}
+                chatId={chatId}
+                mode={passwordMode}
+            />
+        </div>
     );
 }
+

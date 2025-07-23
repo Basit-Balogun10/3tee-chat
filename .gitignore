@@ -27,3 +27,7 @@ dist-ssr
 package-lock.json
 
 src-tauri/target
+.vercel
+convex-service-account.json
+
+temp

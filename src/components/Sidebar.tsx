@@ -5,6 +5,7 @@ import { Id } from "../../convex/_generated/dataModel";
 import { UserAvatar } from "./UserAvatar";
 import { SearchInput } from "./SearchInput";
 import { ProjectTree } from "./ProjectTree";
+import { AdvancedSearchModal } from "./AdvancedSearchModal";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
 import {
@@ -12,9 +13,11 @@ import {
     PanelLeft,
     ChevronRight,
     ChevronDown,
-    Folder,
     MessageSquare,
     FolderTree,
+    Archive,
+    Search,
+    Clock, // Add Clock icon for temporary chats
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -24,10 +27,26 @@ interface Chat {
     model: string;
     updatedAt: number;
     isStarred?: boolean;
+    isArchived?: boolean;
+    archivedAt?: number;
+    // Phase 2: Temporary chat fields
+    isTemporary?: boolean;
+    temporaryUntil?: number;
+    // Phase 6: Password protection fields
+    isPasswordProtected?: boolean;
+    // Sharing fields
+    isPublic?: boolean;
+    shareId?: string;
 }
 
 interface SidebarProps {
-    chats: { starred: Chat[]; regular: Chat[] };
+    chats: { 
+        starred: Chat[]; 
+        regular: Chat[]; 
+        archived: Chat[];
+        temporary: Chat[];
+        protected: Chat[]; // Add protected chats section
+    };
     selectedChatId: Id<"chats"> | null;
     onSelectChat: (chatId: Id<"chats">) => void;
     onNewChat: (projectId?: Id<"projects">) => void;
@@ -57,6 +76,9 @@ export function Sidebar({
     );
     const [editTitle, setEditTitle] = useState("");
 
+    // Advanced Search modal state
+    const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+
     // View toggle state - chat view vs project view
     const [isProjectView, setIsProjectView] = useLocalStorage(
         "isProjectView",
@@ -68,6 +90,28 @@ export function Sidebar({
         "starredExpanded",
         true
     );
+    const [sharedChatsExpanded, setSharedChatsExpanded] = useLocalStorage(
+        "sharedChatsExpanded",
+        true
+    );
+    const [sharedProjectsExpanded, setSharedProjectsExpanded] = useLocalStorage(
+        "sharedProjectsExpanded",
+        true
+    );
+    const [archivedExpanded, setArchivedExpanded] = useLocalStorage(
+        "archivedExpanded",
+        false // Collapsed by default
+    );
+    // Add temporary chats expanded state
+    const [temporaryExpanded, setTemporaryExpanded] = useLocalStorage(
+        "temporaryExpanded",
+        true
+    );
+    // Add protected chats expanded state - Phase 6
+    const [protectedExpanded, setProtectedExpanded] = useLocalStorage(
+        "protectedExpanded",
+        true
+    );
 
     // Get current user to check if anonymous
     const user = useQuery(api.users.getCurrentUser);
@@ -76,6 +120,7 @@ export function Sidebar({
     const deleteChat = useMutation(api.chats.deleteChat);
     const toggleStar = useMutation(api.chats.toggleChatStar);
     const updateTitle = useMutation(api.chats.updateChatTitle);
+    const toggleArchive = useMutation(api.chats.toggleChatArchive);
 
     const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -107,6 +152,11 @@ export function Sidebar({
             }
         };
 
+        // Handle Advanced Search modal event
+        const handleOpenAdvancedSearch = () => {
+            setShowAdvancedSearch(true);
+        };
+
         // Handle project view toggle keyboard shortcut using custom shortcuts
         const handleToggleProjectView = (e: KeyboardEvent) => {
             if (checkShortcutMatch(e, "toggleProjectView")) {
@@ -131,6 +181,7 @@ export function Sidebar({
             "focusSearch",
             handleFocusSearch as unknown as EventListener
         );
+        document.addEventListener("openAdvancedSearch", handleOpenAdvancedSearch);
         document.addEventListener("keydown", handleToggleProjectView);
 
         return () => {
@@ -146,6 +197,7 @@ export function Sidebar({
                 "focusSearch",
                 handleFocusSearch as unknown as EventListener
             );
+            document.removeEventListener("openAdvancedSearch", handleOpenAdvancedSearch);
             document.removeEventListener("keydown", handleToggleProjectView);
         };
     }, [
@@ -244,6 +296,26 @@ export function Sidebar({
         }
     };
 
+    const handleToggleArchive = async (
+        chatId: Id<"chats">,
+        e?: React.MouseEvent
+    ) => {
+        e?.stopPropagation();
+
+        try {
+            await toggleArchive({ chatId });
+            const chat = [...chats.starred, ...chats.regular].find(
+                (c) => c._id === chatId
+            );
+            toast.success(
+                chat?.isArchived ? "Unarchived chat" : "Archived chat"
+            );
+        } catch (error) {
+            console.error("Failed to toggle archive:", error);
+            toast.error("Failed to update chat");
+        }
+    };
+
     const handleEditTitle = async (chatId: Id<"chats">) => {
         if (editTitle.trim()) {
             await updateTitle({ chatId, title: editTitle.trim() });
@@ -265,13 +337,36 @@ export function Sidebar({
         regular: chats.regular.filter((chat) =>
             chat.title.toLowerCase().includes(searchQuery.toLowerCase())
         ),
+        archived: chats.archived.filter((chat) =>
+            chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+        // Add temporary chats filtering
+        temporary: chats.temporary.filter((chat) =>
+            chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+        // Add protected chats filtering - Phase 6
+        protected: chats.protected.filter((chat) =>
+            chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+        ),
     };
 
-    const renderChat = (chat: Chat) => (
+    // Filter shared content based on search query
+    const filteredSharedChats =
+        sharedContent?.sharedChats.filter((chat) =>
+            chat.title.toLowerCase().includes(searchQuery.toLowerCase())
+        ) || [];
+
+    const filteredSharedProjects =
+        sharedContent?.sharedProjects.filter((project) =>
+            project.name.toLowerCase().includes(searchQuery.toLowerCase())
+        ) || [];
+
+    // Enhanced renderChat function with compact temporary badge
+    const renderChat = (chat: Chat, isTemporary = false) => (
         <div
             key={chat._id}
             onClick={() => onSelectChat(chat._id)}
-            className={`group relative px-3 py-3 rounded-lg cursor-pointer transition-all duration-200 mb-2 ${
+            className={`group relative p-3 rounded-lg cursor-pointer transition-all duration-200 mb-2 ${
                 selectedChatId === chat._id
                     ? "bg-purple-500/20"
                     : "hover:bg-purple-500/10"
@@ -297,12 +392,31 @@ export function Sidebar({
                             onClick={(e) => e.stopPropagation()}
                         />
                     ) : (
-                        <h3
-                            className="text-purple-100 font-medium truncate"
-                            title={`${chat.title}\nLast updated: ${new Date(chat.updatedAt).toLocaleString()}`}
-                        >
-                            {chat.title}
-                        </h3>
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="truncate text-purple-100 flex-1">
+                                    {chat.title}
+                                </span>
+                                {/* Visual indicators for protected and shared chats */}
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                    {chat.isPasswordProtected && (
+                                        <div className="w-3 h-3 text-green-400" title="Password Protected">
+                                            🔒
+                                        </div>
+                                    )}
+                                    {chat.isPublic && chat.shareId && (
+                                        <div className="w-3 h-3 text-blue-400" title="Shared">
+                                            🔗
+                                        </div>
+                                    )}
+                                    {chat.isTemporary && (
+                                        <div className="w-3 h-3 text-orange-400" title="Temporary">
+                                            ⏱️
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
                 {!editingChatId && (
@@ -372,6 +486,27 @@ export function Sidebar({
                                 />
                             </svg>
                         </button>
+                        <button
+                            onClick={(e) => handleToggleArchive(chat._id, e)}
+                            className="p-1 rounded hover:bg-blue-500/20 transition-colors"
+                            title={
+                                chat.isArchived ? "Unarchive chat" : "Archive chat"
+                            }
+                        >
+                            <svg
+                                className="w-4 h-4 text-blue-400"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M15 17h5l-1.403 4.809a1 1 0 01-1.894-.309L17 17zm-6 0H4l1.403 4.809a1 1 0 001.894-.309L11 17zm0-6H4l1.403 4.809a1 1 0 001.894-.309L11 11zm10-7H3a1 1 0 00-1 1v2h18V5a1 1 0 00-1-1z"
+                                />
+                            </svg>
+                        </button>
                     </div>
                 )}
             </div>
@@ -431,6 +566,7 @@ export function Sidebar({
                     </div>
                 )}
 
+                <div className="flex gap-2">
                 <SearchInput
                     ref={searchInputRef}
                     value={searchQuery}
@@ -440,6 +576,14 @@ export function Sidebar({
                     }
                     autoFocus={true}
                 />
+                    <button
+                        onClick={() => setShowAdvancedSearch(true)}
+                        className="p-2 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 transition-all duration-200"
+                        title="Advanced Search"
+                    >
+                        <Search className="w-5 h-5 text-white" />
+                    </button>
+                </div>
             </div>
 
             {/* Content Area - Chat List or Project Tree */}
@@ -459,12 +603,16 @@ export function Sidebar({
                     <>
                         {filteredChats.starred.length === 0 &&
                         filteredChats.regular.length === 0 &&
+                        filteredChats.temporary.length === 0 &&
+                        filteredChats.archived.length === 0 &&
+                        filteredSharedChats.length === 0 &&
+                        filteredSharedProjects.length === 0 &&
                         searchQuery ? (
                             <div className="p-4 text-center text-purple-300">
                                 No chats found
                             </div>
                         ) : (
-                            <div className="px-4 py-3">
+                            <div className="px-4 py-3 space-y-8">
                                 {/* Starred Chats - Collapsible */}
                                 {filteredChats.starred.length > 0 && (
                                     <div className="mb-2">
@@ -474,7 +622,7 @@ export function Sidebar({
                                                     !starredExpanded
                                                 )
                                             }
-                                            className="flex items-center justify-between w-full px-2 py-4 hover:bg-purple-500/10 rounded-lg transition-colors"
+                                            className="flex items-center justify-between w-full px-3 rounded-lg transition-colors"
                                         >
                                             <div className="flex items-center gap-2">
                                                 <h4 className="text-xs font-semibold text-purple-200/80 uppercase tracking-wider">
@@ -487,129 +635,152 @@ export function Sidebar({
                                                 </h4>
                                             </div>
                                             {starredExpanded ? (
-                                                <ChevronDown className="w-4 h-4 text-purple-200/80" />
+                                                <ChevronDown className="w-5 h-5 text-purple-200/80" />
                                             ) : (
-                                                <ChevronRight className="w-4 h-4 text-purple-200/80" />
+                                                <ChevronRight className="w-5 h-5 text-purple-200/80" />
                                             )}
                                         </button>
                                         {starredExpanded && (
                                             <div className="mt-2">
-                                                {filteredChats.starred.map(
-                                                    renderChat
+                                                {filteredChats.starred.map((chat) => 
+                                                    renderChat(chat)
                                                 )}
                                             </div>
                                         )}
                                     </div>
                                 )}
 
-                                {/* SHARED CHATS Section - Phase 3.4 */}
-                                {sharedContent?.sharedChats &&
-                                    sharedContent.sharedChats.length > 0 && (
-                                        <div className="mb-4">
-                                            <h4 className="text-xs font-semibold text-blue-200/80 uppercase tracking-wider mb-2 px-2 flex items-center gap-2">
-                                                <svg
-                                                    className="w-3 h-3"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    viewBox="0 0 24 24"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        strokeWidth={2}
-                                                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                                                    />
-                                                </svg>
-                                                SHARED CHATS (
-                                                {
-                                                    sharedContent.sharedChats
-                                                        .length
-                                                }
+                                {/* TEMPORARY CHATS Section - NEW */}
+                                {filteredChats.temporary.length > 0 && (
+                                    <div className="mb-2">
+                                        <button
+                                            onClick={() =>
+                                                setTemporaryExpanded(
+                                                    !temporaryExpanded
                                                 )
-                                            </h4>
-                                            <div className="space-y-1">
-                                                {sharedContent.sharedChats.map(
-                                                    (chat) => (
-                                                        <div
-                                                            key={chat._id}
-                                                            onClick={() =>
-                                                                onSelectChat(
-                                                                    chat._id
-                                                                )
-                                                            }
-                                                            className={`group relative px-2 py-3 rounded-lg cursor-pointer transition-all duration-200 border border-blue-500/20 ${
-                                                                selectedChatId ===
-                                                                chat._id
-                                                                    ? "bg-blue-500/20"
-                                                                    : "hover:bg-blue-500/10"
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center gap-2">
-                                                                <svg
-                                                                    className="w-3 h-3 text-blue-400 flex-shrink-0"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    viewBox="0 0 24 24"
-                                                                >
-                                                                    <path
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                        strokeWidth={
-                                                                            2
-                                                                        }
-                                                                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                                                                    />
-                                                                </svg>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <h3
-                                                                        className="text-blue-100 font-medium truncate"
-                                                                        title={
-                                                                            chat.title
-                                                                        }
-                                                                    >
-                                                                        {
-                                                                            chat.title
-                                                                        }
-                                                                    </h3>
-                                                                    <p className="text-xs text-blue-300/60 truncate">
-                                                                        Collaborative
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        </div>
+                                            }
+                                            className="flex items-center justify-between w-full px-3 rounded-lg transition-colors"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Clock className="w-4 h-4 text-orange-400" />
+                                                <h4 className="text-xs font-semibold text-orange-200/80 uppercase tracking-wider">
+                                                    TEMPORARY (
+                                                    {filteredChats.temporary.length}
                                                     )
+                                                </h4>
+                                            </div>
+                                            {temporaryExpanded ? (
+                                                <ChevronDown className="w-5 h-5 text-orange-200/80" />
+                                            ) : (
+                                                <ChevronRight className="w-5 h-5 text-orange-200/80" />
+                                            )}
+                                        </button>
+                                        {temporaryExpanded && (
+                                            <div className="mt-2">
+                                                {filteredChats.temporary.map((chat) => 
+                                                    renderChat(chat, true)
                                                 )}
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
+                                )}
 
-                                {/* SHARED PROJECTS Section - Phase 3.4 */}
-                                {sharedContent?.sharedProjects &&
-                                    sharedContent.sharedProjects.length > 0 && (
-                                        <div className="mb-4">
-                                            <h4 className="text-xs font-semibold text-green-200/80 uppercase tracking-wider mb-2 px-2 flex items-center gap-2">
-                                                <svg
-                                                    className="w-3 h-3"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    viewBox="0 0 24 24"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        strokeWidth={2}
-                                                        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                                                    />
-                                                </svg>
-                                                SHARED PROJECTS (
-                                                {
-                                                    sharedContent.sharedProjects
-                                                        .length
-                                                }
+                                {/* PROTECTED CHATS Section - Phase 6 */}
+                                {filteredChats.protected.length > 0 && (
+                                    <div className="mb-2">
+                                        <button
+                                            onClick={() =>
+                                                setProtectedExpanded(
+                                                    !protectedExpanded
                                                 )
-                                            </h4>
-                                            <div className="space-y-1">
-                                                {sharedContent.sharedProjects.map(
+                                            }
+                                            className="flex items-center justify-between w-full px-3 rounded-lg transition-colors"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                                </svg>
+                                                <h4 className="text-xs font-semibold text-green-200/80 uppercase tracking-wider">
+                                                    PROTECTED ({filteredChats.protected.length})
+                                                </h4>
+                                            </div>
+                                            {protectedExpanded ? (
+                                                <ChevronDown className="w-5 h-5 text-green-200/80" />
+                                            ) : (
+                                                <ChevronRight className="w-5 h-5 text-green-200/80" />
+                                            )}
+                                        </button>
+                                        {protectedExpanded && (
+                                            <div className="mt-2">
+                                                {filteredChats.protected.map((chat) => renderChat(chat))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* SHARED CHATS Section - Same styling as starred */}
+                                {filteredSharedChats.length > 0 && (
+                                    <div className="mb-2">
+                                        <button
+                                            onClick={() =>
+                                                setSharedChatsExpanded(
+                                                    !sharedChatsExpanded
+                                                )
+                                            }
+                                            className="flex items-center justify-between w-full px-3 rounded-lg transition-colors"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="text-xs font-semibold text-purple-200/80 uppercase tracking-wider">
+                                                    SHARED CHATS (
+                                                    {filteredSharedChats.length}
+                                                    )
+                                                </h4>
+                                            </div>
+                                            {sharedChatsExpanded ? (
+                                                <ChevronDown className="w-5 h-5 text-purple-200/80" />
+                                            ) : (
+                                                <ChevronRight className="w-5 h-5 text-purple-200/80" />
+                                            )}
+                                        </button>
+                                        {sharedChatsExpanded && (
+                                            <div className="mt-2">
+                                                {filteredSharedChats.map((chat) =>
+                                                    renderChat(chat)
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* SHARED PROJECTS Section - Same styling as regular chats */}
+                                {filteredSharedProjects.length > 0 && (
+                                    <div className="mb-2">
+                                        <button
+                                            onClick={() =>
+                                                setSharedProjectsExpanded(
+                                                    !sharedProjectsExpanded
+                                                )
+                                            }
+                                            className="flex items-center justify-between w-full px-3 rounded-lg transition-colors"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="text-xs font-semibold text-purple-200/80 uppercase tracking-wider">
+                                                    SHARED PROJECTS (
+                                                    {
+                                                        filteredSharedProjects.length
+                                                    }
+                                                    )
+                                                </h4>
+                                            </div>
+                                            {sharedProjectsExpanded ? (
+                                                <ChevronDown className="w-5 h-5 text-purple-200/80" />
+                                            ) : (
+                                                <ChevronRight className="w-5 h-5 text-purple-200/80" />
+                                            )}
+                                        </button>
+                                        {sharedProjectsExpanded && (
+                                            <div className="mt-2">
+                                                {filteredSharedProjects.map(
                                                     (project) => (
                                                         <div
                                                             key={project._id}
@@ -617,47 +788,34 @@ export function Sidebar({
                                                                 // Navigate to project view for shared projects
                                                                 window.location.href = `/project/${project._id}`;
                                                             }}
-                                                            className="group relative px-2 py-3 rounded-lg cursor-pointer transition-all duration-200 border border-green-500/20 hover:bg-green-500/10"
+                                                            className={`group relative p-3 rounded-lg cursor-pointer transition-all duration-200 mb-2`}
                                                         >
-                                                            <div className="flex items-center gap-2">
-                                                                <svg
-                                                                    className="w-3 h-3 text-green-400 flex-shrink-0"
-                                                                    fill="none"
-                                                                    stroke="currentColor"
-                                                                    viewBox="0 0 24 24"
-                                                                >
-                                                                    <path
-                                                                        strokeLinecap="round"
-                                                                        strokeLinejoin="round"
-                                                                        strokeWidth={
-                                                                            2
-                                                                        }
-                                                                        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
-                                                                    />
-                                                                </svg>
+                                                            <div className="flex items-start">
                                                                 <div className="flex-1 min-w-0">
                                                                     <h3
-                                                                        className="text-green-100 font-medium truncate"
-                                                                        title={
-                                                                            project.name
-                                                                        }
+                                                                        className="text-purple-100 font-medium truncate"
+                                                                        title={`${project.name}\nShared project • ${project.description || "No description"}`}
                                                                     >
                                                                         {
                                                                             project.name
                                                                         }
                                                                     </h3>
-                                                                    <p className="text-xs text-green-300/60 truncate">
-                                                                        {project.description ||
-                                                                            "Collaborative project"}
-                                                                    </p>
+                                                                    {project.description && (
+                                                                        <p className="text-xs text-purple-300/60 mt-1 line-clamp-1">
+                                                                            {
+                                                                                project.description
+                                                                            }
+                                                                        </p>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     )
                                                 )}
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Regular Chats - Organized by Date */}
                                 {filteredChats.regular.length > 0 && (
@@ -669,12 +827,45 @@ export function Sidebar({
                                                 key={category}
                                                 className="mb-4"
                                             >
-                                                <h4 className="text-xs font-semibold text-purple-200/80 uppercase tracking-wider mb-2 px-2">
+                                                <h4 className="px-3 text-xs font-semibold text-purple-200/80 uppercase tracking-wider mb-2">
                                                     {category}
                                                 </h4>
-                                                {categoryChats.map(renderChat)}
+                                                {categoryChats.map((chat) => renderChat(chat))}
                                             </div>
                                         ))}
+                                    </div>
+                                )}
+
+                                {/* Archived Chats - Collapsible */}
+                                {filteredChats.archived.length > 0 && (
+                                    <div className="mb-4">
+                                        <button
+                                            onClick={() =>
+                                                setArchivedExpanded(
+                                                    !archivedExpanded
+                                                )
+                                            }
+                                            className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium text-purple-300 hover:text-purple-100 hover:bg-purple-600/10 rounded-lg transition-colors mb-2"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <Archive className="w-4 h-4" />
+                                                <span>Archived</span>
+                                                <span className="text-xs bg-purple-600/20 px-1.5 py-0.5 rounded">
+                                                    {filteredChats.archived.length}
+                                                </span>
+                                            </div>
+                                            <ChevronDown
+                                                className={`w-4 h-4 transition-transform ${
+                                                    archivedExpanded ? "rotate-180" : ""
+                                                }`}
+                                            />
+                                        </button>
+
+                                        {archivedExpanded && (
+                                            <div className="space-y-1 pl-2">
+                                                {filteredChats.archived.map((chat) => renderChat(chat))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -687,6 +878,12 @@ export function Sidebar({
             <div className="p-4 border-purple-600/20">
                 <UserAvatar onOpenSettings={onOpenSettings} />
             </div>
+
+            {/* Advanced Search Modal */}
+            <AdvancedSearchModal 
+                open={showAdvancedSearch}
+                onOpenChange={setShowAdvancedSearch}
+            />
         </div>
     );
 }
