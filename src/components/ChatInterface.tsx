@@ -668,17 +668,21 @@ export function ChatInterface() {
                 void (async () => {
                     try {
                         const currentSettings = preferences;
-                        const newNotificationState = !currentSettings?.notificationSettings?.soundEnabled;
-                        
+                        const newNotificationState =
+                            !currentSettings?.notificationSettings
+                                ?.soundEnabled;
+
                         await updatePreferences({
                             notificationSettings: {
                                 ...currentSettings?.notificationSettings,
                                 soundEnabled: newNotificationState,
-                            }
+                            },
                         });
-                        
+
                         toast.success(
-                            newNotificationState ? "🔔 Notifications enabled" : "🔕 Notifications disabled"
+                            newNotificationState
+                                ? "🔔 Notifications enabled"
+                                : "🔕 Notifications disabled"
                         );
                     } catch (error) {
                         toast.error("Failed to toggle notifications");
@@ -694,23 +698,27 @@ export function ChatInterface() {
                 void (async () => {
                     try {
                         const currentSettings = preferences;
-                        const currentVolume = currentSettings?.notificationSettings?.soundVolume || 0.5;
-                        
+                        const currentVolume =
+                            currentSettings?.notificationSettings
+                                ?.soundVolume || 0.5;
+
                         // Cycle through volume levels: 0.2 -> 0.5 -> 0.8 -> 1.0 -> 0.2
                         let newVolume = 0.5;
                         if (currentVolume <= 0.2) newVolume = 0.5;
                         else if (currentVolume <= 0.5) newVolume = 0.8;
                         else if (currentVolume <= 0.8) newVolume = 1.0;
                         else newVolume = 0.2;
-                        
+
                         await updatePreferences({
                             notificationSettings: {
                                 ...currentSettings?.notificationSettings,
                                 soundVolume: newVolume,
-                            }
+                            },
                         });
-                        
-                        toast.success(`🔊 Notification volume: ${Math.round(newVolume * 100)}%`);
+
+                        toast.success(
+                            `🔊 Notification volume: ${Math.round(newVolume * 100)}%`
+                        );
                     } catch (error) {
                         toast.error("Failed to adjust notification volume");
                     }
@@ -722,7 +730,9 @@ export function ChatInterface() {
             if (checkShortcutMatch(e, "advancedSearch")) {
                 e.preventDefault();
                 e.stopPropagation();
-                const advancedSearchEvent = new CustomEvent("openAdvancedSearch");
+                const advancedSearchEvent = new CustomEvent(
+                    "openAdvancedSearch"
+                );
                 document.dispatchEvent(advancedSearchEvent);
                 return;
             }
@@ -1210,7 +1220,8 @@ export function ChatInterface() {
                             regular: [],
                             archived: [],
                             temporary: [],
-                            protected: [], // Add protected chats section
+                            // Add protected chats section
+                            protected: [],
                         }
                     }
                     selectedChatId={selectedChatId}

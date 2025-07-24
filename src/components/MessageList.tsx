@@ -1,4 +1,13 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { toast } from "sonner";
+import {
+    Dispatch,
+    SetStateAction,
+    useState,
+    useEffect,
+    useCallback,
+    useMemo,
+    useRef,
+} from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
@@ -25,8 +34,7 @@ import { AttachmentPreview } from "./AttachmentPreview";
 import { LoadingPlaceholder } from "./LoadingPlaceholder";
 import { MessageBranchNavigator } from "./MessageBranchNavigator";
 import { ModelSelector } from "./ModelSelector";
-import { toast } from "sonner";
-import { Dispatch, SetStateAction } from "react";
+import { MultiAIResponseCarousel } from "./MultiAIResponseCarousel";
 
 interface Message {
     _id: Id<"messages">;
@@ -77,6 +85,19 @@ interface Message {
         videoThumbnailUrl?: string;
         videoDuration?: string;
         videoResolution?: string;
+        multiAIResponses?: {
+            selectedModels: string[];
+            responses: Array<{
+                responseId: string;
+                model: string;
+                content: string;
+                timestamp: number;
+                isPrimary: boolean;
+                isDeleted?: boolean;
+                metadata?: any;
+            }>;
+            primaryResponseId?: string;
+        };
     };
     // Branch information (optional for now until fully implemented)
     activeBranchId?: string;
@@ -144,6 +165,8 @@ export function MessageList({
     const [showDeleteDropdown, setShowDeleteDropdown] =
         useState<Id<"messages"> | null>(null);
     const [showDeepLinkDropdown, setShowDeepLinkDropdown] =
+        useState<Id<"messages"> | null>(null);
+    const [showCarouselForMessage, setShowCarouselForMessage] =
         useState<Id<"messages"> | null>(null);
     const lastAiMessageRef = useRef<HTMLDivElement>(null);
 
@@ -1114,6 +1137,35 @@ export function MessageList({
         }
     };
 
+    // Add this handler function after other handlers
+    const handleToggleMultiAICarousel = (messageId: Id<"messages">) => {
+        setShowCarouselForMessage(
+            showCarouselForMessage === messageId ? null : messageId
+        );
+    };
+
+    // Add handler for primary response selection
+    const handleSelectPrimaryResponse = async (
+        messageId: Id<"messages">,
+        responseId: string
+    ) => {
+        try {
+            // Call backend mutation to update primary response
+            await selectPrimaryAIResponse({
+                messageId,
+                responseId,
+            });
+
+            // Hide carousel after selection
+            setShowCarouselForMessage(null);
+
+            toast.success("Primary response updated");
+        } catch (error) {
+            console.error("Failed to update primary response:", error);
+            toast.error("Failed to update primary response");
+        }
+    };
+
     return (
         <div className="relative h-full mb-8" onClick={closeRetryModels}>
             <div className="flex-1 flex flex-col p-4 gap-y-6 overflow-y-auto">
@@ -1201,12 +1253,42 @@ export function MessageList({
                                 >
                                     {/* Message Header (for assistant messages) */}
                                     {message.role === "assistant" &&
-                                        message.model && (
+                                        message.model &&
+                                        !showCarouselForMessage && (
                                             <div className="text-xs text-purple-300 mb-2 flex items-center justify-between">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="px-2 py-1 bg-purple-600/30 rounded">
-                                                        {message.model}
-                                                    </span>
+                                                    {message.metadata
+                                                        ?.multiAIResponses ? (
+                                                        <button
+                                                            onClick={() =>
+                                                                handleToggleMultiAICarousel(
+                                                                    message._id
+                                                                )
+                                                            }
+                                                            className="px-2 py-1 bg-gradient-to-r from-purple-600/30 to-blue-600/30 rounded flex items-center gap-2 hover:from-purple-600/40 hover:to-blue-600/40 transition-colors cursor-pointer"
+                                                            title="Click to switch between AI responses"
+                                                        >
+                                                            <span>
+                                                                {message.metadata.multiAIResponses.responses.find(
+                                                                    (r) =>
+                                                                        r.isPrimary
+                                                                )?.model ||
+                                                                    message.model}
+                                                            </span>
+                                                            <span className="text-xs bg-purple-600/20 px-1.5 py-0.5 rounded">
+                                                                {message.metadata.multiAIResponses.responses.filter(
+                                                                    (r) =>
+                                                                        !r.isDeleted
+                                                                ).length -
+                                                                    1}{" "}
+                                                                more
+                                                            </span>
+                                                        </button>
+                                                    ) : (
+                                                        <span className="px-2 py-1 bg-purple-600/30 rounded">
+                                                            {message.model}
+                                                        </span>
+                                                    )}
                                                 </div>
 
                                                 {/* AI Message Header Actions */}
@@ -1299,48 +1381,95 @@ export function MessageList({
                                         <div className="relative">
                                             {renderMessageMetadata(message)}
 
-                                            <div
-                                                className={`${
-                                                    isCollapsed
-                                                        ? "line-clamp-1 cursor-pointer pr-4"
-                                                        : ""
-                                                }`}
-                                                onClick={() => {
-                                                    if (
-                                                        isCollapsed &&
-                                                        isLongMessage
-                                                    ) {
-                                                        toggleMessageCollapse(
-                                                            message._id
-                                                        );
+                                            {message.role === "assistant" &&
+                                            (showCarouselForMessage ===
+                                                message._id ||
+                                                !message.metadata
+                                                    .multiAIResponses
+                                                    .primaryResponseId) ? (
+                                                <MultiAIResponseCarousel
+                                                    messageId={message._id}
+                                                    responses={
+                                                        message.metadata
+                                                            .multiAIResponses
+                                                            .responses
                                                     }
-                                                }}
-                                            >
-                                                {/* Use MarkdownRenderer for all messages, streaming or not */}
-                                                {messageRenderMode ===
-                                                "rendered" ? (
-                                                    <div className="relative">
-                                                        <MarkdownRenderer
-                                                            content={
-                                                                message.content ||
-                                                                ""
-                                                            }
-                                                            className="text-purple-100"
-                                                            isStreaming={
-                                                                message.isStreaming
-                                                            }
-                                                        />
-                                                        {/* Streaming cursor */}
-                                                        {message.isStreaming && (
-                                                            <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    <div className="whitespace-pre-wrap break-words font-mono text-sm rounded-lg p-3">
-                                                        {message.content || ""}
-                                                    </div>
-                                                )}
-                                            </div>
+                                                    onPrimaryChange={(
+                                                        _responseId
+                                                    ) => {
+                                                        setShowCarouselForMessage(
+                                                            null
+                                                        );
+                                                        toast.success(
+                                                            "Primary response updated"
+                                                        );
+                                                    }}
+                                                    onClose={() => setShowCarouselForMessage(null)}
+                                                />
+                                            ) : (
+                                                <div
+                                                    className={`${
+                                                        isCollapsed
+                                                            ? "line-clamp-1 cursor-pointer pr-4"
+                                                            : ""
+                                                    }`}
+                                                    onClick={() => {
+                                                        if (
+                                                            isCollapsed &&
+                                                            isLongMessage
+                                                        ) {
+                                                            toggleMessageCollapse(
+                                                                message._id
+                                                            );
+                                                        }
+                                                    }}
+                                                >
+                                                    {/* Use MarkdownRenderer for all messages, streaming or not */}
+                                                    {messageRenderMode ===
+                                                    "rendered" ? (
+                                                        <div className="relative">
+                                                            <MarkdownRenderer
+                                                                content={
+                                                                    // Show primary response content if multi-AI, otherwise regular content
+                                                                    message
+                                                                        .metadata
+                                                                        ?.multiAIResponses
+                                                                        ? message.metadata.multiAIResponses.responses.find(
+                                                                              (
+                                                                                  r
+                                                                              ) =>
+                                                                                  r.isPrimary
+                                                                          )
+                                                                              ?.content ||
+                                                                          message.content
+                                                                        : message.content ||
+                                                                          ""
+                                                                }
+                                                                className="text-purple-100"
+                                                                isStreaming={
+                                                                    message.isStreaming
+                                                                }
+                                                            />
+                                                            {/* Streaming cursor */}
+                                                            {message.isStreaming && (
+                                                                <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="whitespace-pre-wrap break-words font-mono text-sm rounded-lg p-3">
+                                                            {message.metadata
+                                                                ?.multiAIResponses
+                                                                ? message.metadata.multiAIResponses.responses.find(
+                                                                      (r) =>
+                                                                          r.isPrimary
+                                                                  )?.content ||
+                                                                  message.content
+                                                                : message.content ||
+                                                                  ""}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
 
                                             {/* Check if message has navigator content to decide layout */}
 

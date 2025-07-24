@@ -14,7 +14,12 @@ import {
 } from "./ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "./ui/tooltip";
 import { ModelSelector } from "./ModelSelector";
 import { DefaultPasswordModal } from "./DefaultPasswordModal";
 import { NotificationSounds } from "../lib/utils";
@@ -116,7 +121,8 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
         deepseek: false,
         openrouter: false,
     });
-    const [showDefaultPasswordModal, setShowDefaultPasswordModal] = useState(false);
+    const [showDefaultPasswordModal, setShowDefaultPasswordModal] =
+        useState(false);
     const [settings, setSettings] = useState({
         defaultModel: "gemini-2.0-flash",
         theme: "dark" as "light" | "dark" | "system",
@@ -165,7 +171,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             sessionTimeoutEnabled: true,
             autoLockTimeout: 30,
             defaultLockNewChats: false, // <-- add this
-        }
+        },
     });
 
     useEffect(() => {
@@ -238,11 +244,18 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                         preferences.aiSettings?.presencePenalty || 0,
                 },
                 passwordSettings: {
-                    useDefaultPassword: preferences.passwordSettings?.useDefaultPassword ?? false,
-                    sessionTimeoutEnabled: preferences.passwordSettings?.sessionTimeoutEnabled ?? true,
-                    autoLockTimeout: preferences.passwordSettings?.autoLockTimeout ?? 30,
-                    defaultLockNewChats: preferences.passwordSettings?.defaultLockNewChats ?? false, // <-- add this
-                }
+                    useDefaultPassword:
+                        preferences.passwordSettings?.useDefaultPassword ??
+                        false,
+                    sessionTimeoutEnabled:
+                        preferences.passwordSettings?.sessionTimeoutEnabled ??
+                        true,
+                    autoLockTimeout:
+                        preferences.passwordSettings?.autoLockTimeout ?? 30,
+                    defaultLockNewChats:
+                        preferences.passwordSettings?.defaultLockNewChats ??
+                        false, // <-- add this
+                },
             });
             if (
                 preferences.apiKeys &&

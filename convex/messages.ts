@@ -8,6 +8,13 @@ import {
 } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
+import { decryptApiKey } from "./preferences";
+import { ConvexError } from "convex/values";
+
+// Helper function to get user ID with proper error handling
+async function getUserId(ctx: any) {
+    return await getAuthUserId(ctx);
+}
 
 export const addMessage = mutation({
     args: {
@@ -53,7 +60,9 @@ export const addMessage = mutation({
         // PHASE 2: Case 3 - When we send a new message to a chat, it's stored in the active branch's messages array
         const activeBranchId = chat.activeBranchId;
         if (!activeBranchId) {
-            throw new Error("Chat has no active branch - this should not happen");
+            throw new Error(
+                "Chat has no active branch - this should not happen"
+            );
         }
 
         const activeBranch = await ctx.db.get(activeBranchId);
@@ -86,8 +95,8 @@ export const addMessage = mutation({
         // Update chat's activeMessages array and updatedAt timestamp
         const baseMessages = chat.baseMessages || [];
         const newActiveMessages = [...baseMessages, ...updatedMessages];
-        
-        const updates: any = { 
+
+        const updates: any = {
             updatedAt: Date.now(),
             activeMessages: newActiveMessages,
         };
@@ -193,7 +202,7 @@ Generate only the title, nothing else:`;
             ) {
                 aiTitle = (titleResponse as any).title.trim();
             } else if (typeof titleResponse === "string") {
-                aiTitle = (titleResponse as string).trim();
+                aiTitle = titleResponse.trim();
             }
 
             // Ensure title is not empty and within limits
@@ -349,28 +358,46 @@ export const sendMessage = action({
         content: v.string(),
         model: v.string(),
         commands: v.optional(v.array(v.string())),
-        attachments: v.optional(
+        // UNIFIED: Single referencedLibraryItems parameter instead of separate attachments + referencedArtifacts
+        referencedLibraryItems: v.optional(
             v.array(
                 v.object({
                     type: v.union(
-                        v.literal("image"),
-                        v.literal("pdf"),
-                        v.literal("file"),
-                        v.literal("audio"),
-                        v.literal("video")
+                        v.literal("attachment"),
+                        v.literal("artifact"), 
+                        v.literal("media")
                     ),
-                    storageId: v.id("_storage"),
+                    id: v.string(),
                     name: v.string(),
-                    size: v.number(),
+                    description: v.optional(v.string()),
+                    size: v.optional(v.number()),
+                    mimeType: v.optional(v.string()),
                 })
             )
         ),
-        referencedArtifacts: v.optional(v.array(v.string())),
     },
     handler: async (
         ctx,
         args
     ): Promise<{ userMessageId: any; assistantMessageId: any }> => {
+        // UNIFIED: Convert referencedLibraryItems to legacy format for backend compatibility
+        const attachments = args.referencedLibraryItems
+            ?.filter(item => item.type === "attachment")
+            .map(item => ({
+                type: item.mimeType?.startsWith('image/') ? 'image' as const :
+                      item.mimeType === 'application/pdf' ? 'pdf' as const :
+                      item.mimeType?.startsWith('audio/') ? 'audio' as const :
+                      item.mimeType?.startsWith('video/') ? 'video' as const :
+                      'file' as const,
+                storageId: item.id as any, // Library ID used as storage ID temporarily
+                name: item.name,
+                size: item.size || 0,
+            })) || [];
+
+        const referencedArtifacts = args.referencedLibraryItems
+            ?.filter(item => item.type === "artifact")
+            .map(item => item.id) || [];
+
         // If messageId is provided, then it's a retry and we don't need to add new user message
         const userMessageId: any = args.messageId
             ? args.messageId
@@ -378,7 +405,7 @@ export const sendMessage = action({
                   chatId: args.chatId,
                   role: "user",
                   content: args.content,
-                  attachments: args.attachments,
+                  attachments: attachments,
                   commands: args.commands,
               });
 
@@ -394,14 +421,14 @@ export const sendMessage = action({
             }
         );
 
-        // Pass referencedArtifacts to the AI generation
+        // Pass converted data to AI generation
         await ctx.runAction(internal.ai.generateStreamingResponse, {
             chatId: args.chatId,
             messageId: assistantMessageId,
             model: args.model,
             commands: args.commands,
-            attachments: args.attachments,
-            referencedArtifacts: args.referencedArtifacts,
+            attachments: attachments,
+            referencedArtifacts: referencedArtifacts,
         });
 
         return { userMessageId, assistantMessageId };
@@ -442,7 +469,7 @@ export const deleteMessage = mutation({
         // PHASE 5 FIX: Enhanced orphaned branch cleanup
         // Get all branches associated with this message for cleanup
         const messageBranches = message.branches || [];
-        
+
         // Clean up orphaned branches if this message has them
         if (messageBranches.length > 0) {
             console.log("🧹 CLEANING UP ORPHANED BRANCHES:", {
@@ -460,7 +487,10 @@ export const deleteMessage = mutation({
                         console.log("🗑️ DELETED ORPHANED BRANCH:", branchId);
                     }
                 } catch (error) {
-                    console.warn(`Failed to cleanup branch ${branchId}:`, error);
+                    console.warn(
+                        `Failed to cleanup branch ${branchId}:`,
+                        error
+                    );
                 }
             }
         }
@@ -487,25 +517,30 @@ export const deleteMessage = mutation({
                             await ctx.db.delete(branchId);
                         }
                     } catch (error) {
-                        console.warn(`Failed to cleanup assistant message branch ${branchId}:`, error);
+                        console.warn(
+                            `Failed to cleanup assistant message branch ${branchId}:`,
+                            error
+                        );
                     }
                 }
 
                 // Remove from branch messages array
                 const updatedBranchMessages = branch.messages.filter(
-                    id => id !== nextMessage._id
+                    (id) => id !== nextMessage._id
                 );
                 await ctx.db.patch(branch._id, {
                     messages: updatedBranchMessages,
                     updatedAt: Date.now(),
                 });
-                
+
                 await ctx.db.delete(nextMessage._id);
             }
         }
 
         // Remove message from branch messages array
-        const updatedMessages = branch.messages.filter(id => id !== args.messageId);
+        const updatedMessages = branch.messages.filter(
+            (id) => id !== args.messageId
+        );
         await ctx.db.patch(branch._id, {
             messages: updatedMessages,
             updatedAt: Date.now(),
@@ -532,10 +567,13 @@ export const deleteMessage = mutation({
                 if (mainBranch) {
                     await ctx.db.patch(chat._id, {
                         activeBranchId: mainBranch._id,
-                        activeMessages: [...baseMessages, ...mainBranch.messages],
+                        activeMessages: [
+                            ...baseMessages,
+                            ...mainBranch.messages,
+                        ],
                         updatedAt: Date.now(),
                     });
-                    
+
                     console.log("🔄 SWITCHED TO MAIN BRANCH:", {
                         chatId: chat._id,
                         fromBranch: branch._id,
@@ -546,7 +584,7 @@ export const deleteMessage = mutation({
         }
 
         await ctx.db.delete(args.messageId);
-        
+
         console.log("✅ MESSAGE DELETION COMPLETE WITH CLEANUP:", {
             messageId: args.messageId,
             cleanedBranches: messageBranches.length,
@@ -796,17 +834,22 @@ export const deleteAllMessagesFromHere = mutation({
         }
 
         // Get all messages in the active branch
-        const allMessageIds = [...(chat.baseMessages || []), ...branch.messages];
+        const allMessageIds = [
+            ...(chat.baseMessages || []),
+            ...branch.messages,
+        ];
         const allMessages = await Promise.all(
             allMessageIds.map((id) => ctx.db.get(id))
         );
-        
+
         const validMessages = allMessages
             .filter((msg) => msg !== null)
             .sort((a, b) => a.timestamp - b.timestamp);
 
         // Find the index of the target message
-        const targetIndex = validMessages.findIndex((msg) => msg._id === args.messageId);
+        const targetIndex = validMessages.findIndex(
+            (msg) => msg._id === args.messageId
+        );
         if (targetIndex === -1) throw new Error("Message not found in branch");
 
         let messagesToDelete: typeof validMessages = [];
@@ -828,14 +871,20 @@ export const deleteAllMessagesFromHere = mutation({
                 await ctx.db.delete(msgToDelete._id);
                 deletedCount++;
             } catch (error) {
-                console.error("Failed to delete message:", msgToDelete._id, error);
+                console.error(
+                    "Failed to delete message:",
+                    msgToDelete._id,
+                    error
+                );
             }
         }
 
         // Update branch messages array - remove deleted message IDs
-        const deletedIds = new Set(messagesToDelete.map(msg => msg._id));
-        const updatedBranchMessages = branch.messages.filter(id => !deletedIds.has(id));
-        
+        const deletedIds = new Set(messagesToDelete.map((msg) => msg._id));
+        const updatedBranchMessages = branch.messages.filter(
+            (id) => !deletedIds.has(id)
+        );
+
         await ctx.db.patch(branch._id, {
             messages: updatedBranchMessages,
             updatedAt: Date.now(),
@@ -844,7 +893,10 @@ export const deleteAllMessagesFromHere = mutation({
         // Update chat's activeMessages if this was in active branch
         if (chat.activeBranchId === branch._id) {
             const baseMessages = chat.baseMessages || [];
-            const newActiveMessages = [...baseMessages, ...updatedBranchMessages];
+            const newActiveMessages = [
+                ...baseMessages,
+                ...updatedBranchMessages,
+            ];
             await ctx.db.patch(chat._id, {
                 activeMessages: newActiveMessages,
                 updatedAt: Date.now(),
@@ -869,7 +921,8 @@ export const editAssistantMessage = mutation({
 
         const message = await ctx.db.get(args.messageId);
         if (!message) throw new Error("Message not found");
-        if (message.role !== "assistant") throw new Error("Can only edit assistant messages");
+        if (message.role !== "assistant")
+            throw new Error("Can only edit assistant messages");
 
         // NEW BRANCHING SYSTEM: Get chat through branch relationship
         const branch = await ctx.db.get(message.branchId);
@@ -922,24 +975,34 @@ export const enhancePrompt = mutation({
             return { enhancedPrompt: args.originalPrompt, wasEnhanced: false };
         }
 
-        const responseMode = args.responseMode || preferences.aiSettings?.responseMode || "balanced";
-        
+        const responseMode =
+            args.responseMode ||
+            preferences.aiSettings?.responseMode ||
+            "balanced";
+
         // Create enhancement instructions based on response mode
         const modeInstructions = {
-            balanced: "Make this prompt clearer and more specific while maintaining balance",
-            concise: "Make this prompt more focused and direct for brief responses",
-            detailed: "Enhance this prompt to request comprehensive and thorough responses",
-            creative: "Improve this prompt to encourage more creative and imaginative responses",
-            analytical: "Refine this prompt to request data-driven and analytical responses",
-            friendly: "Enhance this prompt for warm, conversational, and approachable responses",
-            professional: "Improve this prompt for formal, business-appropriate responses"
+            balanced:
+                "Make this prompt clearer and more specific while maintaining balance",
+            concise:
+                "Make this prompt more focused and direct for brief responses",
+            detailed:
+                "Enhance this prompt to request comprehensive and thorough responses",
+            creative:
+                "Improve this prompt to encourage more creative and imaginative responses",
+            analytical:
+                "Refine this prompt to request data-driven and analytical responses",
+            friendly:
+                "Enhance this prompt for warm, conversational, and approachable responses",
+            professional:
+                "Improve this prompt for formal, business-appropriate responses",
         };
 
         const enhancementPrompt = `${modeInstructions[responseMode] || modeInstructions.balanced}.
 
 Original prompt: "${args.originalPrompt}"
 
-${args.context ? `Context: ${args.context}` : ''}
+${args.context ? `Context: ${args.context}` : ""}
 
 Provide an enhanced version that:
 1. Is clearer and more specific
@@ -977,5 +1040,397 @@ Return only the enhanced prompt without explanations.`;
                 error: "Enhancement failed",
             };
         }
+    },
+});
+
+// Multi-AI Message Sending - Phase D2 (mirrors sendMessage structure)
+export const sendMultiAIMessage = action({
+    args: {
+        chatId: v.id("chats"),
+        content: v.string(),
+        models: v.array(v.string()), // Array of model names to generate responses from
+        commands: v.optional(v.array(v.string())),
+        attachments: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("image"),
+                        v.literal("pdf"),
+                        v.literal("file"),
+                        v.literal("audio"),
+                        v.literal("video")
+                    ),
+                    storageId: v.id("_storage"),
+                    name: v.string(),
+                    size: v.number(),
+                })
+            )
+        ),
+        referencedArtifacts: v.optional(v.array(v.string())),
+    },
+    handler: async (
+        ctx,
+        args
+    ): Promise<{ userMessageId: any; assistantMessageId: any }> => {
+        // Validate that at least 2 models are selected for multi-AI mode
+        if (args.models.length < 2) {
+            throw new Error("Multi-AI mode requires at least 2 models");
+        }
+
+        if (args.models.length > 8) {
+            throw new Error("Multi-AI mode supports maximum 8 models");
+        }
+
+        // Add user message first (same as sendMessage)
+        const userMessageId = await ctx.runMutation(api.messages.addMessage, {
+            chatId: args.chatId,
+            role: "user",
+            content: args.content,
+            attachments: args.attachments,
+            commands: args.commands,
+        });
+
+        // Create assistant message placeholder with multi-AI metadata
+        const responseIds = args.models.map((model) => ({
+            model,
+            responseId: `${model}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        }));
+
+        const assistantMessageId = await ctx.runMutation(
+            api.messages.addMessage,
+            {
+                chatId: args.chatId,
+                role: "assistant",
+                content: "🧠 Generating responses from multiple AI models...",
+                model: args.models[0], // Primary model
+                isStreaming: true,
+            }
+        );
+
+        // Initialize multi-AI metadata
+        await ctx.runMutation(api.messages.initializeMultiAIMessage, {
+            messageId: assistantMessageId,
+            selectedModels: args.models,
+            responseIds: responseIds.map((r) => r.responseId),
+        });
+
+        // Generate responses from all models in parallel using existing streaming infrastructure
+        await ctx.runAction(internal.ai.generateMultiAIResponses, {
+            chatId: args.chatId,
+            messageId: assistantMessageId,
+            models: args.models,
+            commands: args.commands,
+            attachments: args.attachments,
+            referencedArtifacts: args.referencedArtifacts,
+            responseIds: responseIds.map((r) => r.responseId),
+        });
+
+        return {
+            userMessageId,
+            assistantMessageId,
+        };
+    },
+});
+
+// Initialize multi-AI message metadata
+export const initializeMultiAIMessage = mutation({
+    args: {
+        messageId: v.id("messages"),
+        selectedModels: v.array(v.string()),
+        responseIds: v.array(v.string()),
+    },
+    handler: async (ctx, args) => {
+        const message = await ctx.db.get(args.messageId);
+        if (!message) throw new Error("Message not found");
+
+        // Initialize empty responses for each model
+        const responses = args.selectedModels.map((model, index) => ({
+            responseId: args.responseIds[index],
+            model,
+            content: "",
+            timestamp: Date.now(),
+            isPrimary: index === 0, // First model is primary by default
+            isDeleted: false,
+            metadata: {},
+        }));
+
+        await ctx.db.patch(args.messageId, {
+            metadata: {
+                ...message.metadata,
+                multiAIResponses: {
+                    selectedModels: args.selectedModels,
+                    responses,
+                    primaryResponseId: args.responseIds[0],
+                },
+            },
+        });
+    },
+});
+
+// Update specific multi-AI response (called by streaming infrastructure)
+export const updateMultiAIResponse = mutation({
+    args: {
+        messageId: v.id("messages"),
+        responseId: v.string(),
+        content: v.string(),
+        isComplete: v.boolean(),
+        metadata: v.optional(v.any()),
+    },
+    handler: async (ctx, args) => {
+        const message = await ctx.db.get(args.messageId);
+        if (!message || !message.metadata?.multiAIResponses) {
+            throw new Error("Message not found or not a multi-AI message");
+        }
+
+        const multiAI = message.metadata.multiAIResponses;
+        const updatedResponses = multiAI.responses.map((response) => {
+            if (response.responseId === args.responseId) {
+                return {
+                    ...response,
+                    content: args.content,
+                    timestamp: args.isComplete
+                        ? Date.now()
+                        : response.timestamp,
+                    metadata: args.metadata || response.metadata,
+                };
+            }
+            return response;
+        });
+
+        // Update primary response content if this is the primary response
+        const primaryResponse = updatedResponses.find((r) => r.isPrimary);
+        const messageContent = primaryResponse
+            ? primaryResponse.content
+            : message.content;
+
+        // Check if all responses are complete
+        const allComplete = updatedResponses.every((r) => r.content.length > 0);
+
+        await ctx.db.patch(args.messageId, {
+            content: messageContent,
+            isStreaming: !allComplete,
+            metadata: {
+                ...message.metadata,
+                multiAIResponses: {
+                    ...multiAI,
+                    responses: updatedResponses,
+                },
+            },
+        });
+    },
+});
+
+// Update primary response for multi-AI message
+export const updatePrimaryResponse = mutation({
+    args: {
+        messageId: v.id("messages"),
+        responseId: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const message = await ctx.db.get(args.messageId);
+        if (!message || !message.metadata?.multiAIResponses) {
+            throw new Error("Message not found or not a multi-AI message");
+        }
+
+        const multiAI = message.metadata.multiAIResponses;
+        const selectedResponse = multiAI.responses.find(
+            (r) => r.responseId === args.responseId
+        );
+
+        if (!selectedResponse || selectedResponse.isDeleted) {
+            throw new Error("Response not found or deleted");
+        }
+
+        // Update all responses to set new primary
+        const updatedResponses = multiAI.responses.map((response) => ({
+            ...response,
+            isPrimary: response.responseId === args.responseId,
+        }));
+
+// Delete a response from multi-AI message
+export const deleteMultiAIResponse = mutation({
+    args: {
+        messageId: v.id("messages"),
+        responseId: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const message = await ctx.db.get(args.messageId);
+        if (!message || !message.metadata?.multiAIResponses) {
+            throw new Error("Message not found or not a multi-AI message");
+        }
+
+        const multiAI = message.metadata.multiAIResponses;
+        const activeResponses = multiAI.responses.filter((r) => !r.isDeleted);
+
+        // Prevent deleting if only 2 responses remain
+        if (activeResponses.length <= 2) {
+            throw new Error(
+                "Cannot delete response: minimum 2 responses required"
+            );
+        }
+
+        // Mark response as deleted
+        const updatedResponses = multiAI.responses.map((response) => ({
+            ...response,
+            isDeleted:
+                response.responseId === args.responseId
+                    ? true
+                    : response.isDeleted,
+        }));
+
+        // If deleted response was primary, set new primary
+        const deletedResponse = multiAI.responses.find(
+            (r) => r.responseId === args.responseId
+        );
+        let newPrimaryId = multiAI.primaryResponseId;
+
+        if (deletedResponse?.isPrimary) {
+            const newPrimary = updatedResponses.find((r) => !r.isDeleted);
+            if (newPrimary) {
+                newPrimaryId = newPrimary.responseId;
+                updatedResponses.forEach((r) => {
+                    r.isPrimary = r.responseId === newPrimaryId;
+                });
+            }
+        }
+
+        await ctx.db.patch(args.messageId, {
+            metadata: {
+                ...message.metadata,
+                multiAIResponses: {
+                    ...multiAI,
+                    responses: updatedResponses,
+                    primaryResponseId: newPrimaryId,
+                },
+            },
+        });
+
+        return { success: true };
+    },
+});
+
+// Multi-AI Response Management
+export const updateMessageMultiAI = mutation({
+    args: {
+        messageId: v.id("messages"),
+        primaryResponseId: v.optional(v.string()),
+        deleteResponseId: v.optional(v.string()),
+    },
+    handler: async (
+        ctx,
+        { messageId, primaryResponseId, deleteResponseId }
+    ) => {
+        const userId = await getUserId(ctx);
+        if (!userId) {
+            throw new ConvexError("Authentication required");
+        }
+
+        const message = await ctx.db.get(messageId);
+        if (!message) {
+            throw new ConvexError("Message not found");
+        }
+
+        // Get the branch to verify ownership
+        const branch = await ctx.db.get(message.branchId);
+        if (!branch) {
+            throw new ConvexError("Branch not found");
+        }
+
+        const chat = await ctx.db.get(branch.chatId);
+        if (!chat || chat.userId !== userId) {
+            throw new ConvexError("Unauthorized");
+        }
+
+        const currentMetadata = message.metadata || {};
+        const multiAIResponses = currentMetadata.multiAIResponses;
+
+        if (!multiAIResponses) {
+            throw new ConvexError("Message is not in multi-AI mode");
+        }
+
+        let updatedResponses = [...multiAIResponses.responses];
+
+        // Handle deleting a response
+        if (deleteResponseId) {
+            const responseIndex = updatedResponses.findIndex(
+                (r) => r.responseId === deleteResponseId
+            );
+            if (responseIndex === -1) {
+                throw new ConvexError("Response not found");
+            }
+
+            // Mark as deleted instead of removing to preserve history
+            updatedResponses[responseIndex] = {
+                ...updatedResponses[responseIndex],
+                isDeleted: true,
+            };
+
+            // If we're deleting the primary response, set a new primary
+            if (multiAIResponses.primaryResponseId === deleteResponseId) {
+                const activeResponses = updatedResponses.filter(
+                    (r) => !r.isDeleted
+                );
+                if (activeResponses.length > 0) {
+                    // Set first active response as primary
+                    updatedResponses = updatedResponses.map((r) => ({
+                        ...r,
+                        isPrimary:
+                            r.responseId === activeResponses[0].responseId &&
+                            !r.isDeleted,
+                    }));
+                    primaryResponseId = activeResponses[0].responseId;
+                }
+            }
+        }
+
+        // Handle setting a new primary response
+        if (primaryResponseId) {
+            const responseExists = updatedResponses.find(
+                (r) => r.responseId === primaryResponseId && !r.isDeleted
+            );
+            if (!responseExists) {
+                throw new ConvexError("Primary response not found or deleted");
+            }
+
+            // Update primary flags
+            updatedResponses = updatedResponses.map((response) => ({
+                ...response,
+                isPrimary:
+                    response.responseId === primaryResponseId &&
+                    !response.isDeleted,
+            }));
+
+            // Update message content to match primary response
+            const primaryResponse = updatedResponses.find(
+                (r) => r.responseId === primaryResponseId
+            );
+            if (primaryResponse && !primaryResponse.isDeleted) {
+                await ctx.db.patch(messageId, {
+                    content: primaryResponse.content,
+                    model: primaryResponse.model,
+                });
+            }
+        }
+
+        // Update the message metadata
+        await ctx.db.patch(messageId, {
+            metadata: {
+                ...currentMetadata,
+                multiAIResponses: {
+                    ...multiAIResponses,
+                    responses: updatedResponses,
+                    primaryResponseId:
+                        primaryResponseId || multiAIResponses.primaryResponseId,
+                },
+            },
+        });
+
+        return { success: true };
     },
 });

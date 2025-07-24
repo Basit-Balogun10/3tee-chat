@@ -183,16 +183,18 @@ const applicationTables = {
         attachments: v.optional(
             v.array(
                 v.object({
+                    // FIXED: Update to support library-based attachments
                     type: v.union(
-                        v.literal("image"),
-                        v.literal("pdf"),
-                        v.literal("file"),
-                        v.literal("audio"),
-                        v.literal("video")
+                        v.literal("attachment"), // From attachmentLibrary
+                        v.literal("legacy") // Legacy direct storage format
                     ),
-                    storageId: v.id("_storage"),
+                    // For library-based attachments
+                    libraryId: v.optional(v.id("attachmentLibrary")),
+                    // For legacy attachments (backwards compatibility)
+                    storageId: v.optional(v.id("_storage")),
                     name: v.string(),
                     size: v.number(),
+                    mimeType: v.optional(v.string()),
                 })
             )
         ),
@@ -232,6 +234,24 @@ const applicationTables = {
                 // Structured output schema and data
                 structuredData: v.optional(v.any()), // The actual parsed structured output
                 schema: v.optional(v.any()), // The JSON schema used for structured output
+                // Multi-AI Response System - Phase D1
+                multiAIResponses: v.optional(
+                    v.object({
+                        selectedModels: v.array(v.string()), // Models that were used to generate responses
+                        responses: v.array(
+                            v.object({
+                                responseId: v.string(), // Unique ID for this response
+                                model: v.string(), // Model that generated this response
+                                content: v.string(), // The response content
+                                timestamp: v.number(), // When this response was generated
+                                isPrimary: v.boolean(), // Whether this is the selected primary response
+                                isDeleted: v.optional(v.boolean()), // Whether user deleted this response
+                                metadata: v.optional(v.any()), // Model-specific metadata
+                            })
+                        ),
+                        primaryResponseId: v.optional(v.string()), // ID of the currently selected primary response
+                    })
+                ),
             })
         ),
         // Simple collaboration tracking - just track who contributed
@@ -259,7 +279,6 @@ const applicationTables = {
         theme: v.optional(
             v.union(v.literal("light"), v.literal("dark"), v.literal("system"))
         ),
-        localFirst: v.optional(v.boolean()),
         // Chat title generation preference
         chatTitleGeneration: v.optional(
             v.union(
@@ -274,6 +293,7 @@ const applicationTables = {
                 gemini: v.optional(v.string()),
                 deepseek: v.optional(v.string()),
                 openrouter: v.optional(v.string()),
+                together: v.optional(v.string()), // Add Together.ai API key support
             })
         ),
         apiKeyPreferences: v.optional(
@@ -283,6 +303,7 @@ const applicationTables = {
                 gemini: v.optional(v.boolean()),
                 deepseek: v.optional(v.boolean()),
                 openrouter: v.optional(v.boolean()),
+                together: v.optional(v.boolean()), // Add Together.ai preference support
             })
         ),
         voiceSettings: v.optional(
@@ -296,69 +317,373 @@ const applicationTables = {
         ),
         customShortcuts: v.optional(
             v.object({
-                // General
-                showShortcuts: v.optional(v.string()),
-                openSettings: v.optional(v.string()),
+                // Global shortcuts control
+                isGloballyDisabled: v.optional(v.boolean()),
+                disabledCategories: v.optional(v.array(v.string())),
 
-                // Chat Management
-                newChat: v.optional(v.string()),
-                newTemporaryChat: v.optional(v.string()), // Phase 2: New temporary chat shortcut
-                toggleSidebar: v.optional(v.string()),
-                toggleRightSidebar: v.optional(v.string()),
-                toggleProjectView: v.optional(v.string()),
-                focusSearch: v.optional(v.string()),
-                renameChat: v.optional(v.string()),
-                starChat: v.optional(v.string()),
-                deleteChat: v.optional(v.string()),
+                // Individual shortcuts with enhanced structure
+                shortcuts: v.optional(
+                    v.object({
+                        // General
+                        showShortcuts: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        openSettings: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
 
-                // Navigation
-                navigateChats: v.optional(v.string()),
-                focusInput: v.optional(v.string()),
+                        // Chat Management
+                        newChat: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        newTemporaryChat: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        toggleSidebar: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        toggleRightSidebar: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        toggleProjectView: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        focusSearch: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        renameChat: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        starChat: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        deleteChat: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
 
-                // Message Input
-                navigateHistory: v.optional(v.string()),
-                sendMessage: v.optional(v.string()),
-                clearInput: v.optional(v.string()),
-                openModelSelector: v.optional(v.string()),
-                voiceRecording: v.optional(v.string()),
-                openLiveChatModal: v.optional(v.string()),
+                        // Navigation
+                        navigateChats: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        focusInput: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
 
-                // Sharing
-                shareChat: v.optional(v.string()),
-                shareCollaboration: v.optional(v.string()),
-                exportMarkdown: v.optional(v.string()),
-                exportJson: v.optional(v.string()),
+                        // Message Input
+                        navigateHistory: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        sendMessage: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        clearInput: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        openModelSelector: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        voiceRecording: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        openLiveChatModal: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
 
-                // Theme & UI
-                toggleTheme: v.optional(v.string()),
-                toggleMessageInput: v.optional(v.string()),
-                toggleHeader: v.optional(v.string()),
-                toggleZenMode: v.optional(v.string()),
+                        // Sharing
+                        shareChat: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        shareCollaboration: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        exportMarkdown: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        exportJson: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
 
-                // Message Actions (When Hovering)
-                navigateVersionsBranches: v.optional(v.string()),
-                collapseMessage: v.optional(v.string()),
-                expandMessage: v.optional(v.string()),
-                scrollToMessageEnd: v.optional(v.string()),
-                copyMessage: v.optional(v.string()),
-                editMessage: v.optional(v.string()),
-                retryMessage: v.optional(v.string()),
-                retryDifferentModel: v.optional(v.string()),
-                deleteMessage: v.optional(v.string()),
-                forkConversation: v.optional(v.string()),
-                copyDirectMessageLink: v.optional(v.string()),
-                createSharedMessageLink: v.optional(v.string()),
+                        // Theme & UI
+                        toggleTheme: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        toggleMessageInput: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        toggleHeader: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        toggleZenMode: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
 
-                // Phase 3 & 4 shortcuts
-                advancedSearch: v.optional(v.string()),
-                enhancePrompt: v.optional(v.string()),
-                openChatAISettings: v.optional(v.string()),
+                        // Message Actions (When Hovering)
+                        navigateVersionsBranches: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        collapseMessage: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        expandMessage: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        scrollToMessageEnd: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        copyMessage: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        editMessage: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        retryMessage: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        retryDifferentModel: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        deleteMessage: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        forkConversation: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        copyDirectMessageLink: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        createSharedMessageLink: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
 
-                // Phase 2 notification shortcuts
-                toggleNotifications: v.optional(v.string()),
-                adjustNotificationVolume: v.optional(v.string()),
+                        // Phase 3 & 4 shortcuts
+                        advancedSearch: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        enhancePrompt: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        openChatAISettings: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+
+                        // Phase 2 notification shortcuts
+                        toggleNotifications: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        adjustNotificationVolume: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+
+                        // Multi-AI shortcuts
+                        toggleMultiAI: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        selectMultiAIModels: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        pickPrimaryResponse: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        deleteMultiAIResponse: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                    })
+                ),
             })
         ),
+
         // Temporary chat settings - Phase 2
         temporaryChatsSettings: v.optional(
             v.object({
@@ -423,12 +748,6 @@ const applicationTables = {
         ),
     }).index("by_user", ["userId"]),
 
-    anonymousUsage: defineTable({
-        sessionId: v.string(),
-        messageCount: v.number(),
-        lastUsed: v.number(),
-    }).index("by_session", ["sessionId"]),
-
     // Enhanced artifacts table with provider file tracking
     artifacts: defineTable({
         messageId: v.id("messages"),
@@ -445,43 +764,14 @@ const applicationTables = {
         editCount: v.optional(v.number()),
         isPreviewable: v.optional(v.boolean()), // Can be previewed (HTML/JS/React/Markdown)
 
-        // Provider file tracking - for efficient re-use across conversations
-        providerFiles: v.optional(
-            v.object({
-                openai: v.optional(
-                    v.object({
-                        fileId: v.string(),
-                        uploadedAt: v.number(),
-                        lastUsedAt: v.number(),
-                        expiresAt: v.optional(v.number()),
-                    })
-                ),
-                anthropic: v.optional(
-                    v.object({
-                        fileId: v.string(),
-                        uploadedAt: v.number(),
-                        lastUsedAt: v.number(),
-                        expiresAt: v.optional(v.number()),
-                    })
-                ),
-                gemini: v.optional(
-                    v.object({
-                        fileId: v.string(),
-                        uploadedAt: v.number(),
-                        lastUsedAt: v.number(),
-                        expiresAt: v.optional(v.number()),
-                    })
-                ),
-                deepseek: v.optional(
-                    v.object({
-                        fileId: v.string(),
-                        uploadedAt: v.number(),
-                        lastUsedAt: v.number(),
-                        expiresAt: v.optional(v.number()),
-                    })
-                ),
-            })
-        ),
+        // LIBRARY MANAGEMENT - New fields for library functionality
+        isFavorited: v.optional(v.boolean()), // User can favorite artifacts
+        tags: v.optional(v.array(v.string())), // User-defined tags
+        
+        // Usage tracking for library
+        referencedInChats: v.optional(v.array(v.id("chats"))), // Which chats reference this artifact
+        lastReferencedAt: v.optional(v.number()),
+        referenceCount: v.optional(v.number()), // How many times referenced
 
         // File metadata for upload optimization
         fileSize: v.optional(v.number()),
@@ -497,23 +787,166 @@ const applicationTables = {
         .index("by_artifact_id", ["artifactId"])
         .index("by_chat_created", ["chatId", "createdAt"])
         .index("by_usage", ["usageCount"])
-        .index("by_last_referenced", ["lastReferencedAt"]),
+        .index("by_last_referenced", ["lastReferencedAt"])
+        // New indexes for library functionality
+        .index("by_user_favorited", ["userId", "isFavorited"])
+        .index("by_user_updated", ["userId", "updatedAt"])
+        .index("by_reference_count", ["referenceCount"]),
 
-    // Local storage backup for local-first users
-    localBackups: defineTable({
+    // NEW: Attachment Library table for managing uploaded files
+    attachmentLibrary: defineTable({
         userId: v.id("users"),
-        backupType: v.union(
-            v.literal("chats"),
-            v.literal("preferences"),
-            v.literal("artifacts")
+        storageId: v.id("_storage"), // Reference to Convex storage
+        originalName: v.string(),
+        displayName: v.optional(v.string()), // User can rename for display
+        type: v.union(
+            v.literal("image"),
+            v.literal("pdf"),
+            v.literal("file"),
+            v.literal("audio"),
+            v.literal("video")
         ),
-        data: v.string(), // JSON stringified data
+        mimeType: v.string(),
+        size: v.number(),
         createdAt: v.number(),
-        isRestored: v.optional(v.boolean()),
+        updatedAt: v.number(),
+        
+        // Library management
+        isFavorited: v.optional(v.boolean()),
+        tags: v.optional(v.array(v.string())),
+        description: v.optional(v.string()),
+        
+        // Usage tracking
+        usedInChats: v.optional(v.array(v.id("chats"))), // Which chats use this attachment
+        usageCount: v.optional(v.number()),
+        lastUsedAt: v.optional(v.number()),
+        
+        // Metadata extracted from file
+        metadata: v.optional(v.object({
+            // Image metadata
+            dimensions: v.optional(v.object({
+                width: v.number(),
+                height: v.number(),
+            })),
+            // Audio/Video metadata
+            duration: v.optional(v.number()),
+            // Document metadata
+            pageCount: v.optional(v.number()),
+            wordCount: v.optional(v.number()),
+        })),
     })
         .index("by_user", ["userId"])
-        .index("by_user_type", ["userId", "backupType"])
-        .index("by_user_created", ["userId", "createdAt"]),
+        .index("by_user_favorited", ["userId", "isFavorited"])
+        .index("by_user_type", ["userId", "type"])
+        .index("by_user_updated", ["userId", "updatedAt"])
+        .index("by_usage_count", ["usageCount"])
+        .index("by_last_used", ["lastUsedAt"])
+        .index("by_storage_id", ["storageId"]),
+
+    // NEW: Media Library table for AI-generated content
+    mediaLibrary: defineTable({
+        userId: v.id("users"),
+        type: v.union(
+            v.literal("image"),
+            v.literal("video"),
+            v.literal("audio")
+        ),
+        sourceMessageId: v.optional(v.id("messages")), // Message that generated this media
+        sourceChatId: v.optional(v.id("chats")), // Chat where this was generated
+        
+        // Storage references
+        storageId: v.optional(v.id("_storage")), // For uploaded/downloaded media
+        externalUrl: v.optional(v.string()), // For externally hosted media
+        thumbnailStorageId: v.optional(v.id("_storage")), // Thumbnail storage
+        thumbnailUrl: v.optional(v.string()), // External thumbnail URL
+        
+        // Generation metadata
+        prompt: v.optional(v.string()), // Original generation prompt
+        model: v.optional(v.string()), // Model used to generate
+        generationParams: v.optional(v.any()), // Parameters used for generation
+        
+        // Basic info
+        title: v.string(), // User-defined or auto-generated title
+        description: v.optional(v.string()),
+        createdAt: v.number(),
+        updatedAt: v.number(),
+        
+        // Library management
+        isFavorited: v.optional(v.boolean()),
+        tags: v.optional(v.array(v.string())),
+        
+        // Usage tracking
+        referencedInChats: v.optional(v.array(v.id("chats"))),
+        referenceCount: v.optional(v.number()),
+        lastReferencedAt: v.optional(v.number()),
+        
+        // Media metadata
+        metadata: v.optional(v.object({
+            // Image metadata
+            dimensions: v.optional(v.object({
+                width: v.number(),
+                height: v.number(),
+            })),
+            // Video metadata
+            duration: v.optional(v.number()),
+            resolution: v.optional(v.string()),
+            aspectRatio: v.optional(v.string()),
+            // Audio metadata
+            sampleRate: v.optional(v.number()),
+            channels: v.optional(v.number()),
+        })),
+    })
+        .index("by_user", ["userId"])
+        .index("by_user_type", ["userId", "type"])
+        .index("by_user_favorited", ["userId", "isFavorited"])
+        .index("by_user_updated", ["userId", "updatedAt"])
+        .index("by_source_message", ["sourceMessageId"])
+        .index("by_source_chat", ["sourceChatId"])
+        .index("by_reference_count", ["referenceCount"]),
+
+    // NEW: Chat Active Attachments table for managing per-chat attachment context
+    chatActiveAttachments: defineTable({
+        chatId: v.id("chats"),
+        userId: v.id("users"),
+        
+        // Attachment references (exactly one should be set)
+        attachmentLibraryId: v.optional(v.id("attachmentLibrary")),
+        artifactId: v.optional(v.string()), // Reference to artifact by artifactId
+        mediaLibraryId: v.optional(v.id("mediaLibrary")),
+        
+        // Attachment metadata for quick access
+        type: v.union(
+            v.literal("attachment"),
+            v.literal("artifact"),
+            v.literal("media")
+        ),
+        name: v.string(), // Display name
+        
+        // Context management
+        isActive: v.boolean(), // Whether included in current chat context
+        addedAt: v.number(),
+        lastUsedAt: v.optional(v.number()),
+        
+        // Ordering for UI
+        order: v.optional(v.number()), // User can reorder active attachments
+    })
+        .index("by_chat", ["chatId"])
+        .index("by_chat_active", ["chatId", "isActive"])
+        .index("by_user", ["userId"])
+        .index("by_attachment_library", ["attachmentLibraryId"])
+        .index("by_artifact", ["artifactId"])
+        .index("by_media_library", ["mediaLibraryId"]),
+
+    // NEW: Usage Tracking table for monitoring usage patterns of various features
+    usageTracking: defineTable({
+        userId: v.id("users"),
+        feature: v.string(), // Name of the feature used
+        timestamp: v.number(), // When the feature was used
+        metadata: v.optional(v.object()), // Additional metadata about the usage
+    })
+        .index("by_user", ["userId"])
+        .index("by_feature", ["feature"])
+        .index("by_timestamp", ["timestamp"]),
 };
 
 export default defineSchema({

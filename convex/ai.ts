@@ -3,20 +3,23 @@
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { action, internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
+import {
+    generateText,
+    streamText,
+    generateObject,
+} from "ai";
+import { z } from "zod";
 
-import { getProviderFromModel, PROVIDER_CONFIGS } from "./ai/config";
-import { getUserApiKeys } from "./ai/helpers";
-import { providerManager } from "./ai/providers";
+import { getProviderFromModel, PROVIDER_CONFIGS, providerManager, type ProviderName } from "./ai/providers";
+import { getUserApiKeys, processAttachmentForAISDK, formatMessagesForAISDK } from "./ai/helpers";
 import {
     fileManager,
-    structuredOutputManager,
     imageGenerationManager,
     videoGenerationManager,
 } from "./ai/generation";
-import { performProviderWebSearch } from "./ai/websearch";
 
-// AI response generation with simple resumable streaming
+// AI response generation with Vercel AI SDK
 export const generateStreamingResponse = internalAction({
     args: {
         chatId: v.id("chats"),
@@ -40,30 +43,21 @@ export const generateStreamingResponse = internalAction({
                 })
             )
         ),
-        referencedArtifacts: v.optional(v.array(v.string())), // Add this parameter
+        referencedArtifacts: v.optional(v.array(v.string())),
     },
     handler: async (ctx, args) => {
         try {
             // Initialize message as streaming with empty content
             await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
                 messageId: args.messageId,
-                content: "", // Start with empty string to prevent duplication
+                content: "",
                 isStreaming: true,
             });
 
-            // ENHANCED LOGGING: Log the message we're about to stream to
-            const messageToStream = await ctx.runQuery(
-                internal.aiHelpers.getMessage,
-                {
-                    messageId: args.messageId,
-                }
-            );
-            console.log("🎯 STARTING STREAM FOR MESSAGE:", {
+            console.log("🎯 STARTING AI SDK GENERATION:", {
                 messageId: args.messageId,
-                hasVersions: !!messageToStream?.messageVersions?.length,
-                activeVersionId: messageToStream?.messageVersions?.find(
-                    (v: { isActive: boolean; versionId: string }) => v.isActive
-                )?.versionId,
+                model: args.model,
+                provider: getProviderFromModel(args.model),
                 timestamp: new Date().toISOString(),
             });
 
@@ -73,9 +67,10 @@ export const generateStreamingResponse = internalAction({
                 internal.aiHelpers.getChatHistory,
                 {
                     chatId: args.chatId,
-                    excludeMessageId: args.messageId, // CRITICAL FIX: Pass the AI message ID to exclude it and get proper history
+                    excludeMessageId: args.messageId,
                 }
             );
+
             const lastUserMessage = messages
                 .filter((m: any) => m.role === "user")
                 .pop();
@@ -83,126 +78,74 @@ export const generateStreamingResponse = internalAction({
             let response = "";
             const metadata: any = {};
 
-            // Process referenced artifacts by uploading them to provider-specific file APIs
-            const artifactAttachments: any[] = [];
-            if (
-                args.referencedArtifacts &&
-                args.referencedArtifacts.length > 0
-            ) {
-                const provider = getProviderFromModel(args.model);
-                const config = PROVIDER_CONFIGS[provider];
-                const userKey = userApiKeys[config.userKeyField];
-                const client = providerManager.getClient(provider, userKey);
+            const provider = getProviderFromModel(args.model);
+            const config = PROVIDER_CONFIGS[provider];
+            const userKey = userApiKeys[config.userKeyField as keyof typeof userApiKeys];
 
-                console.log(
-                    `🔗 Processing ${args.referencedArtifacts.length} referenced artifacts for ${provider}...`
-                );
+            console.log(`🚀 Using AI SDK with provider: ${provider} for model: ${args.model}`);
+
+            // Process referenced artifacts for provider-specific file APIs
+            const artifactAttachments: any[] = [];
+            if (args.referencedArtifacts && args.referencedArtifacts.length > 0) {
+                console.log(`🔗 Processing ${args.referencedArtifacts.length} referenced artifacts...`);
 
                 for (const artifactId of args.referencedArtifacts) {
                     try {
-                        // Get artifact from database
                         const artifact = await ctx.runQuery(
                             internal.artifacts.getArtifactInternal,
-                            {
-                                artifactId,
-                            }
+                            { artifactId }
                         );
 
                         if (artifact) {
-                            console.log(
-                                `📋 Processing artifact: ${artifact.filename} (${artifact.language})`
+                            const uploadResult = await fileManager.uploadArtifactToProvider(
+                                artifactId,
+                                provider,
+                                artifact,
+                                null, // Will be handled by AI SDK provider
+                                ctx
                             );
-
-                            // Upload artifact to provider's file API with caching
-                            const uploadResult =
-                                await fileManager.uploadArtifactToProvider(
-                                    artifactId,
-                                    provider,
-                                    artifact,
-                                    client,
-                                    ctx
-                                );
 
                             artifactAttachments.push({
                                 type: "file",
-                                fileId: uploadResult.fileId,
                                 name: uploadResult.fileName,
+                                data: artifact.content,
                                 mimeType: uploadResult.mimeType,
-                                description: artifact.description,
-                                artifactId: artifactId,
-                                language: artifact.language,
                             });
-
-                            console.log(
-                                `✅ Artifact ${artifact.filename} uploaded to ${provider} as ${uploadResult.fileId}`
-                            );
-                        } else {
-                            console.warn(
-                                `⚠️ Referenced artifact not found: ${artifactId}`
-                            );
                         }
                     } catch (error) {
-                        console.error(
-                            `Failed to upload artifact ${artifactId} to ${provider}:`,
-                            error
-                        );
-                        // Continue with other artifacts even if one fails
+                        console.error(`Failed to process artifact ${artifactId}:`, error);
                     }
                 }
-
-                console.log(
-                    `📎 Successfully processed ${artifactAttachments.length}/${args.referencedArtifacts.length} artifacts`
-                );
             }
 
-            // Handle special commands (image, video, search, canvas) without streaming
+            // Handle special commands first
             if (args.commands?.includes("/image")) {
                 const imagePrompt = content.replace("/image", "").trim();
                 if (!imagePrompt) {
-                    response =
-                        "Please provide a description for the image you'd like me to generate.";
-                    await ctx.runMutation(
-                        internal.aiHelpers.updateMessageContent,
-                        {
-                            messageId: args.messageId,
-                            content: response,
-                            isStreaming: false,
-                        }
-                    );
+                    response = "Please provide a description for the image you'd like me to generate.";
+                    await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                        messageId: args.messageId,
+                        content: response,
+                        isStreaming: false,
+                    });
                     return;
                 }
 
                 try {
-                    // For image generation, use google or openai providers only
-                    const provider = getProviderFromModel(args.model);
-                    let imageProvider = provider;
-
-                    // Force to valid image generation providers
-                    if (provider !== "google" && provider !== "openai") {
-                        imageProvider = "google"; // Default to google for image gen
-                    }
-
-                    const config = PROVIDER_CONFIGS[imageProvider];
-                    const userKey = userApiKeys[config.userKeyField];
-                    const client = providerManager.getClient(
-                        imageProvider,
-                        userKey
-                    );
-
+                    // Use existing image generation system
                     const imageUrl = await imageGenerationManager.generateImage(
-                        imageProvider,
-                        client,
+                        provider === "google" || provider === "openai" ? provider : "google",
+                        null, // AI SDK will handle the client
                         imagePrompt,
                         { model: args.model },
-                        ctx // Pass Convex context for file upload
+                        ctx
                     );
 
-                    // NO PREFILLED TEXT - just metadata
                     metadata.imagePrompt = imagePrompt;
                     metadata.generatedImageUrl = imageUrl;
                 } catch (error) {
                     console.error("Image generation error:", error);
-                    response = `Sorry, I couldn't generate that image: ${error instanceof Error ? error.message : String(error)}. Please try again later.`;
+                    response = `Sorry, I couldn't generate that image: ${error instanceof Error ? error.message : String(error)}`;
                 }
 
                 await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
@@ -217,58 +160,31 @@ export const generateStreamingResponse = internalAction({
             if (args.commands?.includes("/video")) {
                 const videoPrompt = content.replace("/video", "").trim();
                 if (!videoPrompt) {
-                    response =
-                        "Please provide a description for the video you'd like me to generate.";
-                    await ctx.runMutation(
-                        internal.aiHelpers.updateMessageContent,
-                        {
-                            messageId: args.messageId,
-                            content: response,
-                            isStreaming: false,
-                        }
-                    );
+                    response = "Please provide a description for the video you'd like me to generate.";
+                    await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                        messageId: args.messageId,
+                        content: response,
+                        isStreaming: false,
+                    });
                     return;
                 }
 
                 try {
-                    // Note: Video generation can take 2-5 minutes, so we inform the user
-                    await ctx.runMutation(
-                        internal.aiHelpers.updateMessageContent,
-                        {
-                            messageId: args.messageId,
-                            content:
-                                "🎬 Starting video generation... This may take a few minutes.",
-                            isStreaming: true,
-                        }
+                    await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                        messageId: args.messageId,
+                        content: "🎬 Starting video generation... This may take a few minutes.",
+                        isStreaming: true,
+                    });
+
+                    const videoData = await videoGenerationManager.generateVideo(
+                        provider === "google" || provider === "openai" ? provider : "google",
+                        null,
+                        videoPrompt,
+                        { duration: 5, aspectRatio: "16:9" },
+                        ctx
                     );
 
-                    // For video generation, use current model (sora or veo-2)
-                    const provider = getProviderFromModel(args.model);
-                    let videoProvider = provider;
-
-                    // Force to valid video generation providers only
-                    if (provider !== "google" && provider !== "openai") {
-                        videoProvider = "google"; // Default to google for video gen
-                    }
-
-                    const config = PROVIDER_CONFIGS[videoProvider];
-                    const userKey = userApiKeys[config.userKeyField];
-                    const client = providerManager.getClient(
-                        videoProvider,
-                        userKey
-                    );
-
-                    const videoData =
-                        await videoGenerationManager.generateVideo(
-                            videoProvider,
-                            client,
-                            videoPrompt,
-                            { duration: 5, aspectRatio: "16:9" },
-                            ctx // Pass Convex context for file upload
-                        );
-
-                    // NO PREFILLED TEXT - just metadata and loading completion
-                    response = ""; // Empty response text
+                    response = "";
                     metadata.videoPrompt = videoPrompt;
                     metadata.generatedVideoUrl = videoData.videoUrl;
                     metadata.videoThumbnailUrl = videoData.thumbnailUrl;
@@ -276,7 +192,7 @@ export const generateStreamingResponse = internalAction({
                     metadata.videoResolution = videoData.resolution;
                 } catch (error) {
                     console.error("Video generation error:", error);
-                    response = `Sorry, I couldn't generate that video: ${error instanceof Error ? error.message : String(error)}. Video generation requires significant processing time and may not always succeed.`;
+                    response = `Sorry, I couldn't generate that video: ${error instanceof Error ? error.message : String(error)}`;
                 }
 
                 await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
@@ -288,172 +204,104 @@ export const generateStreamingResponse = internalAction({
                 return;
             }
 
-            // Handle /search and /canvas commands (can be combined)
+            // Handle /search and /canvas commands
             if (args.commands?.includes("/search")) {
-                const searchQuery = content
-                    .replace("/search", "")
-                    .replace("/canvas", "")
-                    .trim();
+                const searchQuery = content.replace("/search", "").replace("/canvas", "").trim();
+                
                 try {
-                    const provider = getProviderFromModel(args.model);
-                    const config = PROVIDER_CONFIGS[provider];
-                    const userKey = userApiKeys[config.userKeyField];
-                    const client = providerManager.getClient(provider, userKey);
+                    // Use native AI SDK grounding with Google Gemini
+                    const modelInstance = providerManager.getModel("google", "gemini-2.0-flash-exp", userApiKeys.googleApiKey);
 
-                    const searchData = await performProviderWebSearch(
-                        searchQuery,
-                        provider,
-                        client,
-                        userApiKeys
-                    );
+                    const searchResult = await generateText({
+                        model: modelInstance,
+                        messages: [
+                            {
+                                role: "user",
+                                content: `Search the web and provide a comprehensive response to: ${searchQuery}
 
-                    // searchData should contain { response: string, citations: array }
-                    metadata.citations = searchData.citations;
+Please include relevant citations and sources in your response. Use your grounding capabilities to access current information.`
+                            }
+                        ],
+                        temperature: 0.3,
+                    });
 
-                    // If also canvas command, we'll handle structured output
+                    // Extract basic citations from response (simplified)
+                    const citations = extractCitationsFromResponse(searchResult.text);
+                    metadata.citations = citations;
+
                     if (args.commands?.includes("/canvas")) {
-                        // Canvas with search - create structured output with search context
-                        const canvasSchema = {
-                            type: "object",
-                            properties: {
-                                intro: {
-                                    type: "string",
-                                    description:
-                                        "Brief introduction to the artifacts based on search results",
-                                },
-                                artifacts: {
-                                    type: "array",
-                                    items: {
-                                        type: "object",
-                                        properties: {
-                                            id: { type: "string" },
-                                            filename: { type: "string" },
-                                            language: { type: "string" },
-                                            content: { type: "string" }, // ADDED CONTENT FIELD
-                                            description: { type: "string" },
-                                        },
-                                        required: [
-                                            "id",
-                                            "filename",
-                                            "language",
-                                            "content",
-                                        ], // ADDED CONTENT TO REQUIRED
-                                    },
-                                },
-                                summary: {
-                                    type: "string",
-                                    description:
-                                        "Summary of the created artifacts",
-                                },
-                            },
-                            required: ["artifacts"],
-                        };
+                        // Canvas with search - create structured output
+                        const canvasSchema = z.object({
+                            intro: z.string().describe("Brief introduction to the artifacts based on search results"),
+                            artifacts: z.array(z.object({
+                                id: z.string(),
+                                filename: z.string(),
+                                language: z.string(),
+                                content: z.string(),
+                                description: z.string(),
+                            })),
+                            summary: z.string().describe("Summary of the created artifacts"),
+                        });
 
-                        // Enhanced prompt for canvas with search - include BOTH response AND citations
                         const enhancedPrompt = `User request: "${searchQuery}"
 
 AI Response from search:
-${searchData.response}
+${searchResult.text}
 
 Search results context:
-${searchData.citations
-    .map(
-        (citation: any) =>
-            `[${citation.number}] ${citation.title}\n${citation.citedText}\nSource: ${citation.url}`
-    )
-    .join("\n\n")}
+${citations.map((citation: any) => 
+    `[${citation.number}] ${citation.title}\n${citation.citedText}\nSource: ${citation.url}`
+).join("\n\n")}
 
 Based on the AI response and these search results, create artifacts (code files, documentation, etc.) that address the user's request. Include proper citations in your artifacts.`;
 
-                        // Generate structured output (NON-STREAMING for canvas)
-                        await ctx.runAction(
-                            internal.ai.generateStructuredOutput,
-                            {
-                                chatId: args.chatId,
-                                messageId: args.messageId,
-                                model: args.model,
-                                schema: canvasSchema,
-                                userApiKey: userKey,
-                                enhancedPrompt,
-                                metadata: metadata,
-                            }
-                        );
+                        await ctx.runAction(internal.ai.generateStructuredOutput, {
+                            chatId: args.chatId,
+                            messageId: args.messageId,
+                            model: args.model,
+                            schema: canvasSchema,
+                            userApiKey: userKey,
+                            enhancedPrompt,
+                            metadata: metadata,
+                        });
                         return;
                     } else {
-                        // Search only - use the AI response from performProviderWebSearch directly (NO STREAMING, NO RE-CALLING AI)
-                        await ctx.runMutation(
-                            internal.aiHelpers.updateMessageContent,
-                            {
-                                messageId: args.messageId,
-                                content: searchData.response, // Use the AI response directly
-                                metadata,
-                                isStreaming: false,
-                            }
-                        );
+                        // Search only - use the AI response directly
+                        await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                            messageId: args.messageId,
+                            content: searchResult.text,
+                            metadata,
+                            isStreaming: false,
+                        });
                         return;
                     }
                 } catch (error) {
                     console.error("Web search error:", error);
-                    response =
-                        "Sorry, I couldn't perform the web search at the moment. Please try again later.";
-                    await ctx.runMutation(
-                        internal.aiHelpers.updateMessageContent,
-                        {
-                            messageId: args.messageId,
-                            content: response,
-                            isStreaming: false,
-                        }
-                    );
+                    response = "Sorry, I couldn't perform the web search at the moment. Please try again later.";
+                    await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                        messageId: args.messageId,
+                        content: response,
+                        isStreaming: false,
+                    });
                     return;
                 }
             }
 
-            if (
-                args.commands?.includes("/canvas") &&
-                !args.commands?.includes("/search")
-            ) {
+            if (args.commands?.includes("/canvas") && !args.commands?.includes("/search")) {
                 // Canvas without search
-                const _canvasContent = content.replace("/canvas", "").trim();
-                const canvasSchema = {
-                    type: "object",
-                    properties: {
-                        intro: {
-                            type: "string",
-                            description: "Brief introduction to the artifact",
-                        },
-                        artifacts: {
-                            type: "array",
-                            items: {
-                                type: "object",
-                                properties: {
-                                    id: { type: "string" },
-                                    filename: { type: "string" },
-                                    language: { type: "string" },
-                                    content: { type: "string" },
-                                    description: { type: "string" },
-                                },
-                                required: [
-                                    "id",
-                                    "filename",
-                                    "language",
-                                    "content",
-                                ],
-                            },
-                        },
-                        summary: {
-                            type: "string",
-                            description: "Summary of the created artifacts",
-                        },
-                    },
-                    required: ["artifacts"],
-                };
+                const canvasSchema = z.object({
+                    intro: z.string().describe("Brief introduction to the artifact"),
+                    artifacts: z.array(z.object({
+                        id: z.string(),
+                        filename: z.string(),
+                        language: z.string(),
+                        content: z.string(),
+                        description: z.string(),
+                    })),
+                    summary: z.string().describe("Summary of the created artifacts"),
+                });
 
                 try {
-                    const provider = getProviderFromModel(args.model);
-                    const config = PROVIDER_CONFIGS[provider];
-                    const userKey = userApiKeys[config.userKeyField];
-
-                    // Generate structured output (NON-STREAMING for canvas)
                     await ctx.runAction(internal.ai.generateStructuredOutput, {
                         chatId: args.chatId,
                         messageId: args.messageId,
@@ -464,96 +312,90 @@ Based on the AI response and these search results, create artifacts (code files,
                     return;
                 } catch (error) {
                     console.error("Canvas generation error:", error);
-                    response =
-                        "Sorry, I couldn't generate the canvas artifacts. Please try again.";
-                    await ctx.runMutation(
-                        internal.aiHelpers.updateMessageContent,
-                        {
-                            messageId: args.messageId,
-                            content: response,
-                            isStreaming: false,
-                        }
-                    );
+                    response = "Sorry, I couldn't generate the canvas artifacts. Please try again.";
+                    await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                        messageId: args.messageId,
+                        content: response,
+                        isStreaming: false,
+                    });
                     return;
                 }
             }
 
-            // Normal AI response - FIXED streaming logic
-            const provider = getProviderFromModel(args.model);
-            const config = PROVIDER_CONFIGS[provider];
-            const userKey = userApiKeys[config.userKeyField];
+            // Normal AI response using Vercel AI SDK streaming
+            const modelInstance = providerManager.getModel(provider, args.model, userKey);
 
-            console.log(`Using provider: ${provider} for model: ${args.model}`);
-
-            // Process ALL attachments (regular + artifacts) for the selected provider
-            let allProcessedAttachments = [...(artifactAttachments || [])];
-
+            // Process regular attachments using our new AI SDK helpers
+            const allProcessedAttachments = [...artifactAttachments];
             if (args.attachments && args.attachments.length > 0) {
-                const client = providerManager.getClient(provider, userKey);
-                const regularAttachments = await processAttachmentsForProvider(
-                    args.attachments,
-                    provider,
-                    client,
-                    ctx
-                );
-                allProcessedAttachments = [
-                    ...allProcessedAttachments,
-                    ...regularAttachments,
-                ];
+                for (const attachment of args.attachments) {
+                    try {
+                        const processedAttachment = await processAttachmentForAISDK(attachment, ctx);
+                        allProcessedAttachments.push(processedAttachment);
+                    } catch (error) {
+                        console.error(`Failed to process attachment ${attachment.name}:`, error);
+                    }
+                }
             }
 
-            const openaiMessages = messages.map((m: any) => ({
-                role: m.role,
-                content: m.content,
-            }));
-
-            console.log("ALL MESSAGES:", openaiMessages);
-
-            // Stream response and accumulate content properly - CRITICAL FIX
-            const stream = await providerManager.callProvider(
-                provider,
-                args.model,
-                openaiMessages,
-                {
-                    apiKey: userKey,
-                    stream: true,
-                    attachments: allProcessedAttachments,
-                }
+            // Convert messages to AI SDK format with attachments
+            const convertedMessages = formatMessagesForAISDK(
+                messages.map((m: any) => ({
+                    role: m.role,
+                    content: typeof m.content === 'string' ? m.content : m.content
+                })),
+                allProcessedAttachments
             );
 
-            let accumulatedResponse = ""; // Start with empty string - CRITICAL FIX
+            console.log("🎭 STREAMING WITH AI SDK:", {
+                provider,
+                model: args.model,
+                messageCount: convertedMessages.length,
+                attachmentCount: allProcessedAttachments.length
+            });
 
-            for await (const chunk of stream) {
-                const contentChunk = chunk.choices[0]?.delta?.content || "";
-                console.log("content chunk: ", contentChunk);
-                if (contentChunk) {
-                    accumulatedResponse += contentChunk; // Only add new chunk content
+            // Stream response using AI SDK
+            const result = await streamText({
+                model: modelInstance,
+                messages: convertedMessages,
+                temperature: 0.7,
+                // Remove maxTokens for now to fix TypeScript errors
+                // Different providers may have different token limit handling
+            });
 
-                    // Update message with full accumulated content (no duplication)
-                    await ctx.runMutation(
-                        internal.aiHelpers.updateMessageContent,
-                        {
-                            messageId: args.messageId,
-                            content: accumulatedResponse, // Send complete accumulated content
-                            isStreaming: true,
-                        }
-                    );
-                }
+            let accumulatedResponse = "";
 
-                if (chunk.choices[0]?.finish_reason) {
-                    break;
+            // Process the stream
+            for await (const chunk of result.textStream) {
+                if (chunk) {
+                    accumulatedResponse += chunk;
+                    
+                    // Update message with accumulated content
+                    await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                        messageId: args.messageId,
+                        content: accumulatedResponse,
+                        isStreaming: true,
+                    });
                 }
             }
 
-            // Mark streaming as complete - CRITICAL FIX for stop button
+            // Mark streaming as complete
             await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
                 messageId: args.messageId,
                 content: accumulatedResponse,
                 metadata,
-                isStreaming: false, // CRITICAL: Set to false when streaming is done
+                isStreaming: false,
             });
+
+            console.log("✅ AI SDK GENERATION COMPLETE:", {
+                messageId: args.messageId,
+                provider,
+                contentLength: accumulatedResponse.length,
+                timestamp: new Date().toISOString(),
+            });
+
         } catch (error) {
-            console.error("Streaming error:", error);
+            console.error("AI SDK streaming error:", error);
             await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
                 messageId: args.messageId,
                 content: `Sorry, I encountered an error while generating a response: ${error instanceof Error ? error.message : String(error)}. Please try again.`,
@@ -563,60 +405,7 @@ Based on the AI response and these search results, create artifacts (code files,
     },
 });
 
-// Simple resume streaming action
-export const resumeStreaming: any = action({
-    args: {
-        messageId: v.id("messages"),
-        fromPosition: v.number(),
-    },
-    handler: async (ctx, args) => {
-        try {
-            // Get the message
-            const message = await ctx.runQuery(internal.aiHelpers.getMessage, {
-                messageId: args.messageId,
-            });
-
-            if (!message) {
-                throw new Error("Message not found");
-            }
-
-            // Return the content from the specified position
-            const contentFromPosition = message.content.slice(
-                args.fromPosition
-            );
-
-            return {
-                content: contentFromPosition,
-                totalLength: message.content.length,
-                isComplete: !message.isStreaming,
-            };
-        } catch (error) {
-            console.error("Resume streaming error:", error);
-            throw new Error("Failed to resume streaming");
-        }
-    },
-});
-
-// Action for frontend to mark streaming as complete
-export const markStreamingComplete = action({
-    args: {
-        messageId: v.id("messages"),
-    },
-    handler: async (ctx, args) => {
-        try {
-            await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
-                messageId: args.messageId,
-                isStreaming: false,
-            });
-
-            return { success: true };
-        } catch (error) {
-            console.error("Mark streaming complete error:", error);
-            throw new Error("Failed to mark streaming complete");
-        }
-    },
-});
-
+// Enhanced structured output generation using AI SDK
 export const generateStructuredOutput = internalAction({
     args: {
         chatId: v.id("chats"),
@@ -635,115 +424,60 @@ export const generateStructuredOutput = internalAction({
         try {
             const provider = getProviderFromModel(args.model);
             const config = PROVIDER_CONFIGS[provider];
-            const userKey =
-                args.userApiKey ||
-                (await getUserApiKeys(ctx))[config.userKeyField];
-            const client = providerManager.getClient(provider, userKey);
+            const userKey = args.userApiKey || (await getUserApiKeys(ctx))[config.userKeyField];
+
+            console.log("🎯 GENERATING STRUCTURED OUTPUT WITH AI SDK:", {
+                provider,
+                model: args.model,
+                messageId: args.messageId
+            });
 
             // Get messages for context
             const messages = await ctx.runQuery(
                 internal.aiHelpers.getChatHistory,
                 {
                     chatId: args.chatId,
-                    excludeMessageId: args.messageId, // CRITICAL FIX: Pass the AI message ID to exclude it and get proper history
+                    excludeMessageId: args.messageId,
                 }
             );
 
-            // Use enhanced prompt if provided, otherwise use the last user message
-            const promptToUse =
-                args.enhancedPrompt ||
-                messages.filter((m: any) => m.role === "user").pop()?.content ||
-                "";
+            const promptToUse = args.enhancedPrompt || 
+                messages.filter((m: any) => m.role === "user").pop()?.content || "";
 
-            const structuredMessages = [
-                ...messages.slice(0, -1),
-                { role: "user", content: promptToUse },
+            // Convert messages to simple format for AI SDK
+            const convertedMessages = [
+                ...messages.slice(0, -1).map((m: any) => ({
+                    role: m.role,
+                    content: m.content
+                })),
+                { role: "user" as const, content: promptToUse },
             ];
 
-            // Generate structured output (NON-STREAMING for canvas)
-            let result;
-            switch (provider) {
-                case "openai":
-                case "openrouter":
-                case "deepseek":
-                    result =
-                        await structuredOutputManager.generateOpenAIStructuredOutput(
-                            client,
-                            args.model,
-                            structuredMessages,
-                            args.schema,
-                            { stream: false, attachments: args.attachments }
-                        );
-                    break;
-                case "google":
-                    result =
-                        await structuredOutputManager.generateGoogleStructuredOutput(
-                            client,
-                            args.model,
-                            structuredMessages,
-                            args.schema,
-                            { stream: false, attachments: args.attachments }
-                        );
-                    break;
-                case "anthropic":
-                    result =
-                        await structuredOutputManager.generateAnthropicStructuredOutput(
-                            client,
-                            args.model,
-                            structuredMessages,
-                            args.schema,
-                            { stream: false, attachments: args.attachments }
-                        );
-                    break;
-                default:
-                    throw new Error(
-                        `Structured output not supported for provider: ${provider}`
-                    );
-            }
+            // Get model instance
+            const modelInstance = providerManager.getModel(provider, args.model, userKey);
 
-            // Parse the structured output and create artifacts
-            let parsedOutput;
-            try {
-                if (provider === "anthropic") {
-                    // For Anthropic, the structured output is in tool use
-                    const toolUses =
-                        result.content?.filter(
-                            (c: any) => c.type === "tool_use"
-                        ) || [];
-                    if (toolUses.length > 0) {
-                        parsedOutput = toolUses[0].input;
-                    }
-                } else if (provider === "google") {
-                    // For Google, parse the text response as JSON
-                    parsedOutput = JSON.parse(result.text || "{}");
-                } else {
-                    // For OpenAI Responses API, get from structured output
-                    const textOutputs =
-                        result.output?.filter(
-                            (o: any) => o.type === "message"
-                        ) || [];
-                    if (textOutputs.length > 0) {
-                        parsedOutput = JSON.parse(
-                            textOutputs[0].content || "{}"
-                        );
-                    }
-                }
-            } catch (error) {
-                console.error("Failed to parse structured output:", error);
-                throw new Error("Failed to parse structured response");
-            }
+            // Generate structured output using AI SDK
+            const result = await generateObject({
+                model: modelInstance,
+                messages: convertedMessages,
+                schema: args.schema,
+                temperature: 0.7,
+            });
+
+            const parsedOutput = result.object;
 
             if (!parsedOutput || !parsedOutput.artifacts) {
                 throw new Error("No artifacts generated");
             }
 
-            // Build response with artifacts - NO PREFILLED TEXT
+            // Build response with artifacts
             let responseText = parsedOutput.intro || "";
+            
             if (parsedOutput.artifacts && parsedOutput.artifacts.length > 0) {
                 // Save artifacts to database
                 const artifactMetadata = [];
                 for (const artifact of parsedOutput.artifacts) {
-                    const artifactId = await ctx.runMutation(
+                    await ctx.runMutation(
                         internal.artifacts.createArtifactInternal,
                         {
                             messageId: args.messageId,
@@ -765,20 +499,16 @@ export const generateStructuredOutput = internalAction({
                     });
                 }
 
-                // Update metadata with artifacts - store just artifact IDs like sharedChats pattern
                 const finalMetadata = {
                     ...(args.metadata || {}),
                     structuredOutput: true,
                     canvasIntro: parsedOutput.intro,
                     canvasSummary: parsedOutput.summary,
-                    artifacts: artifactMetadata.map(
-                        (artifact: any) => artifact._id
-                    ), // Store artifact _ids
+                    artifacts: artifactMetadata.map((artifact: any) => artifact._id),
                 };
 
                 if (parsedOutput.summary) {
-                    responseText +=
-                        (responseText ? "\n\n" : "") + parsedOutput.summary;
+                    responseText += (responseText ? "\n\n" : "") + parsedOutput.summary;
                 }
 
                 await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
@@ -788,129 +518,244 @@ export const generateStructuredOutput = internalAction({
                     isStreaming: false,
                 });
             }
+
+            console.log("✅ STRUCTURED OUTPUT COMPLETE:", {
+                messageId: args.messageId,
+                artifactCount: parsedOutput.artifacts?.length || 0
+            });
+
         } catch (error) {
-            console.error(
-                "Structured output generation error:",
-                (error as any).message || error
-            );
+            console.error("AI SDK structured output error:", error);
             await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
                 messageId: args.messageId,
-                content:
-                    "Sorry, I couldn't generate the structured response. Please try again.",
+                content: "Sorry, I couldn't generate the structured response. Please try again.",
                 isStreaming: false,
             });
         }
     },
 });
 
-// Enhanced AI generation with user preferences and response modes
-export const generateResponse = action({
+// Multi-AI Response Generation using AI SDK
+export const generateMultiAIResponses = internalAction({
     args: {
-        messages: v.array(
-            v.object({
-                role: v.union(
-                    v.literal("user"),
-                    v.literal("assistant"),
-                    v.literal("system")
-                ),
-                content: v.string(),
-            })
+        chatId: v.id("chats"),
+        messageId: v.id("messages"),
+        models: v.array(v.string()),
+        attachments: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("image"),
+                        v.literal("pdf"),
+                        v.literal("file"),
+                        v.literal("audio"),
+                        v.literal("video")
+                    ),
+                    storageId: v.id("_storage"),
+                    name: v.string(),
+                    size: v.number(),
+                })
+            )
         ),
-        model: v.string(),
-        temperature: v.optional(v.number()),
-        maxTokens: v.optional(v.number()),
-        systemPrompt: v.optional(v.string()),
-        responseMode: v.optional(v.string()),
-        topP: v.optional(v.number()),
-        frequencyPenalty: v.optional(v.number()),
-        presencePenalty: v.optional(v.number()),
-        userId: v.optional(v.id("users")),
+        referencedArtifacts: v.optional(v.array(v.string())),
+        responseIds: v.array(v.string()),
     },
     handler: async (ctx, args) => {
-        // Get user preferences if userId is provided
-        let userPreferences = null;
-        if (args.userId) {
-            userPreferences = await ctx.runQuery(internal.preferences.getUserPreferencesInternal, {
-                userId: args.userId
-            });
-        }
-
-        // Apply response mode modifications to system prompt
-        let systemPrompt = args.systemPrompt || userPreferences?.aiSettings?.systemPrompt || "";
-        const responseMode = args.responseMode || userPreferences?.aiSettings?.responseMode || "balanced";
-
-        // Response mode prompts
-        const responseModeInstructions = {
-            balanced: "Provide well-balanced responses that are informative yet accessible.",
-            concise: "Keep your responses brief and to the point. Focus on the essential information.",
-            detailed: "Provide comprehensive, thorough responses with detailed explanations and examples.",
-            creative: "Be creative and imaginative in your responses. Think outside the box and offer unique perspectives.",
-            analytical: "Focus on data-driven, logical analysis. Provide evidence-based responses with clear reasoning.",
-            friendly: "Use a warm, conversational tone. Be approachable and personable in your responses.",
-            professional: "Maintain a formal, business-appropriate tone. Be precise and professional."
-        };
-
-        if (responseMode !== "balanced") {
-            const modeInstruction = responseModeInstructions[responseMode as keyof typeof responseModeInstructions];
-            if (modeInstruction) {
-                systemPrompt = systemPrompt 
-                    ? `${systemPrompt}\n\nResponse Style: ${modeInstruction}`
-                    : `Response Style: ${modeInstruction}`;
-            }
-        }
-
-        // Build enhanced messages array with system prompt
-        const enhancedMessages = systemPrompt 
-            ? [{ role: "system" as const, content: systemPrompt }, ...args.messages]
-            : args.messages;
-
-        // Apply AI settings with user preferences as defaults
-        const temperature = args.temperature ?? userPreferences?.aiSettings?.temperature ?? 0.7;
-        const maxTokens = args.maxTokens ?? userPreferences?.aiSettings?.maxTokens;
-        const topP = args.topP ?? userPreferences?.aiSettings?.topP ?? 0.9;
-        const frequencyPenalty = args.frequencyPenalty ?? userPreferences?.aiSettings?.frequencyPenalty ?? 0;
-        const presencePenalty = args.presencePenalty ?? userPreferences?.aiSettings?.presencePenalty ?? 0;
-
-        // Call the original AI generation with enhanced parameters
-        const result = await ctx.runAction(internal.ai.generation.generateAIResponse, {
-            messages: enhancedMessages,
-            model: args.model,
-            temperature,
-            maxTokens,
-            topP,
-            frequencyPenalty,
-            presencePenalty,
+        console.log("🧠 STARTING MULTI-AI GENERATION WITH AI SDK:", {
+            chatId: args.chatId,
+            messageId: args.messageId,
+            models: args.models,
+            responseIds: args.responseIds,
+            timestamp: new Date().toISOString(),
         });
 
-        return result;
+        // Generate responses from all models in parallel using AI SDK
+        const responsePromises = args.models.map(async (model, index) => {
+            const responseId = args.responseIds[index];
+            const provider = getProviderFromModel(model);
+
+            try {
+                console.log(`🚀 GENERATING AI SDK RESPONSE FOR ${model}:`, {
+                    responseId,
+                    provider,
+                    chatId: args.chatId,
+                    messageId: args.messageId,
+                });
+
+                const userApiKeys = await getUserApiKeys(ctx);
+                const config = PROVIDER_CONFIGS[provider];
+                const userKey = userApiKeys[config.userKeyField];
+
+                // Get chat history
+                const messages = await ctx.runQuery(
+                    internal.aiHelpers.getChatHistory,
+                    {
+                        chatId: args.chatId,
+                        excludeMessageId: args.messageId,
+                    }
+                );
+
+                const convertedMessages = messages.map((m: any) => ({
+                    role: m.role,
+                    content: m.content
+                }));
+                const modelInstance = providerManager.getModel(provider, model, userKey);
+
+                // Generate text using AI SDK - remove maxTokens parameter to fix TypeScript error
+                const result = await generateText({
+                    model: modelInstance,
+                    messages: convertedMessages,
+                    temperature: 0.7,
+                });
+
+                // Update the multi-AI response with the generated content
+                await ctx.runMutation(api.messages.updateMultiAIResponse, {
+                    messageId: args.messageId,
+                    responseId,
+                    content: result.text,
+                    isComplete: true,
+                    metadata: {
+                        provider,
+                        model,
+                        finishReason: result.finishReason,
+                        usage: result.usage,
+                    },
+                });
+
+                console.log(`✅ COMPLETED AI SDK RESPONSE FOR ${model}:`, {
+                    responseId,
+                    contentLength: result.text.length,
+                    provider,
+                    timestamp: new Date().toISOString(),
+                });
+
+            } catch (error) {
+                console.error(`❌ FAILED AI SDK RESPONSE FOR ${model}:`, {
+                    responseId,
+                    error: error instanceof Error ? error.message : String(error),
+                    timestamp: new Date().toISOString(),
+                });
+
+                await ctx.runMutation(api.messages.updateMultiAIResponse, {
+                    messageId: args.messageId,
+                    responseId,
+                    content: `Error generating response: ${error instanceof Error ? error.message : String(error)}`,
+                    isComplete: true,
+                    metadata: { error: true },
+                });
+            }
+        });
+
+        // Wait for all responses to complete
+        await Promise.all(responsePromises);
+
+        console.log("🎉 MULTI-AI GENERATION COMPLETE WITH AI SDK:", {
+            chatId: args.chatId,
+            messageId: args.messageId,
+            completedModels: args.models.length,
+            timestamp: new Date().toISOString(),
+        });
     },
 });
 
-// Helper function for processing attachments for provider
-async function processAttachmentsForProvider(
-    attachments: any[],
-    provider: string,
-    client: any,
-    ctx: any
-): Promise<any[]> {
-    if (!attachments || attachments.length === 0) return [];
-
-    const processedAttachments = [];
-    for (const attachment of attachments) {
+// Simple resume streaming action (backwards compatibility)
+export const resumeStreaming: any = action({
+    args: {
+        messageId: v.id("messages"),
+        fromPosition: v.number(),
+    },
+    handler: async (ctx, args) => {
         try {
-            const processed = await fileManager.processRegularAttachment(
-                attachment,
-                provider,
-                client,
-                ctx
-            );
-            processedAttachments.push(processed);
+            const message = await ctx.runQuery(internal.aiHelpers.getMessage, {
+                messageId: args.messageId,
+            });
+
+            if (!message) {
+                throw new Error("Message not found");
+            }
+
+            const contentFromPosition = message.content.slice(args.fromPosition);
+
+            return {
+                content: contentFromPosition,
+                totalLength: message.content.length,
+                isComplete: !message.isStreaming,
+            };
         } catch (error) {
-            console.error(
-                `Failed to process attachment ${attachment.name} for provider ${provider}:`,
-                error
-            );
+            console.error("Resume streaming error:", error);
+            throw new Error("Failed to resume streaming");
         }
-    }
-    return processedAttachments;
+    },
+});
+
+// Mark streaming as complete (backwards compatibility)
+export const markStreamingComplete = action({
+    args: {
+        messageId: v.id("messages"),
+    },
+    handler: async (ctx, args) => {
+        try {
+            await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                messageId: args.messageId,
+                isStreaming: false,
+            });
+
+            return { success: true };
+        } catch (error) {
+            console.error("Mark streaming complete error:", error);
+            throw new Error("Failed to mark streaming complete");
+        }
+    },
+});
+
+// Helper function to extract citations from AI response (simplified)
+function extractCitationsFromResponse(response: string): any[] {
+    const citations: any[] = [];
+    
+    // Look for common citation patterns in AI responses
+    const citationPatterns = [
+        /\[(\d+)\]\s*([^[\n]+)/g, // [1] Title or description
+        /Source:\s*([^\n]+)/gi,   // Source: URL or title
+        /https?:\/\/[^\s\n]+/g,   // Direct URLs
+    ];
+
+    let citationNumber = 1;
+
+    citationPatterns.forEach(pattern => {
+        let match;
+        while ((match = pattern.exec(response)) !== null) {
+            if (pattern.source.includes('http')) {
+                // Direct URL
+                citations.push({
+                    number: citationNumber++,
+                    url: match[0],
+                    title: match[0].replace(/https?:\/\//, ''),
+                    citedText: `Information from ${match[0]}`,
+                });
+            } else if (pattern.source.includes('Source')) {
+                // Source pattern
+                citations.push({
+                    number: citationNumber++,
+                    url: match[1],
+                    title: match[1],
+                    citedText: `Source: ${match[1]}`,
+                });
+            } else {
+                // Numbered citation
+                citations.push({
+                    number: parseInt(match[1]) || citationNumber++,
+                    title: match[2]?.trim() || 'Web Source',
+                    citedText: match[2]?.trim() || '',
+                    url: '#',
+                });
+            }
+        }
+    });
+
+    // Remove duplicates and limit to 10 citations
+    const uniqueCitations = citations.filter((citation, index, self) => 
+        index === self.findIndex(c => c.url === citation.url || c.title === citation.title)
+    );
+
+    return uniqueCitations.slice(0, 10);
 }

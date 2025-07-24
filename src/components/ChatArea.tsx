@@ -55,6 +55,7 @@ export function ChatArea({
     const messages = useMemo(() => messagesResult || [], [messagesResult]);
 
     const sendMessage = useAction(api.messages.sendMessage);
+    const sendMultiAIMessage = useAction(api.messages.sendMultiAIMessage);
     const markStreamingComplete = useAction(api.ai.markStreamingComplete);
     const updateChatModel = useMutation(api.chats.updateChatModel);
     const deleteMessage = useMutation(api.messages.deleteMessage);
@@ -96,21 +97,45 @@ export function ChatArea({
     const handleSendMessage = useCallback(
         async (
             content: string,
-            attachments?: any[],
-            referencedArtifacts?: string[]
+            referencedLibraryItems?: Array<{
+                type: "attachment" | "artifact" | "media";
+                id: string;
+                name: string;
+                description?: string;
+                size?: number;
+                mimeType?: string;
+            }>
         ) => {
             if (isLoading) return;
 
             if (
                 !content.trim() &&
-                (!attachments || attachments.length === 0) &&
-                activeCommands.length === 0 &&
-                (!referencedArtifacts || referencedArtifacts.length === 0)
+                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
+                activeCommands.length === 0
             )
                 return;
 
             try {
                 setIsLoading(true);
+                
+                // UNIFIED: Convert referencedLibraryItems to backend format
+                const attachments = referencedLibraryItems
+                    ?.filter(item => item.type === "attachment")
+                    .map(item => ({
+                        type: item.mimeType?.startsWith('image/') ? 'image' as const :
+                              item.mimeType === 'application/pdf' ? 'pdf' as const :
+                              item.mimeType?.startsWith('audio/') ? 'audio' as const :
+                              item.mimeType?.startsWith('video/') ? 'video' as const :
+                              'file' as const,
+                        storageId: item.id as Id<"_storage">, // Library ID used as storage ID
+                        name: item.name,
+                        size: item.size || 0,
+                    })) || [];
+
+                const referencedArtifacts = referencedLibraryItems
+                    ?.filter(item => item.type === "artifact")
+                    .map(item => item.id) || [];
+
                 await sendMessage({
                     chatId,
                     content: content.trim(),
@@ -129,6 +154,81 @@ export function ChatArea({
             }
         },
         [chatId, selectedModel, activeCommands, sendMessage, isLoading]
+    );
+
+    // Multi-AI send message handler
+    const handleSendMultiAIMessage = useCallback(
+        async (
+            content: string,
+            models: string[],
+            referencedLibraryItems?: Array<{
+                type: "attachment" | "artifact" | "media";
+                id: string;
+                name: string;
+                description?: string;
+                size?: number;
+                mimeType?: string;
+            }>
+        ) => {
+            if (isLoading) return;
+
+            if (
+                !content.trim() &&
+                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
+                activeCommands.length === 0
+            )
+                return;
+
+            if (models.length < 2) {
+                toast.error(
+                    "Please select at least 2 models for multi-AI mode"
+                );
+                return;
+            }
+
+            try {
+                setIsLoading(true);
+
+                // UNIFIED: Convert referencedLibraryItems to backend format
+                const attachments = referencedLibraryItems
+                    ?.filter(item => item.type === "attachment")
+                    .map(item => ({
+                        type: item.mimeType?.startsWith('image/') ? 'image' as const :
+                              item.mimeType === 'application/pdf' ? 'pdf' as const :
+                              item.mimeType?.startsWith('audio/') ? 'audio' as const :
+                              item.mimeType?.startsWith('video/') ? 'video' as const :
+                              'file' as const,
+                        storageId: item.id as Id<"_storage">, // Library ID used as storage ID
+                        name: item.name,
+                        size: item.size || 0,
+                    })) || [];
+
+                const referencedArtifacts = referencedLibraryItems
+                    ?.filter(item => item.type === "artifact")
+                    .map(item => item.id) || [];
+
+                await sendMultiAIMessage({
+                    chatId,
+                    content: content.trim(),
+                    models,
+                    commands: activeCommands,
+                    attachments,
+                    referencedArtifacts,
+                });
+
+                setMessageInput("");
+                setActiveCommands([]);
+                toast.success(
+                    `Generating responses from ${models.length} AI models...`
+                );
+            } catch (error) {
+                console.error("Failed to send multi-AI message:", error);
+                toast.error("Failed to send multi-AI message");
+            } finally {
+                setIsLoading(false);
+            }
+        },
+        [chatId, activeCommands, sendMultiAIMessage, isLoading]
     );
 
     const handlePrefill = (promptText: string) => {
@@ -614,6 +714,7 @@ export function ChatArea({
                         showMessageInput={showMessageInput}
                         sidebarOpen={sidebarOpen}
                         chatId={chatId}
+                        onSendMultiAIMessage={handleSendMultiAIMessage}
                     />
                 )}
             </div>

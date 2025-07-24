@@ -1,71 +1,117 @@
 import { useState, useRef } from "react";
 import { Button } from "./ui/button";
+import { Paperclip } from "lucide-react";
+import { toast } from "sonner";
 import { useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 
 interface FileUploadProps {
-    onFileUploaded: (attachment: {
-        type: "image" | "pdf" | "file";
-        storageId: string;
+    onFileUploaded: (file: {
+        type: "attachment";
+        libraryId: string;
         name: string;
         size: number;
+        mimeType: string;
     }) => void;
+    disabled?: boolean;
 }
 
-export function FileUpload({ onFileUploaded }: FileUploadProps) {
+export function FileUpload({ onFileUploaded, disabled = false }: FileUploadProps) {
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const generateUploadUrl = useMutation(api.messages.generateUploadUrl);
 
-    const handleFileSelect = async (
-        event: React.ChangeEvent<HTMLInputElement>
-    ) => {
+    // FIXED: Use library system instead of direct storage upload
+    const generateUploadUrl = useMutation(api.messages.generateUploadUrl);
+    const addToAttachmentLibrary = useMutation(api.library.addToAttachmentLibrary);
+
+    const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
 
-        // Check file size (max 10MB)
-        if (file.size > 10 * 1024 * 1024) {
-            alert("File size must be less than 10MB");
+        // Validate file size (50MB limit)
+        const maxSize = 50 * 1024 * 1024; // 50MB
+        if (file.size > maxSize) {
+            toast.error("File size must be less than 50MB");
+            return;
+        }
+
+        // Validate file type
+        const allowedTypes = [
+            'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+            'application/pdf',
+            'text/plain', 'text/markdown', 'text/csv',
+            'application/json', 'text/javascript', 'text/typescript',
+            'audio/mpeg', 'audio/wav', 'audio/ogg',
+            'video/mp4', 'video/webm', 'video/ogg'
+        ];
+
+        if (!allowedTypes.includes(file.type)) {
+            toast.error("File type not supported");
             return;
         }
 
         setIsUploading(true);
+
         try {
-            // Get upload URL
+            // Generate upload URL
             const uploadUrl = await generateUploadUrl();
 
-            // Upload file
-            const result = await fetch(uploadUrl, {
+            // Upload file to storage
+            const response = await fetch(uploadUrl, {
                 method: "POST",
-                headers: { "Content-Type": file.type },
                 body: file,
+                headers: {
+                    "Content-Type": file.type,
+                },
             });
 
-            if (!result.ok) {
+            if (!response.ok) {
                 throw new Error("Upload failed");
             }
 
-            const { storageId } = await result.json();
+            const { storageId } = await response.json();
 
-            // Determine file type
-            let type: "image" | "pdf" | "file" = "file";
-            if (file.type.startsWith("image/")) {
-                type = "image";
-            } else if (file.type === "application/pdf") {
-                type = "pdf";
+            // Determine attachment type
+            let attachmentType: "image" | "pdf" | "file" | "audio" | "video";
+            if (file.type.startsWith('image/')) {
+                attachmentType = "image";
+            } else if (file.type === 'application/pdf') {
+                attachmentType = "pdf";
+            } else if (file.type.startsWith('audio/')) {
+                attachmentType = "audio";
+            } else if (file.type.startsWith('video/')) {
+                attachmentType = "video";
+            } else {
+                attachmentType = "file";
             }
 
-            onFileUploaded({
-                type,
+            // FIXED: Add to attachment library instead of direct storage
+            const libraryId = await addToAttachmentLibrary({
                 storageId,
+                originalName: file.name,
+                type: attachmentType,
+                mimeType: file.type,
+                size: file.size,
+                description: `Uploaded ${attachmentType} file`,
+            });
+
+            // FIXED: Return library-based attachment format
+            onFileUploaded({
+                type: "attachment",
+                libraryId: libraryId,
                 name: file.name,
                 size: file.size,
+                mimeType: file.type,
             });
+
+            toast.success(`${file.name} uploaded successfully`);
+
         } catch (error) {
-            console.error("Upload failed:", error);
-            alert("Failed to upload file");
+            console.error("File upload error:", error);
+            toast.error("Failed to upload file. Please try again.");
         } finally {
             setIsUploading(false);
+            // Clear the input so the same file can be selected again
             if (fileInputRef.current) {
                 fileInputRef.current.value = "";
             }
@@ -79,33 +125,22 @@ export function FileUpload({ onFileUploaded }: FileUploadProps) {
                 type="file"
                 onChange={handleFileSelect}
                 className="hidden"
-                accept="image/*,.pdf,.txt,.doc,.docx"
+                accept="image/*,application/pdf,text/*,audio/*,video/*,.md,.json,.js,.ts,.csv"
+                disabled={disabled || isUploading}
             />
             <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="h-8 w-8 p-0 bg-purple-500/20 hover:bg-purple-500/30 transition-colors duration-200 ease-in-out disabled:opacity-50"
+                disabled={disabled || isUploading}
+                className="h-8 w-8 p-0 text-purple-400 bg-purple-600/20 hover:bg-purple-600/30 transition-colors duration-200 ease-in-out"
                 title="Upload file"
             >
                 {isUploading ? (
-                    <div className="w-4 h-4 border-2 border-purple-300/30 border-t-purple-300 rounded-full animate-spin"></div>
+                    <div className="w-3 h-3 border border-purple-400 border-t-transparent rounded-full animate-spin" />
                 ) : (
-                    <svg
-                        className="w-4 h-4 text-purple-300"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                        />
-                    </svg>
+                    <Paperclip className="w-4 h-4" />
                 )}
             </Button>
         </>

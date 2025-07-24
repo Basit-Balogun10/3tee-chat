@@ -1,12 +1,14 @@
 - I'm using pnpm on bash, so use / instead of \ in your terminal commands
 
-- Your terminal commands shoulde always follow this format: cd full/path/to/destination && your-command-here
+- Your terminal commands should always follow this format: cd full/path/to/destination && your-command-here
+
+- We are using Convex. We hav complete "Guidelines and best practices for building Convex projects, including database schema design, queries, mutations, and real-world examples" available in the file `convex_rules.mdc`. Feel free to look it up anytime you are unsure of what to do or how to do something in Convex. It can also come in handy when fixing convex backend errors
 
 - Always ADHERE STRICTLY to our existing design system, theme, color, layouts and standards, UNLESS stated otherwise!
 
 - Always ADHERE STRICTLY to existing implementation patterns and standards for consistency sake!
 
-- Use the colors from this sample maermaid diagram whenever you have to create one:
+- Use the colors from this sample mermaid diagram whenever you have to create one:
 flowchart TD
     %% Nodes
         A("fab:fa-youtube Starter Guide")

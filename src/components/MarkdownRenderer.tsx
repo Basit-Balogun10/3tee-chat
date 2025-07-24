@@ -1,5 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "../lib/utils";
@@ -33,6 +35,20 @@ export function MarkdownRenderer({
         if (openCodeBlocks % 2 !== 0) {
             // We have an incomplete code block, close it temporarily with a streaming indicator
             processed += "\n\n*[...streaming]*\n```";
+        }
+
+        // Handle incomplete LaTeX blocks during streaming
+        const openDisplayMath = (processed.match(/\$\$/g) || []).length;
+        if (openDisplayMath % 2 !== 0) {
+            // We have an incomplete display math block, close it temporarily
+            processed += " \\text{[...streaming]} $$";
+        }
+
+        // Handle incomplete inline math during streaming
+        const dollarSigns = processed.match(/(?<!\\)\$/g) || [];
+        if (dollarSigns.length % 2 !== 0) {
+            // We have an incomplete inline math, close it temporarily
+            processed += "\\text{[...]}$";
         }
 
         // Handle incomplete tables during streaming
@@ -101,7 +117,8 @@ export function MarkdownRenderer({
             )}
         >
             <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex]}
                 components={{
                     code: ({
                         node: _node,
@@ -295,6 +312,38 @@ export function MarkdownRenderer({
                     em: ({ children }) => (
                         <em className="italic text-purple-200">{children}</em>
                     ),
+                    // Enhanced math component styling
+                    div: ({ node, className, children, ...props }) => {
+                        // Handle KaTeX display math blocks
+                        if (className?.includes("math-display")) {
+                            return (
+                                <div className="katex-display" {...props}>
+                                    {children}
+                                </div>
+                            );
+                        }
+                        return (
+                            <div className={className} {...props}>
+                                {children}
+                            </div>
+                        );
+                    },
+
+                    span: ({ node, className, children, ...props }) => {
+                        // Handle KaTeX inline math
+                        if (className?.includes("math-inline")) {
+                            return (
+                                <span className="katex-inline" {...props}>
+                                    {children}
+                                </span>
+                            );
+                        }
+                        return (
+                            <span className={className} {...props}>
+                                {children}
+                            </span>
+                        );
+                    },
                 }}
             >
                 {processedContent}

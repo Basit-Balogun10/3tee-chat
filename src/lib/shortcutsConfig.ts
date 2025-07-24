@@ -322,6 +322,22 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
         isEditable: true,
     },
 
+    // Multi-AI Response Actions (When Hovering over Multi-AI Cards)
+    {
+        id: "pickPrimaryResponse",
+        defaultKey: "P",
+        action: "Pick as primary response (when hovering over Multi-AI cards)",
+        category: "Multi-AI Response Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "deleteMultiAIResponse",
+        defaultKey: "Delete/Backspace",
+        action: "Delete Multi-AI response (when hovering over Multi-AI cards)",
+        category: "Multi-AI Response Actions (When Hovering)",
+        isEditable: true,
+    },
+
     // Phase 3 & 4 shortcuts
     {
         id: "advancedSearch",
@@ -344,7 +360,7 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
         category: "AI",
         isEditable: true,
     },
-    
+
     // Phase 2 notification shortcuts
     {
         id: "toggleNotifications",

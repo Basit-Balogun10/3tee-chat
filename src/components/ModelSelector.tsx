@@ -30,9 +30,14 @@ import {
 interface ModelSelectorProps {
     selectedModel: string;
     onModelChange: (model: string) => void;
-    context?: "message" | "settings" | "retry-message";
+    context?: "message" | "settings" | "retry-message" | "multi-ai";
     currentDefaultModel?: string;
-    openByDefault?: boolean; // New prop to open modal immediately
+    openByDefault?: boolean;
+    // Multi-AI support
+    multiSelect?: boolean;
+    selectedModels?: string[];
+    onModelsChange?: (models: string[]) => void;
+    maxSelections?: number;
 }
 
 export function ModelSelector({
@@ -40,7 +45,12 @@ export function ModelSelector({
     onModelChange,
     context = "message",
     currentDefaultModel,
-    openByDefault = false, // Default to false
+    openByDefault = false,
+    // Multi-AI props
+    multiSelect = false,
+    selectedModels = [],
+    onModelsChange,
+    maxSelections = 8,
 }: ModelSelectorProps) {
     // --- STATE MANAGEMENT ---
     const [showModal, setShowModal] = useState(false);
@@ -48,7 +58,8 @@ export function ModelSelector({
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedCapability, setSelectedCapability] = useState<string>("all");
     const [selectedProvider, setSelectedProvider] = useState<string>("all");
-    const [contextWindowFilter, setContextWindowFilter] = useState<string>("all");
+    const [contextWindowFilter, setContextWindowFilter] =
+        useState<string>("all");
 
     // Context window filter options
     const contextWindowOptions = [
@@ -180,7 +191,9 @@ export function ModelSelector({
             const maxContext =
                 contextWindow?.max !== undefined ? contextWindow.max : Infinity;
             const minContext =
-                contextWindow?.min !== undefined ? contextWindow.min : -Infinity;
+                contextWindow?.min !== undefined
+                    ? contextWindow.min
+                    : -Infinity;
 
             const modelContextLength = model.contextLength || 0;
 
@@ -188,11 +201,7 @@ export function ModelSelector({
                 modelContextLength <= maxContext &&
                 modelContextLength >= minContext;
 
-            return (
-                matchesSearch &&
-                matchesCapability &&
-                matchesContextWindow
-            );
+            return matchesSearch && matchesCapability && matchesContextWindow;
         });
     }, [
         availableModels,
@@ -208,6 +217,11 @@ export function ModelSelector({
     );
 
     const getModalTitle = () => {
+        if (context === "multi-ai")
+            return {
+                title: "Select AI Models",
+                subtitle: `Choose 2-${maxSelections} models to generate multiple responses`,
+            };
         if (context === "settings")
             return {
                 title: "Select Default AI Model",
@@ -226,8 +240,25 @@ export function ModelSelector({
     };
 
     const handleSelectModel = (modelId: string) => {
-        onModelChange(modelId);
-        setShowModal(false);
+        if (multiSelect && onModelsChange) {
+            const currentSelections = selectedModels || [];
+
+            if (currentSelections.includes(modelId)) {
+                // Remove if already selected
+                const newSelections = currentSelections.filter(
+                    (id) => id !== modelId
+                );
+                onModelsChange(newSelections);
+            } else {
+                // Add if not at max limit
+                if (currentSelections.length < maxSelections) {
+                    onModelsChange([...currentSelections, modelId]);
+                }
+            }
+        } else {
+            onModelChange(modelId);
+            setShowModal(false);
+        }
     };
 
     const handleOpenModal = () => {
@@ -280,7 +311,37 @@ export function ModelSelector({
                 onClick={handleOpenModal}
                 className="flex h-8 min-w-max items-center justify-between rounded-md border border-purple-600/30 bg-gray-900/60 px-3 py-2 text-sm text-purple-100 hover:border-purple-500/50 transition-colors focus:border-purple-400 focus:ring-1 focus:ring-purple-400 focus:outline-none"
             >
-                {selectedModelInfo ? (
+                {multiSelect ? (
+                    <div className="flex items-center gap-2">
+                        {selectedModels.length === 0 ? (
+                            <span>Select AI models</span>
+                        ) : (
+                            <>
+                                <span className="text-xs text-purple-300">
+                                    {selectedModels.length} models selected
+                                </span>
+                                {selectedModels.slice(0, 2).map((modelId) => {
+                                    const model = availableModels.find(
+                                        (m) => m.id === modelId
+                                    );
+                                    return model ? (
+                                        <span
+                                            key={modelId}
+                                            className="text-xs bg-purple-500/20 px-1 rounded"
+                                        >
+                                            {model.name}
+                                        </span>
+                                    ) : null;
+                                })}
+                                {selectedModels.length > 2 && (
+                                    <span className="text-xs text-purple-400">
+                                        +{selectedModels.length - 2} more
+                                    </span>
+                                )}
+                            </>
+                        )}
+                    </div>
+                ) : selectedModelInfo ? (
                     <div className="flex items-center gap-2">
                         <span
                             className={`text-xs ${getProviderDisplayInfo(selectedModelInfo.provider).color}`}
@@ -316,13 +377,36 @@ export function ModelSelector({
                                     <p className="text-sm text-purple-400">
                                         {subtitle}
                                     </p>
+                                    {multiSelect && (
+                                        <p className="text-xs text-orange-300 mt-1">
+                                            Selected: {selectedModels.length}/
+                                            {maxSelections}
+                                            {selectedModels.length >= 2 &&
+                                                selectedModels.length <=
+                                                    maxSelections &&
+                                                " ✓"}
+                                        </p>
+                                    )}
                                 </div>
-                                <button
-                                    onClick={() => setShowModal(false)}
-                                    className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
-                                >
-                                    <X className="w-5 h-5 text-purple-300" />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {multiSelect &&
+                                        selectedModels.length >= 2 && (
+                                            <button
+                                                onClick={() =>
+                                                    setShowModal(false)
+                                                }
+                                                className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg text-sm hover:bg-green-500/30 transition-colors"
+                                            >
+                                                Done ({selectedModels.length})
+                                            </button>
+                                        )}
+                                    <button
+                                        onClick={() => setShowModal(false)}
+                                        className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
+                                    >
+                                        <X className="w-5 h-5 text-purple-300" />
+                                    </button>
+                                </div>
                             </DialogTitle>
                         </DialogHeader>
 
@@ -423,8 +507,16 @@ export function ModelSelector({
                             ) : (
                                 <div className="space-y-2">
                                     {filteredModels.map((model) => {
-                                        const isSelected =
-                                            model.id === highlightedModelId;
+                                        const isSelected = multiSelect
+                                            ? selectedModels.includes(model.id)
+                                            : model.id === highlightedModelId;
+                                        const isDisabled =
+                                            multiSelect &&
+                                            !selectedModels.includes(
+                                                model.id
+                                            ) &&
+                                            selectedModels.length >=
+                                                maxSelections;
 
                                         const capabilitiesToDisplay =
                                             Object.entries(model.capabilities)
@@ -446,7 +538,7 @@ export function ModelSelector({
                                             <div
                                                 key={model.id}
                                                 ref={
-                                                    isSelected
+                                                    isSelected && !multiSelect
                                                         ? (el) => {
                                                               if (el) {
                                                                   setTimeout(
@@ -464,13 +556,33 @@ export function ModelSelector({
                                                         : null
                                                 }
                                                 onClick={() =>
+                                                    !isDisabled &&
                                                     handleSelectModel(model.id)
                                                 }
-                                                className={`group relative p-4 rounded-lg cursor-pointer transition-all duration-200 border ${isSelected ? "bg-purple-500/20 border-purple-500/40" : "hover:bg-purple-500/10 border-transparent hover:border-purple-600/30"}`}
+                                                className={`group relative p-4 rounded-lg cursor-pointer transition-all duration-200 border ${
+                                                    isSelected
+                                                        ? "bg-purple-500/20 border-purple-500/40"
+                                                        : isDisabled
+                                                          ? "opacity-50 cursor-not-allowed border-transparent"
+                                                          : "hover:bg-purple-500/10 border-transparent hover:border-purple-600/30"
+                                                }`}
                                             >
                                                 <div className="flex items-start justify-between">
                                                     <div className="flex-1 min-w-0">
                                                         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mb-2">
+                                                            {multiSelect && (
+                                                                <div
+                                                                    className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
+                                                                        isSelected
+                                                                            ? "bg-purple-500 border-purple-500"
+                                                                            : "border-purple-400"
+                                                                    }`}
+                                                                >
+                                                                    {isSelected && (
+                                                                        <CheckCircle className="w-3 h-3 text-white" />
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                             <h3 className="font-semibold text-purple-100">
                                                                 {model.name}
                                                             </h3>
@@ -478,12 +590,14 @@ export function ModelSelector({
                                                             {model.contextLength && (
                                                                 <span className="flex items-center gap-1 text-xs bg-blue-600/20 text-blue-300 px-2 py-1 rounded border border-blue-500/30">
                                                                     <FileText className="w-3 h-3" />
-                                                                    {model.contextLength >= 1000000 
+                                                                    {model.contextLength >=
+                                                                    1000000
                                                                         ? `${(model.contextLength / 1000000).toFixed(1)}M`
-                                                                        : model.contextLength >= 1000
-                                                                        ? `${(model.contextLength / 1000)}K`
-                                                                        : model.contextLength.toString()
-                                                                    } tokens
+                                                                        : model.contextLength >=
+                                                                            1000
+                                                                          ? `${model.contextLength / 1000}K`
+                                                                          : model.contextLength.toString()}{" "}
+                                                                    tokens
                                                                 </span>
                                                             )}
                                                             {model.userKeyEnabled && (

@@ -6,6 +6,7 @@ import { UserAvatar } from "./UserAvatar";
 import { SearchInput } from "./SearchInput";
 import { ProjectTree } from "./ProjectTree";
 import { AdvancedSearchModal } from "./AdvancedSearchModal";
+import { LibraryModal } from "./LibraryModal";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
 import {
@@ -18,6 +19,7 @@ import {
     Archive,
     Search,
     Clock, // Add Clock icon for temporary chats
+    BookOpen, // Add Library icon
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -78,6 +80,9 @@ export function Sidebar({
 
     // Advanced Search modal state
     const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
+    
+    // Library modal state
+    const [showLibrary, setShowLibrary] = useState(false);
 
     // View toggle state - chat view vs project view
     const [isProjectView, setIsProjectView] = useLocalStorage(
@@ -583,6 +588,13 @@ export function Sidebar({
                     >
                         <Search className="w-5 h-5 text-white" />
                     </button>
+                    <button
+                        onClick={() => setShowLibrary(true)}
+                        className="p-2 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 transition-all duration-200"
+                        title="Library (Ctrl+L)"
+                    >
+                        <BookOpen className="w-5 h-5 text-white" />
+                    </button>
                 </div>
             </div>
 
@@ -883,6 +895,17 @@ export function Sidebar({
             <AdvancedSearchModal 
                 open={showAdvancedSearch}
                 onOpenChange={setShowAdvancedSearch}
+            />
+
+            {/* Library Modal */}
+            <LibraryModal
+                open={showLibrary}
+                onOpenChange={setShowLibrary}
+                chatId={selectedChatId}
+                onSelectItem={(item) => {
+                    // This will be handled by the "#" command integration in MessageInput
+                    console.log("Selected library item:", item);
+                }}
             />
         </div>
     );

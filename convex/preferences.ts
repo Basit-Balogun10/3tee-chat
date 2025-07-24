@@ -1,6 +1,108 @@
 import { v } from "convex/values";
-import { query, mutation, internalQuery } from "./_generated/server";
+import {
+    query,
+    mutation,
+    internalQuery,
+    internalMutation,
+} from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+
+// API Key Encryption Utilities - Phase C1
+const ENCRYPTION_ALGORITHM = "aes-256-gcm";
+const KEY_LENGTH = 32; // 256 bits
+const IV_LENGTH = 16; // 128 bits
+const TAG_LENGTH = 16; // 128 bits
+const SALT_LENGTH = 32; // 256 bits
+
+// Generate a key from user ID and master secret
+function deriveKey(userId: string, salt: Buffer): Buffer {
+    const crypto = require("node:crypto");
+    const masterKey =
+        process.env.ENCRYPTION_MASTER_KEY ||
+        "fallback-dev-key-not-for-production";
+    return crypto.pbkdf2Sync(
+        `${userId}:${masterKey}`,
+        salt,
+        100000,
+        KEY_LENGTH,
+        "sha256"
+    );
+}
+
+export const encryptApiKey = (apiKey: string, userId: string): string => {
+    if (!apiKey || apiKey.trim() === "") return "";
+
+    const crypto = require("node:crypto");
+
+    // Generate random salt and IV
+    const salt = crypto.randomBytes(SALT_LENGTH);
+    const iv = crypto.randomBytes(IV_LENGTH);
+
+    // Derive key from user ID and salt
+    const key = deriveKey(userId, salt);
+
+    // Create cipher
+    const cipher = crypto.createCipherGCM(ENCRYPTION_ALGORITHM, key, iv);
+    cipher.setAAD(Buffer.from(userId)); // Additional authenticated data
+
+    // Encrypt
+    let encrypted = cipher.update(apiKey, "utf8");
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+
+    // Get authentication tag
+    const tag = cipher.getAuthTag();
+
+    // Combine salt + iv + tag + encrypted data
+    const combined = Buffer.concat([salt, iv, tag, encrypted]);
+
+    return combined.toString("base64");
+};
+
+export const decryptApiKey = (encryptedKey: string, userId: string): string => {
+    if (!encryptedKey || encryptedKey.trim() === "") return "";
+
+    try {
+        const crypto = require("node:crypto");
+
+        // Parse the combined data
+        const combined = Buffer.from(encryptedKey, "base64");
+
+        if (combined.length < SALT_LENGTH + IV_LENGTH + TAG_LENGTH) {
+            throw new Error("Invalid encrypted data format");
+        }
+
+        const salt = combined.subarray(0, SALT_LENGTH);
+        const iv = combined.subarray(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
+        const tag = combined.subarray(
+            SALT_LENGTH + IV_LENGTH,
+            SALT_LENGTH + IV_LENGTH + TAG_LENGTH
+        );
+        const encrypted = combined.subarray(
+            SALT_LENGTH + IV_LENGTH + TAG_LENGTH
+        );
+
+        // Derive key
+        const key = deriveKey(userId, salt);
+
+        // Create decipher
+        const decipher = crypto.createDecipherGCM(
+            ENCRYPTION_ALGORITHM,
+            key,
+            iv
+        );
+        decipher.setAAD(Buffer.from(userId));
+        decipher.setAuthTag(tag);
+
+        // Decrypt
+        let decrypted = decipher.update(encrypted);
+        decrypted = Buffer.concat([decrypted, decipher.final()]);
+
+        return decrypted.toString("utf8");
+    } catch (error) {
+        console.error("Failed to decrypt API key:", error);
+        return ""; // Return empty string if decryption fails
+    }
+};
 
 // Internal version for use in other functions
 export const getUserPreferencesInternal = internalQuery({
@@ -27,6 +129,7 @@ export const getUserPreferencesInternal = internalQuery({
                     gemini: true,
                     deepseek: true,
                     openrouter: true,
+                    together: true, // Add Together.ai default preference
                 },
                 voiceSettings: {
                     autoPlay: false,
@@ -108,6 +211,7 @@ export const getUserPreferences = query({
                     gemini: true,
                     deepseek: true,
                     openrouter: true,
+                    together: true, // Add Together.ai default preference
                 },
                 voiceSettings: {
                     autoPlay: false,
@@ -170,9 +274,11 @@ export const updatePreferences = mutation({
         theme: v.optional(
             v.union(v.literal("light"), v.literal("dark"), v.literal("system"))
         ),
-        localFirst: v.optional(v.boolean()),
         chatTitleGeneration: v.optional(
-            v.union(v.literal("first-message"), v.literal("ai-generated"))
+            v.union(
+                v.literal("first-message"),
+                v.literal("ai-generated")
+            )
         ),
         apiKeys: v.optional(
             v.object({
@@ -181,6 +287,7 @@ export const updatePreferences = mutation({
                 gemini: v.optional(v.string()),
                 deepseek: v.optional(v.string()),
                 openrouter: v.optional(v.string()),
+                together: v.optional(v.string()), // Add Together.ai API key support
             })
         ),
         apiKeyPreferences: v.optional(
@@ -190,6 +297,7 @@ export const updatePreferences = mutation({
                 gemini: v.optional(v.boolean()),
                 deepseek: v.optional(v.boolean()),
                 openrouter: v.optional(v.boolean()),
+                together: v.optional(v.boolean()), // Add Together.ai preference support
             })
         ),
         voiceSettings: v.optional(
@@ -273,88 +381,62 @@ export const updatePreferences = mutation({
             .withIndex("by_user", (q) => q.eq("userId", userId))
             .first();
 
-        const updates = Object.fromEntries(
-            Object.entries(args).filter(([_, value]) => value !== undefined)
+        // Encrypt API keys if provided
+        const updates = { ...args };
+        if (args.apiKeys) {
+            const encryptedApiKeys: any = {};
+            for (const [provider, apiKey] of Object.entries(args.apiKeys)) {
+                if (apiKey && apiKey.trim() !== "") {
+                    encryptedApiKeys[provider] = encryptApiKey(apiKey, userId);
+                } else {
+                    encryptedApiKeys[provider] = "";
+                }
+            }
+            updates.apiKeys = encryptedApiKeys;
+        }
+
+        // Remove undefined values
+        const cleanUpdates = Object.fromEntries(
+            Object.entries(updates).filter(([_, value]) => value !== undefined)
         );
 
         if (existing) {
-            await ctx.db.patch(existing._id, updates);
+            await ctx.db.patch(existing._id, cleanUpdates);
         } else {
             await ctx.db.insert("preferences", {
                 userId,
-                ...updates,
+                ...cleanUpdates,
             });
         }
     },
 });
 
-export const getAllUserChats = query({
-    args: {},
-    handler: async (ctx) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) throw new Error("Not authenticated");
+// Function to get decrypted API keys for AI generation (internal use only)
+export const getDecryptedApiKeys = internalQuery({
+    args: { userId: v.id("users") },
+    handler: async (ctx, args) => {
+        const preferences = await ctx.db
+            .query("preferences")
+            .withIndex("by_user", (q) => q.eq("userId", args.userId))
+            .first();
 
-        const chats = await ctx.db
-            .query("chats")
-            .withIndex("by_user", (q) => q.eq("userId", userId))
-            .order("desc")
-            .collect();
-
-        return chats;
-    },
-});
-
-export const getSelectedChatsData = query({
-    args: { chatIds: v.array(v.id("chats")) },
-    handler: async (ctx, { chatIds }) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) throw new Error("Not authenticated");
-
-        const chatsData = [];
-
-        for (const chatId of chatIds) {
-            const chat = await ctx.db.get(chatId);
-            if (!chat || chat.userId !== userId) continue;
-
-            // FIX: Get messages through branches instead of old index
-            const activeBranchId = chat.activeBranchId;
-            if (!activeBranchId) {
-                chatsData.push({
-                    chat,
-                    messages: [],
-                });
-                continue;
-            }
-
-            const activeBranch = await ctx.db.get(activeBranchId);
-            if (!activeBranch) {
-                chatsData.push({
-                    chat,
-                    messages: [],
-                });
-                continue;
-            }
-
-            // Get messages from baseMessages + activeBranch.messages
-            const baseMessageIds = chat.baseMessages || [];
-            const branchMessageIds = activeBranch.messages || [];
-            const allMessageIds = [...baseMessageIds, ...branchMessageIds];
-
-            const messages = await Promise.all(
-                allMessageIds.map((messageId) => ctx.db.get(messageId))
-            );
-
-            const validMessages = messages
-                .filter((msg) => msg !== null)
-                .sort((a, b) => a.timestamp - b.timestamp);
-
-            chatsData.push({
-                chat,
-                messages: validMessages,
-            });
+        if (!preferences?.apiKeys) {
+            return {};
         }
 
-        return chatsData;
+        const decryptedKeys: any = {};
+        for (const [provider, encryptedKey] of Object.entries(
+            preferences.apiKeys
+        )) {
+            if (encryptedKey && typeof encryptedKey === "string") {
+                decryptedKeys[provider] = decryptApiKey(
+                    encryptedKey,
+                    args.userId
+                );
+            }
+        }
+
+        return decryptedKeys;
     },
 });
 

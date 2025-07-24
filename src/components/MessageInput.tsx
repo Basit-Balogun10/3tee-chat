@@ -31,10 +31,17 @@ interface MessageInputProps {
     onMessageChange: (value: string) => void;
     activeCommands: string[];
     onCommandsChange: (commands: string[]) => void;
+    // UNIFIED: Single referencedLibraryItems parameter instead of separate attachments + referencedLibraryItems
     onSendMessage: (
         content: string,
-        attachments?: any[],
-        referencedArtifacts?: string[]
+        referencedLibraryItems?: Array<{
+            type: "attachment" | "artifact" | "media";
+            id: string;
+            name: string;
+            description?: string;
+            size?: number;
+            mimeType?: string;
+        }>
     ) => Promise<void> | void;
     isLoading?: boolean;
     isStreaming?: boolean;
@@ -45,6 +52,18 @@ interface MessageInputProps {
     showMessageInput?: boolean;
     sidebarOpen?: boolean;
     chatId?: Id<"chats">;
+    onSendMultiAIMessage?: (
+        content: string,
+        models: string[],
+        referencedLibraryItems?: Array<{
+            type: "attachment" | "artifact" | "media";
+            id: string;
+            name: string;
+            description?: string;
+            size?: number;
+            mimeType?: string;
+        }>
+    ) => Promise<void> | void;
 }
 
 export function MessageInput({
@@ -62,8 +81,15 @@ export function MessageInput({
     showMessageInput = true,
     sidebarOpen,
     chatId,
+    onSendMultiAIMessage,
 }: MessageInputProps) {
-    const [attachments, setAttachments] = useState<any[]>([]);
+    const [attachments, setAttachments] = useState<Array<{
+        type: "attachment";
+        libraryId: string;
+        name: string;
+        size: number;
+        mimeType: string;
+    }>>([]);
     const [isRecording, setIsRecording] = useState(false);
     const [showCommandsPopup, setShowCommandsPopup] = useState(false);
     const [filteredCommands, setFilteredCommands] = useState<any[]>([]);
@@ -72,17 +98,26 @@ export function MessageInput({
     const [messageHistory, setMessageHistory] = useState<string[]>([]);
     const [historyIndex, setHistoryIndex] = useState(-1);
 
-    // Artifact referencing state
-    const [showArtifactsPopup, setShowArtifactsPopup] = useState(false);
-    const [filteredArtifacts, setFilteredArtifacts] = useState<any[]>([]);
-    const [selectedArtifactIndex, setSelectedArtifactIndex] = useState(0);
-    const [referencedArtifacts, setReferencedArtifacts] = useState<string[]>(
-        []
-    );
+    // State for library items and search
+    const [showLibraryPopup, setShowLibraryPopup] = useState(false);
+    const [filteredLibraryItems, setFilteredLibraryItems] = useState<any[]>([]);
+    const [selectedLibraryIndex, setSelectedLibraryIndex] = useState(0);
+
+    // UNIFIED: Single library referencing state for "#" command
+    const [referencedLibraryItems, setReferencedLibraryItems] = useState<Array<{
+        type: "attachment" | "artifact" | "media";
+        id: string;
+        name: string;
+        description?: string;
+    }>>([]);
 
     // Voice chat state
     const [showVoiceChat, setShowVoiceChat] = useState(false);
     const [voiceChatIsConnected, setVoiceChatIsConnected] = useState(false);
+
+    // Multi-AI support
+    const [isMultiAIMode, setIsMultiAIMode] = useState(false);
+    const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
     // Chat AI Settings Modal state
     const [showChatAISettings, setShowChatAISettings] = useState(false);
@@ -96,6 +131,14 @@ export function MessageInput({
             chatId ? api.artifacts.getChatArtifacts : "skip",
             chatId ? { chatId } : undefined
         ) || [];
+
+    // Get library items for # referencing - NEW
+    const librarySearchResults = useQuery(
+        api.library.searchLibraryItems,
+        showLibraryPopup && filteredLibraryItems.length === 0 
+            ? { query: "", limit: 50 } 
+            : "skip"
+    );
 
     // Get user preferences for API keys (needed for voice chat)
     const preferences = useQuery(api.preferences.getUserPreferences);
@@ -277,7 +320,7 @@ export function MessageInput({
             if (
                 content?.trim() ||
                 attachments.length > 0 ||
-                referencedArtifacts.length > 0
+                referencedLibraryItems.length > 0
             ) {
                 if (textareaRef.current?.value) {
                     textareaRef.current.value = "";
@@ -289,9 +332,31 @@ export function MessageInput({
                 ].slice(0, 50);
                 setMessageHistory(newHistory);
                 setHistoryIndex(-1);
-                void onSendMessage(content, attachments, referencedArtifacts);
+
+                // UNIFIED: Merge attachments and referencedLibraryItems into single array
+                const allReferencedItems = [
+                    // Convert attachments to library items format
+                    ...attachments.map(attachment => ({
+                        type: "attachment" as const,
+                        id: attachment.libraryId,
+                        name: attachment.name,
+                        description: `${attachment.mimeType} file`,
+                        size: attachment.size,
+                        mimeType: attachment.mimeType,
+                    })),
+                    // Add existing referenced library items
+                    ...referencedLibraryItems,
+                ];
+
+                // Handle multi-AI or regular submission
+                if (isMultiAIMode && selectedModels && selectedModels.length >= 2 && onSendMultiAIMessage) {
+                    void onSendMultiAIMessage(content || "", selectedModels, allReferencedItems);
+                } else {
+                    void onSendMessage(content || "", allReferencedItems);
+                }
+
                 setAttachments([]);
-                setReferencedArtifacts([]);
+                setReferencedLibraryItems([]);
             }
         },
         [
@@ -299,7 +364,10 @@ export function MessageInput({
             message,
             messageHistory,
             onSendMessage,
-            referencedArtifacts,
+            onSendMultiAIMessage,
+            referencedLibraryItems,
+            isMultiAIMode,
+            selectedModels,
         ]
     );
 
@@ -463,7 +531,7 @@ export function MessageInput({
     };
 
     const removeReferencedArtifact = (artifactIdToRemove: string) => {
-        setReferencedArtifacts((prev) =>
+        setReferencedLibraryItems((prev) =>
             prev.filter((id) => id !== artifactIdToRemove)
         );
         // Remove @artifact reference from message
@@ -540,6 +608,15 @@ export function MessageInput({
         return potentialQuery;
     };
 
+    const getLibraryQuery = (text: string, cursor: number): string | null => {
+        const textUpToCursor = text.substring(0, cursor);
+        const lastHashIndex = textUpToCursor.lastIndexOf("#");
+        if (lastHashIndex === -1) return null;
+        const potentialQuery = textUpToCursor.substring(lastHashIndex);
+        if (/\s/.test(potentialQuery)) return null;
+        return potentialQuery;
+    };
+
     const handleInputChange = (newValue: string, cursorPosition?: number) => {
         const finalCursorPos = cursorPosition ?? newValue.length;
         onMessageChange(newValue);
@@ -547,7 +624,7 @@ export function MessageInput({
         // Check for command query
         const commandQuery = getCommandQuery(newValue, finalCursorPos);
         if (commandQuery) {
-            setShowArtifactsPopup(false);
+            setShowLibraryPopup(false);
             setIsToolboxOpen(false);
             const availableCommands = commandsWithValidation.filter(
                 (c) => !c.isAlreadyActive
@@ -567,7 +644,7 @@ export function MessageInput({
             setShowCommandsPopup(false);
             const queryWithoutAt = artifactQuery.substring(1); // Remove @
             const availableArtifacts = chatArtifacts.filter(
-                (a) => !referencedArtifacts.includes(a.artifactId)
+                (a) => !referencedLibraryItems.includes(a.artifactId)
             );
             const filtered = availableArtifacts.filter(
                 (a) =>
@@ -578,15 +655,40 @@ export function MessageInput({
                         ?.toLowerCase()
                         .includes(queryWithoutAt.toLowerCase())
             );
-            setFilteredArtifacts(filtered.length > 0 ? filtered : []);
-            setShowArtifactsPopup(filtered.length > 0);
-            setSelectedArtifactIndex(0);
+            setFilteredLibraryItems(filtered.length > 0 ? filtered : []);
+            setShowLibraryPopup(filtered.length > 0);
+            setSelectedLibraryIndex(0);
+            return;
+        }
+
+        // Check for library query - NEW "#" COMMAND INTEGRATION
+        const libraryQuery = getLibraryQuery(newValue, finalCursorPos);
+        if (libraryQuery) {
+            setShowCommandsPopup(false);
+            setShowLibraryPopup(false);
+            const queryWithoutHash = libraryQuery.substring(1); // Remove #
+            
+            // Use proper library search instead of chatArtifacts
+            if (librarySearchResults && librarySearchResults.length > 0) {
+                const filtered = librarySearchResults.filter(item => 
+                    item.name.toLowerCase().includes(queryWithoutHash.toLowerCase()) ||
+                    item.description?.toLowerCase().includes(queryWithoutHash.toLowerCase()) ||
+                    item.tags?.some(tag => tag.toLowerCase().includes(queryWithoutHash.toLowerCase()))
+                );
+                setFilteredLibraryItems(filtered.length > 0 ? filtered : []);
+                setShowLibraryPopup(filtered.length > 0);
+                setSelectedLibraryIndex(0);
+            } else {
+                // If no library results yet, show empty state
+                setFilteredLibraryItems([]);
+                setShowLibraryPopup(false);
+            }
             return;
         }
 
         // Hide popups if no queries
         setShowCommandsPopup(false);
-        setShowArtifactsPopup(false);
+        setShowLibraryPopup(false);
     };
 
     const selectCommand = (command: string) => {
@@ -629,11 +731,33 @@ export function MessageInput({
         const textAfter = message.substring(cursorPosition);
 
         onMessageChange(`${textBefore}@${artifact.filename}${textAfter}`);
-        setReferencedArtifacts([
-            ...new Set([...referencedArtifacts, artifact.artifactId]),
+        setReferencedLibraryItems([
+            ...new Set([...referencedLibraryItems, artifact.artifactId]),
         ]);
 
-        setShowArtifactsPopup(false);
+        setShowLibraryPopup(false);
+        setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+
+    const selectLibraryItem = (item: any) => {
+        // Replace the #query with #filename and add to referenced library items
+        const query = getLibraryQuery(
+            message,
+            textareaRef.current?.selectionStart || 0
+        );
+        const cursorPosition = textareaRef.current?.selectionStart || 0;
+        const textBefore = message.substring(
+            0,
+            cursorPosition - (query?.length || 0)
+        );
+        const textAfter = message.substring(cursorPosition);
+
+        onMessageChange(`${textBefore}#${item.filename}${textAfter}`);
+        setReferencedLibraryItems([
+            ...new Set([...referencedLibraryItems, item.artifactId]),
+        ]);
+
+        setShowLibraryPopup(false);
         setTimeout(() => textareaRef.current?.focus(), 0);
     };
 
@@ -669,31 +793,31 @@ export function MessageInput({
         }
 
         // Handle artifacts popup
-        if (showArtifactsPopup && filteredArtifacts.length > 0) {
+        if (showLibraryPopup && filteredLibraryItems.length > 0) {
             if (e.key === "ArrowDown") {
                 e.preventDefault();
-                setSelectedArtifactIndex(
-                    (i) => (i + 1) % filteredArtifacts.length
+                setSelectedLibraryIndex(
+                    (i) => (i + 1) % filteredLibraryItems.length
                 );
                 return;
             }
             if (e.key === "ArrowUp") {
                 e.preventDefault();
-                setSelectedArtifactIndex(
+                setSelectedLibraryIndex(
                     (i) =>
-                        (i - 1 + filteredArtifacts.length) %
-                        filteredArtifacts.length
+                        (i - 1 + filteredLibraryItems.length) %
+                        filteredLibraryItems.length
                 );
                 return;
             }
             if (e.key === "Enter") {
                 e.preventDefault();
-                selectArtifact(filteredArtifacts[selectedArtifactIndex]);
+                selectLibraryItem(filteredLibraryItems[selectedLibraryIndex]);
                 return;
             }
             if (e.key === "Escape") {
                 e.preventDefault();
-                setShowArtifactsPopup(false);
+                setShowLibraryPopup(false);
                 return;
             }
         }
@@ -841,51 +965,51 @@ export function MessageInput({
                 </div>
             )}
 
-            {/* Artifacts Popup */}
-            {showArtifactsPopup && filteredArtifacts.length > 0 && (
-                <div className="absolute bottom-full mb-2 left-4 right-4 bg-gray-900/95 backdrop-blur-md border border-blue-600/30 rounded-lg p-3 shadow-xl z-[60]">
+            {/* Library Popup - NEW "#" COMMAND INTEGRATION */}
+            {showLibraryPopup && filteredLibraryItems.length > 0 && (
+                <div className="absolute bottom-full mb-2 left-4 right-4 bg-gray-900/95 backdrop-blur-md border border-green-600/30 rounded-lg p-3 shadow-xl z-[60]">
                     <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-medium text-blue-100">
-                            Available Artifacts
+                        <h4 className="text-sm font-medium text-green-100">
+                            Available Library Items
                         </h4>
                         <button
-                            onClick={() => setShowArtifactsPopup(false)}
-                            className="p-1 rounded hover:bg-blue-600/20 transition-colors text-blue-400 hover:text-blue-300"
+                            onClick={() => setShowLibraryPopup(false)}
+                            className="p-1 rounded hover:bg-green-600/20 transition-colors text-green-400 hover:text-green-300"
                             title="Close"
                         >
                             <X className="w-5 h-5" />
                         </button>
                     </div>
                     <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {filteredArtifacts.map((artifact, index) => (
+                        {filteredLibraryItems.map((item, index) => (
                             <button
-                                key={artifact.artifactId}
-                                onClick={() => selectArtifact(artifact)}
-                                className={`w-full flex items-start gap-3 p-2 rounded text-left transition-colors ${index === selectedArtifactIndex ? "bg-blue-600/30" : "hover:bg-blue-600/20"}`}
+                                key={item.artifactId}
+                                onClick={() => selectLibraryItem(item)}
+                                className={`w-full flex items-start gap-3 p-2 rounded text-left transition-colors ${index === selectedLibraryIndex ? "bg-green-600/30" : "hover:bg-green-600/20"}`}
                             >
-                                <div className="text-blue-400 mt-0.5">
+                                <div className="text-green-400 mt-0.5">
                                     <FileText className="w-4 h-4" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <div className="text-blue-100 font-medium font-mono text-sm truncate">
-                                        @{artifact.filename}
+                                    <div className="text-green-100 font-medium font-mono text-sm truncate">
+                                        #{item.filename}
                                     </div>
-                                    <div className="text-xs text-blue-300 line-clamp-2">
-                                        {artifact.description ||
-                                            `${artifact.language} file`}
+                                    <div className="text-xs text-green-300 line-clamp-2">
+                                        {item.description ||
+                                            `${item.language} file`}
                                     </div>
-                                    <div className="text-xs text-blue-400 mt-1">
+                                    <div className="text-xs text-green-400 mt-1">
                                         Created{" "}
                                         {new Date(
-                                            artifact.createdAt
+                                            item.createdAt
                                         ).toLocaleDateString()}
                                     </div>
                                 </div>
                             </button>
                         ))}
                     </div>
-                    <div className="mt-2 pt-2 border-t border-blue-600/20">
-                        <div className="text-xs text-blue-400">
+                    <div className="mt-2 pt-2 border-t border-green-600/20">
+                        <div className="text-xs text-green-400">
                             ↑↓ to navigate • Enter to select • Esc to close
                         </div>
                     </div>
@@ -896,12 +1020,43 @@ export function MessageInput({
                 <div className="relative border border-purple-600/20 rounded-xl bg-black/20 backdrop-blur-md p-3 focus-within:border-purple-500 transition-colors">
                     <div className="flex items-center justify-between mb-3 pb-3 border-b border-purple-600/20">
                         <div className="flex items-center gap-2 flex-wrap">
-                            <ModelSelector
-                                selectedModel={selectedModel}
-                                onModelChange={(model) =>
-                                    void onModelChange(model)
-                                }
-                            />
+                            {/* Multi-AI Mode Toggle */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    // Toggle multi-AI mode via parent component
+                                    const event = new CustomEvent("toggleMultiAI");
+                                    document.dispatchEvent(event);
+                                }}
+                                className={`h-6 px-2 text-xs transition-colors duration-200 rounded flex items-center gap-1 ${
+                                    isMultiAIMode
+                                        ? "bg-green-600/20 text-green-300 border border-green-500/30"
+                                        : "bg-purple-600/20 text-purple-300 hover:bg-purple-600/30"
+                                }`}
+                                title={isMultiAIMode ? "Multi-AI mode active" : "Enable Multi-AI mode"}
+                            >
+                                <Zap className="w-3 h-3" />
+                                {isMultiAIMode ? "Multi-AI" : "Single"}
+                            </button>
+
+                            {/* Model Selector */}
+                            {isMultiAIMode ? (
+                                <ModelSelector
+                                    selectedModel={selectedModel}
+                                    onModelChange={(model) => void onModelChange(model)}
+                                    context="multi-ai"
+                                    multiSelect={true}
+                                    selectedModels={selectedModels || []}
+                                    onModelsChange={setSelectedModels}
+                                    maxSelections={8}
+                                />
+                            ) : (
+                                <ModelSelector
+                                    selectedModel={selectedModel}
+                                    onModelChange={(model) => void onModelChange(model)}
+                                />
+                            )}
+
                             <Button
                                 type="button"
                                 variant="ghost"
@@ -920,6 +1075,7 @@ export function MessageInput({
                                 <Cpu className="w-3 h-3 mr-1" />
                                 Tools
                             </Button>
+                            
                             {/* Active Commands */}
                             {activeCommands.map((cmdString) => {
                                 const command = commands.find(
@@ -949,29 +1105,29 @@ export function MessageInput({
                                     </div>
                                 );
                             })}
-                            {/* Referenced Artifacts */}
-                            {referencedArtifacts.map((artifactId) => {
-                                const artifact = chatArtifacts.find(
-                                    (a) => a.artifactId === artifactId
+                            {/* Referenced Library Items - NEW "#" COMMAND INTEGRATION */}
+                            {referencedLibraryItems.map((itemId) => {
+                                const item = chatArtifacts.find(
+                                    (a) => a.artifactId === itemId
                                 );
-                                if (!artifact) return null;
+                                if (!item) return null;
                                 return (
                                     <div
-                                        key={artifactId}
-                                        className="flex items-center h-6 px-2 text-xs bg-transparent border border-blue-500/30 rounded-md text-blue-300"
+                                        key={itemId}
+                                        className="flex items-center h-6 px-2 text-xs bg-transparent border border-green-500/30 rounded-md text-green-300"
                                     >
-                                        <span className="text-blue-400 mr-1.5">
+                                        <span className="text-green-400 mr-1.5">
                                             <FileText className="w-3 h-3" />
                                         </span>
-                                        @{artifact.filename}
+                                        #{item.filename}
                                         <button
                                             type="button"
                                             onClick={() =>
                                                 removeReferencedArtifact(
-                                                    artifactId
+                                                    itemId
                                                 )
                                             }
-                                            className="ml-1.5 -mr-0.5 text-blue-400 hover:text-red-400"
+                                            className="ml-1.5 -mr-0.5 text-green-400 hover:text-red-400"
                                         >
                                             <X className="w-3 h-3" />
                                         </button>
@@ -1002,6 +1158,17 @@ export function MessageInput({
                                             @
                                         </kbd>{" "}
                                         <span>for artifacts</span>
+                                    </span>
+                                </>
+                            )}
+                            {chatArtifacts.length > 0 && (
+                                <>
+                                    <span className="text-purple-500">•</span>
+                                    <span className="flex items-center gap-1">
+                                        <kbd className="px-1.5 py-0.5 bg-green-600/20 border border-green-500/30 rounded">
+                                            #
+                                        </kbd>{" "}
+                                        <span>for libraries</span>
                                     </span>
                                 </>
                             )}
@@ -1180,7 +1347,7 @@ export function MessageInput({
                                         (!message.trim() &&
                                             attachments.length === 0 &&
                                             activeCommands.length === 0 &&
-                                            referencedArtifacts.length === 0)
+                                            referencedLibraryItems.length === 0)
                                     }
                                     size="sm"
                                     className="h-8 w-8 p-0 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 transition-all"

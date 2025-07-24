@@ -1,0 +1,114 @@
+----- IN PROGRESS ------
+⏳ Fix internal branching (editing messages)
+✅ Fix retry functionality
+
+-------- BUGS --------
+⏳ Switching/navigating chats flicker
+⏳ Stop streaming messages
+⏳ Optimizing app speed/performance
+
+==== IMPLEMENTATION PHASES ====
+
+--- PHASE 1: Foundation & Core Enhancements (Build on existing functionality) ---
+🔧 Message deep links ("in progress" in T3 Chat)
+🔧 Review message deletion functionality + enhance with "delete all from here" feature
+🔧 Editing AI messages (just like in Google AI Studio) https://feedback.t3.chat/p/allow-editing-of-ai-messages
+🔧 Line numbers in code blocks
+🔧 Include model context window in model capabilities filter
+
+--- PHASE 2: Chat Lifecycle Management (Extend chat management capabilities) ---
+🔧 Archiving chats (placed in its own section on the sidebar just like starred, shared etc...)
+🔧 Temporary chats (keyboard shortcut, default type for new chats in settings, lifespan with 24hrs default, ability to save later and become a normal/permanent chat)
+🔧 Chat auto-deletion (configurable in settings, default 30 days if active)
+🔧 Chat auto-archiving (configurable in settings, default 30 days if active)
+🔧 Notification/optional sound when model replies (customizable in settings whether to only play when tab is not focused or disable completely)
+
+--- PHASE 3: Advanced Search & Data Management (Enhanced data operations) ---
+## ✅ **PHASE 3: ADVANCED SEARCH & DATA MANAGEMENT**
+✅ Enhanced search with advanced filtering, search across all chats and messages
+✅ Advanced search modal with filters (date range, message role, chat categories)
+✅ More export options and presets (JSON, Markdown, CSV, TXT, PDF, DOCX)
+✅ DOCX export format (backend complete, frontend integration ready)
+✅ Keyboard shortcuts for advanced search (Ctrl+Shift+F)
+
+--- PHASE 4: AI & Personalization Features (Advanced AI capabilities) ---
+## ✅ **PHASE 4: AI & PERSONALIZATION FEATURES**
+✅ Advanced AI settings (temperature, system prompt, response modes, etc.)
+✅ Response modes (balanced, concise, detailed, creative, analytical, friendly, professional)
+✅ 1-Click prompt enhancement with keyboard shortcut (Ctrl+Shift+E)
+✅ User personalization through comprehensive AI settings
+✅ Per-chat AI settings modal with keyboard shortcut (Ctrl+Shift+A)
+✅ AI settings integration with generation logic
+✅ 1-Click prompt enhancement button in MessageInput (when enabled in settings)
+✅ Chat AI Settings button in MessageInput
+✅ Keyboard shortcuts for notification features (Ctrl+Shift+N, Ctrl+Shift+V)
+
+## ✅ **PHASE 3 & 4 INTEGRATION COMPLETE**
+✅ All backend functionality implemented and tested
+✅ All keyboard shortcuts integrated and functional
+✅ All UI components created and connected
+✅ AI settings automatically applied to all generations
+✅ Per-chat vs global AI settings toggle working
+✅ Advanced search with full filtering capabilities
+✅ Export system ready with all formats including DOCX structure
+
+--- PHASE 5: Import/Export & Interoperability (External integrations) ---
+⏳ Import chats from external sources (ChatGPT, Claude etc) through shared chat URLs or exported files (JSON, Markdown, HTML, PDF, DOCX etc)
+⏳ Custom GPTs https://feedback.t3.chat/p/custom-gpts + https://chatgpt.com/share/686093a9-0604-8012-8006-18c365178866 (maybe related to thiss: https://feedback.t3.chat/p/community-prompt-library-and-discovery)
+
+--- PHASE 6: Advanced UI & Security (Complex UI features & security) ---
+✅ Password-protected chats
+    ✅ Password protection backend (set/verify/remove mutations)
+    ✅ PasswordProtectionModal component (set/verify/remove modes)
+    ✅ PasswordGateway component for chat navigation verification
+    ✅ Protected chats section in sidebar with visual indicators
+    ✅ ShareMenu integration with password protection options
+    ✅ Visual indicators for protected (🔒), shared (🔗), and temporary (⏱️) chats
+    ✅ Session-based password verification (30-minute timeout)
+    ✅ Default password settings in preferences (schema ready, UI integration needed)
+    ✅ Password change/reset functionality for default passwords
+✅ User's API key encryption (and proper decryption when needed for use)
+
+✅ Split / Multi chat with AI models (even further with 3-4 chats in a single UI and custom/draggable layouts) https://feedback.t3.chat/p/split-multi-chat-with-ai-models. Should also include comparison mode where the same message is sent to each models opened in each layout for comparison sake. Inspo for split/multi chat: https://x.com/tdinh_me/status/1908862132420219182 and https://ai-sdk.dev/playground
+✅ Remote sign out: A feature that allows you to sign out of your account on other devices that were recently used to sign in to t3 chat
+✅ Keyboard shortcuts deactivation (individual shortcuts, by category like General/Chat Management/etc, or entirely disable)
+    
+⏳ Custom themes: Users can customize app main colors/background colors, themes, with optional support for gradients, or whether they want plain colors only, whether they want the floating orbs like we currently do in App.tsx, ability to customize the shape of orbs, color of orbs (with provided presets as well to choose from). Users can also customize the theme to use in code blocks from react-syntax-highlighter (default being used in MarkdownRenderer.tsx is "oneDark")
+⏳ Custom font: Users can customize app global font, or font for code blocks or strings
+⏳ Localization (i18n)
+
+--- PHASE 7: Analytics & Advanced Features (Analytics & complex features) ---
+⏳ T3 Chat Wrapped/Stats (like Spotify wrapped) https://feedback.t3.chat/p/t3-chat-wrappedstats
+
+--- OTHERS ---
+⏳ Latex formatting support for rendered messages in MessageList/MultiAIResponseCarousel
+⏳ Using Vercel's AI SDK and fixing the following: 
+    ⏳ Fix attachments, artifacts, image and video gen
+    ⏳ Allow adding/removing attachments while editing messages (Current "in progress" in T3 Chat though)
+    ⏳ Artifacts & Attachment management for previously uploaded attachments to chats and Media Library for AI-generated media from chats. Ability to reference attachments/artifacts/media from library in any chat (while typing in MessageInput) using "#" command
+    ⏳ Some crazy/advanced media library search and filter! Searching anything! And being able to filter by anything (chats, projects and so on!)
+
+- More info on Attachments/artifacts/media management from users concerns:
+(1) I have a bunch of attachments that I have to recall in different chats, every new chat I create I have to “upload” them again.
+
+As you already have all the attachments saved on “https://t3.chat/settings/attachments”, I think it would be useful to mirror it into an “Attachments library” on the main interface where I can favorite and select what attachments (That I already uploaded to the site) I want to include on the context window of the selected chat.
+
+If you add the option to manage the “active attachments” in a given chat it could be very useful.
+
+examples:
+
+- Removing an attachment that was previously uploaded
+- Replacing an attachment for an updated version (instead of  having to insert a duplicate)
+- Just selecting already uploaded attachments…
+
+It would help a lot on my academic and copywriting workflow
+
+PS: By removing, replacing and selecting I mean to include/exclude it from the context window of the chat that is opened.
+
+(2) I would also suggest that attachments have a reference to the chat they were used, or vice-versa. 
+
+This way we could easily navigate to the chats that attachment was used. It would also make it easier to track which attachments are no longer linked to any chat and are safe to delete. Along with that you would, when deleting an attachment you would be aware of what chats will be impacted and would also be nice to be able to delete these chats as well.
+
+--- NEW -----
+- "@" mentions should be used to tag/mention custom GPTs/plugings/agents, we can resort to using # for referencing artifacts (inspo from https://www.typingmind.com/)
+- Users being able to define tool calls, stored in their settings and able to mention or tag them the way they do for the GPTs/plugins (maybe there's some overlap here)

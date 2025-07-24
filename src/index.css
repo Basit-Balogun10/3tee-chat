@@ -1,4 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+@import "katex/dist/katex.min.css";
 
 @tailwind base;
 @tailwind components;
@@ -199,7 +200,6 @@ html.dark *::-webkit-scrollbar-thumb:hover {
 .gradient-text {
     @apply bg-gradient-to-r from-purple-600 via-purple-500 to-indigo-600 bg-clip-text text-transparent;
 }
-
 
 /* Message animations */
 @keyframes fadeInUp {
@@ -435,4 +435,55 @@ html.dark *::-webkit-scrollbar-thumb:hover {
     cursor: pointer;
     border: none;
     box-shadow: 0 0 2px 0 #000;
+}
+
+/* KaTeX LaTeX Styling for Dark Theme */
+.katex {
+    font-size: 1.1em !important;
+    color: rgb(196 181 253) !important; /* purple-200 */
+}
+
+.katex .base {
+    color: inherit !important;
+}
+
+.katex .mord,
+.katex .mop,
+.katex .mrel,
+.katex .mbin,
+.katex .mpunct,
+.katex .minner {
+    color: inherit !important;
+}
+
+/* Display math (block) styling */
+.katex-display {
+    @apply my-4 p-4 bg-purple-900/20 border border-purple-600/30 rounded-lg overflow-x-auto;
+}
+
+.katex-display .katex {
+    font-size: 1.2em !important;
+    color: rgb(221 214 254) !important; /* purple-100 */
+}
+
+/* Inline math styling */
+.katex-inline {
+    @apply bg-purple-600/20 px-1.5 py-0.5 rounded;
+}
+
+/* Light theme LaTeX styling */
+.light .katex {
+    color: rgb(88 28 135) !important; /* purple-900 */
+}
+
+.light .katex-display {
+    @apply bg-purple-100/60 border-purple-300/50;
+}
+
+.light .katex-display .katex {
+    color: rgb(59 7 100) !important; /* purple-950 */
+}
+
+.light .katex-inline {
+    @apply bg-purple-200/60;
 }
