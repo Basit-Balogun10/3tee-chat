@@ -4,6 +4,8 @@
 
 - We are using Convex. We hav complete "Guidelines and best practices for building Convex projects, including database schema design, queries, mutations, and real-world examples" available in the file `convex_rules.mdc`. Feel free to look it up anytime you are unsure of what to do or how to do something in Convex. It can also come in handy when fixing convex backend errors
 
+- Unless stated otherwise, It's preferable and highly desirable you making all of your changes to a file at a time/at a go than going back and forth on the same file
+
 - Always ADHERE STRICTLY to our existing design system, theme, color, layouts and standards, UNLESS stated otherwise!
 
 - Always ADHERE STRICTLY to existing implementation patterns and standards for consistency sake!

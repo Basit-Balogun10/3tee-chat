@@ -167,6 +167,19 @@ const applicationTables = {
                     timestamp: v.number(),
                     isActive: v.boolean(),
                     metadata: v.optional(v.any()),
+                    // Add response metadata to versions as well
+                    responseMetadata: v.optional(v.object({
+                        usage: v.optional(v.object({
+                            promptTokens: v.optional(v.number()),
+                            completionTokens: v.optional(v.number()),
+                            totalTokens: v.optional(v.number()),
+                        })),
+                        finishReason: v.optional(v.string()),
+                        responseTime: v.optional(v.number()), // in milliseconds
+                        model: v.optional(v.string()),
+                        provider: v.optional(v.string()),
+                        requestId: v.optional(v.string()),
+                    })),
                 })
             )
         ),
@@ -183,24 +196,35 @@ const applicationTables = {
         attachments: v.optional(
             v.array(
                 v.object({
-                    // FIXED: Update to support library-based attachments
                     type: v.union(
-                        v.literal("attachment"), // From attachmentLibrary
-                        v.literal("legacy") // Legacy direct storage format
+                        v.literal("image"),
+                        v.literal("pdf"),
+                        v.literal("file"),
+                        v.literal("audio"),
+                        v.literal("video")
                     ),
-                    // For library-based attachments
-                    libraryId: v.optional(v.id("attachmentLibrary")),
-                    // For legacy attachments (backwards compatibility)
-                    storageId: v.optional(v.id("_storage")),
+                    storageId: v.id("_storage"),
                     name: v.string(),
                     size: v.number(),
+                })
+            )
+        ),
+        referencedLibraryItems: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("attachment"),
+                        v.literal("artifact"),
+                        v.literal("media")
+                    ),
+                    id: v.string(), // Library ID or artifact ID
+                    name: v.string(),
+                    description: v.optional(v.string()),
+                    size: v.optional(v.number()),
                     mimeType: v.optional(v.string()),
                 })
             )
         ),
-        // Canvas/Artifact support - REMOVED top-level artifacts field
-        // Use referencedArtifacts for IDs, and artifacts will be populated automatically via queries
-        referencedArtifacts: v.optional(v.array(v.string())), // Array of artifact IDs referenced in this message
         metadata: v.optional(
             v.object({
                 // Updated citation schema - removed searchResults and added citations
@@ -247,11 +271,37 @@ const applicationTables = {
                                 isPrimary: v.boolean(), // Whether this is the selected primary response
                                 isDeleted: v.optional(v.boolean()), // Whether user deleted this response
                                 metadata: v.optional(v.any()), // Model-specific metadata
+                                // Add response metadata to multi-AI responses
+                                responseMetadata: v.optional(v.object({
+                                    usage: v.optional(v.object({
+                                        promptTokens: v.optional(v.number()),
+                                        completionTokens: v.optional(v.number()),
+                                        totalTokens: v.optional(v.number()),
+                                    })),
+                                    finishReason: v.optional(v.string()),
+                                    responseTime: v.optional(v.number()), // in milliseconds
+                                    model: v.optional(v.string()),
+                                    provider: v.optional(v.string()),
+                                    requestId: v.optional(v.string()),
+                                })),
                             })
                         ),
                         primaryResponseId: v.optional(v.string()), // ID of the currently selected primary response
                     })
                 ),
+                // Add response metadata tracking at the message level
+                responseMetadata: v.optional(v.object({
+                    usage: v.optional(v.object({
+                        promptTokens: v.optional(v.number()),
+                        completionTokens: v.optional(v.number()),
+                        totalTokens: v.optional(v.number()),
+                    })),
+                    finishReason: v.optional(v.string()),
+                    responseTime: v.optional(v.number()), // in milliseconds
+                    model: v.optional(v.string()),
+                    provider: v.optional(v.string()),
+                    requestId: v.optional(v.string()),
+                })),
             })
         ),
         // Simple collaboration tracking - just track who contributed
@@ -611,6 +661,22 @@ const applicationTables = {
                             })
                         ),
 
+                        // Attachment Management (When Hovering over Attachments)
+                        removeAttachment: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+                        replaceAttachment: v.optional(
+                            v.object({
+                                value: v.string(),
+                                category: v.string(),
+                                isDisabled: v.optional(v.boolean()),
+                            })
+                        ),
+
                         // Phase 3 & 4 shortcuts
                         advancedSearch: v.optional(
                             v.object({
@@ -767,7 +833,7 @@ const applicationTables = {
         // LIBRARY MANAGEMENT - New fields for library functionality
         isFavorited: v.optional(v.boolean()), // User can favorite artifacts
         tags: v.optional(v.array(v.string())), // User-defined tags
-        
+
         // Usage tracking for library
         referencedInChats: v.optional(v.array(v.id("chats"))), // Which chats reference this artifact
         lastReferencedAt: v.optional(v.number()),
@@ -779,7 +845,6 @@ const applicationTables = {
 
         // Usage tracking for caching decisions
         usageCount: v.optional(v.number()),
-        lastReferencedAt: v.optional(v.number()),
     })
         .index("by_message", ["messageId"])
         .index("by_chat", ["chatId"])
@@ -810,30 +875,34 @@ const applicationTables = {
         size: v.number(),
         createdAt: v.number(),
         updatedAt: v.number(),
-        
+
         // Library management
         isFavorited: v.optional(v.boolean()),
         tags: v.optional(v.array(v.string())),
         description: v.optional(v.string()),
-        
+
         // Usage tracking
         usedInChats: v.optional(v.array(v.id("chats"))), // Which chats use this attachment
         usageCount: v.optional(v.number()),
         lastUsedAt: v.optional(v.number()),
-        
+
         // Metadata extracted from file
-        metadata: v.optional(v.object({
-            // Image metadata
-            dimensions: v.optional(v.object({
-                width: v.number(),
-                height: v.number(),
-            })),
-            // Audio/Video metadata
-            duration: v.optional(v.number()),
-            // Document metadata
-            pageCount: v.optional(v.number()),
-            wordCount: v.optional(v.number()),
-        })),
+        metadata: v.optional(
+            v.object({
+                // Image metadata
+                dimensions: v.optional(
+                    v.object({
+                        width: v.number(),
+                        height: v.number(),
+                    })
+                ),
+                // Audio/Video metadata
+                duration: v.optional(v.number()),
+                // Document metadata
+                pageCount: v.optional(v.number()),
+                wordCount: v.optional(v.number()),
+            })
+        ),
     })
         .index("by_user", ["userId"])
         .index("by_user_favorited", ["userId", "isFavorited"])
@@ -853,48 +922,52 @@ const applicationTables = {
         ),
         sourceMessageId: v.optional(v.id("messages")), // Message that generated this media
         sourceChatId: v.optional(v.id("chats")), // Chat where this was generated
-        
+
         // Storage references
         storageId: v.optional(v.id("_storage")), // For uploaded/downloaded media
         externalUrl: v.optional(v.string()), // For externally hosted media
         thumbnailStorageId: v.optional(v.id("_storage")), // Thumbnail storage
         thumbnailUrl: v.optional(v.string()), // External thumbnail URL
-        
+
         // Generation metadata
         prompt: v.optional(v.string()), // Original generation prompt
         model: v.optional(v.string()), // Model used to generate
         generationParams: v.optional(v.any()), // Parameters used for generation
-        
+
         // Basic info
         title: v.string(), // User-defined or auto-generated title
         description: v.optional(v.string()),
         createdAt: v.number(),
         updatedAt: v.number(),
-        
+
         // Library management
         isFavorited: v.optional(v.boolean()),
         tags: v.optional(v.array(v.string())),
-        
+
         // Usage tracking
         referencedInChats: v.optional(v.array(v.id("chats"))),
         referenceCount: v.optional(v.number()),
         lastReferencedAt: v.optional(v.number()),
-        
+
         // Media metadata
-        metadata: v.optional(v.object({
-            // Image metadata
-            dimensions: v.optional(v.object({
-                width: v.number(),
-                height: v.number(),
-            })),
-            // Video metadata
-            duration: v.optional(v.number()),
-            resolution: v.optional(v.string()),
-            aspectRatio: v.optional(v.string()),
-            // Audio metadata
-            sampleRate: v.optional(v.number()),
-            channels: v.optional(v.number()),
-        })),
+        metadata: v.optional(
+            v.object({
+                // Image metadata
+                dimensions: v.optional(
+                    v.object({
+                        width: v.number(),
+                        height: v.number(),
+                    })
+                ),
+                // Video metadata
+                duration: v.optional(v.number()),
+                resolution: v.optional(v.string()),
+                aspectRatio: v.optional(v.string()),
+                // Audio metadata
+                sampleRate: v.optional(v.number()),
+                channels: v.optional(v.number()),
+            })
+        ),
     })
         .index("by_user", ["userId"])
         .index("by_user_type", ["userId", "type"])
@@ -903,50 +976,6 @@ const applicationTables = {
         .index("by_source_message", ["sourceMessageId"])
         .index("by_source_chat", ["sourceChatId"])
         .index("by_reference_count", ["referenceCount"]),
-
-    // NEW: Chat Active Attachments table for managing per-chat attachment context
-    chatActiveAttachments: defineTable({
-        chatId: v.id("chats"),
-        userId: v.id("users"),
-        
-        // Attachment references (exactly one should be set)
-        attachmentLibraryId: v.optional(v.id("attachmentLibrary")),
-        artifactId: v.optional(v.string()), // Reference to artifact by artifactId
-        mediaLibraryId: v.optional(v.id("mediaLibrary")),
-        
-        // Attachment metadata for quick access
-        type: v.union(
-            v.literal("attachment"),
-            v.literal("artifact"),
-            v.literal("media")
-        ),
-        name: v.string(), // Display name
-        
-        // Context management
-        isActive: v.boolean(), // Whether included in current chat context
-        addedAt: v.number(),
-        lastUsedAt: v.optional(v.number()),
-        
-        // Ordering for UI
-        order: v.optional(v.number()), // User can reorder active attachments
-    })
-        .index("by_chat", ["chatId"])
-        .index("by_chat_active", ["chatId", "isActive"])
-        .index("by_user", ["userId"])
-        .index("by_attachment_library", ["attachmentLibraryId"])
-        .index("by_artifact", ["artifactId"])
-        .index("by_media_library", ["mediaLibraryId"]),
-
-    // NEW: Usage Tracking table for monitoring usage patterns of various features
-    usageTracking: defineTable({
-        userId: v.id("users"),
-        feature: v.string(), // Name of the feature used
-        timestamp: v.number(), // When the feature was used
-        metadata: v.optional(v.object()), // Additional metadata about the usage
-    })
-        .index("by_user", ["userId"])
-        .index("by_feature", ["feature"])
-        .index("by_timestamp", ["timestamp"]),
 };
 
 export default defineSchema({

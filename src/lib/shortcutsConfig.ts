@@ -322,6 +322,22 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig[] = [
         isEditable: true,
     },
 
+    // Attachment Management (When Hovering over Attachments)
+    {
+        id: "removeAttachment",
+        defaultKey: "R",
+        action: "Remove attachment (when hovering over attachments)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+    {
+        id: "replaceAttachment",
+        defaultKey: "Shift + R",
+        action: "Replace attachment (when hovering over attachments)",
+        category: "Message Actions (When Hovering)",
+        isEditable: true,
+    },
+
     // Multi-AI Response Actions (When Hovering over Multi-AI Cards)
     {
         id: "pickPrimaryResponse",

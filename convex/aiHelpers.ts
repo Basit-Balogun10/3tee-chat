@@ -1,5 +1,60 @@
 import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
+
+// Get combined AI settings (per-chat + global preferences)
+export const getCombinedAISettings = internalQuery({
+    args: { 
+        chatId: v.id("chats"),
+        userId: v.id("users")
+    },
+    handler: async (ctx, args) => {
+        const chat = await ctx.db.get(args.chatId);
+        const preferences = await ctx.runQuery(internal.preferences.getUserPreferencesInternal, {
+            userId: args.userId
+        });
+
+        // Default AI settings
+        const defaultSettings = {
+            temperature: 0.7,
+            maxTokens: undefined,
+            topP: 0.9,
+            frequencyPenalty: 0,
+            presencePenalty: 0,
+            systemPrompt: "",
+            responseMode: "balanced" as const,
+            promptEnhancement: false,
+        };
+
+        // Merge global preferences with defaults
+        const globalSettings = {
+            ...defaultSettings,
+            ...(preferences?.aiSettings || {}),
+        };
+
+        // Per-chat settings override global settings
+        const finalSettings = {
+            ...globalSettings,
+            ...(chat?.aiSettings || {}),
+        };
+
+        console.log("🎯 COMBINED AI SETTINGS:", {
+            chatId: args.chatId,
+            userId: args.userId,
+            hasPerChatSettings: !!chat?.aiSettings,
+            hasGlobalSettings: !!preferences?.aiSettings,
+            finalSettings: {
+                temperature: finalSettings.temperature,
+                maxTokens: finalSettings.maxTokens,
+                topP: finalSettings.topP,
+                systemPrompt: finalSettings.systemPrompt ? "SET" : "NONE",
+            },
+            timestamp: new Date().toISOString(),
+        });
+
+        return finalSettings;
+    },
+});
 
 export const getChatHistory = internalQuery({
     args: { 
@@ -65,6 +120,19 @@ export const updateMessageContent = internalMutation({
         content: v.optional(v.string()),
         metadata: v.optional(v.any()),
         isStreaming: v.optional(v.boolean()),
+        // Add response metadata tracking
+        responseMetadata: v.optional(v.object({
+            usage: v.optional(v.object({
+                promptTokens: v.optional(v.number()),
+                completionTokens: v.optional(v.number()),
+                totalTokens: v.optional(v.number()),
+            })),
+            finishReason: v.optional(v.string()),
+            responseTime: v.optional(v.number()), // in milliseconds
+            model: v.optional(v.string()),
+            provider: v.optional(v.string()),
+            requestId: v.optional(v.string()),
+        })),
     },
     handler: async (ctx, args) => {
         const message = await ctx.db.get(args.messageId);
@@ -73,9 +141,33 @@ export const updateMessageContent = internalMutation({
         const updates: any = {};
 
         if (args.content !== undefined) updates.content = args.content;
-        if (args.metadata !== undefined) updates.metadata = args.metadata;
-        if (args.isStreaming !== undefined)
-            updates.isStreaming = args.isStreaming;
+        if (args.isStreaming !== undefined) updates.isStreaming = args.isStreaming;
+        
+        // Enhanced metadata handling with response tracking
+        if (args.metadata !== undefined || args.responseMetadata !== undefined) {
+            const existingMetadata = message.metadata || {};
+            const newMetadata = {
+                ...existingMetadata,
+                ...(args.metadata || {}),
+            };
+
+            // Add response metadata if provided
+            if (args.responseMetadata) {
+                newMetadata.responseMetadata = args.responseMetadata;
+                
+                console.log("📊 RESPONSE METADATA TRACKED:", {
+                    messageId: args.messageId,
+                    usage: args.responseMetadata.usage,
+                    responseTime: args.responseMetadata.responseTime,
+                    model: args.responseMetadata.model,
+                    provider: args.responseMetadata.provider,
+                    finishReason: args.responseMetadata.finishReason,
+                    timestamp: new Date().toISOString(),
+                });
+            }
+
+            updates.metadata = newMetadata;
+        }
 
         // ENHANCED FIX: Always update the active version's content when content is updated
         if (
@@ -97,6 +189,13 @@ export const updateMessageContent = internalMutation({
                     return {
                         ...v,
                         content: args.content, // Update the active version's content
+                        // Update metadata if provided
+                        ...(args.responseMetadata && { 
+                            metadata: {
+                                ...v.metadata,
+                                responseMetadata: args.responseMetadata 
+                            }
+                        }),
                     };
                 }
                 return v;

@@ -1,30 +1,16 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-} from "./ui/dialog";
-import {
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-} from "./ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import {
     Search,
     Star,
     StarOff,
-    Filter,
     Grid,
     List,
-    Download,
     Trash2,
-    Edit3,
-    Tag,
     FileText,
     Image,
     Video,
@@ -32,21 +18,12 @@ import {
     File,
     Code,
     Plus,
-    Settings,
     Heart,
-    Clock,
     TrendingUp,
-    Archive,
-    RefreshCw,
-    Eye,
-    Copy,
-    ExternalLink,
-    Zap,
 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Badge } from "./ui/badge";
-import { Checkbox } from "./ui/checkbox";
 import { toast } from "sonner";
 import { cn } from "../lib/utils";
 
@@ -56,6 +33,13 @@ interface LibraryModalProps {
     onSelectItem?: (item: any) => void;
     chatId?: Id<"chats">;
     initialTab?: "attachments" | "artifacts" | "media";
+    // Custom actions for specialized use cases (like attachment replacement)
+    customActions?: Array<{
+        label: string;
+        icon: React.ReactNode;
+        onClick: () => void;
+        variant?: "default" | "outline" | "ghost";
+    }>;
 }
 
 interface LibraryItem {
@@ -75,11 +59,16 @@ export function LibraryModal({
     onSelectItem,
     chatId,
     initialTab = "attachments",
+    customActions,
 }: LibraryModalProps) {
-    const [activeTab, setActiveTab] = useState<"attachments" | "artifacts" | "media">(initialTab);
+    const [activeTab, setActiveTab] = useState<
+        "attachments" | "artifacts" | "media"
+    >(initialTab);
     const [searchQuery, setSearchQuery] = useState("");
     const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-    const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+    const [_selectedItems, _setSelectedItems] = useState<Set<string>>(
+        new Set()
+    );
     const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
     const [sortBy, setSortBy] = useState<"recent" | "name" | "usage">("recent");
 
@@ -105,10 +94,14 @@ export function LibraryModal({
     const libraryStats = useQuery(api.library.getLibraryStats);
 
     // Mutations
-    const updateAttachment = useMutation(api.library.updateAttachmentLibraryItem);
+    const updateAttachment = useMutation(
+        api.library.updateAttachmentLibraryItem
+    );
     const updateArtifact = useMutation(api.library.updateArtifactLibraryItem);
     const updateMedia = useMutation(api.library.updateMediaLibraryItem);
-    const deleteAttachment = useMutation(api.library.deleteAttachmentLibraryItem);
+    const deleteAttachment = useMutation(
+        api.library.deleteAttachmentLibraryItem
+    );
     const deleteMedia = useMutation(api.library.deleteMediaLibraryItem);
     const addToChatActive = useMutation(api.library.addToChatActiveAttachments);
     const trackUsage = useMutation(api.library.trackLibraryItemUsage);
@@ -131,7 +124,7 @@ export function LibraryModal({
     const handleSelectItem = async (item: LibraryItem) => {
         if (onSelectItem) {
             onSelectItem(item);
-            
+
             // Track usage if chatId is provided
             if (chatId) {
                 try {
@@ -144,38 +137,8 @@ export function LibraryModal({
                     console.error("Failed to track usage:", error);
                 }
             }
-            
+
             onOpenChange(false);
-        }
-    };
-
-    // Add to chat active attachments
-    const handleAddToChat = async (item: LibraryItem) => {
-        if (!chatId) {
-            toast.error("No chat selected");
-            return;
-        }
-
-        try {
-            const args: any = {
-                chatId,
-                type: item.type,
-                name: item.name,
-            };
-
-            if (item.type === "attachment") {
-                args.attachmentLibraryId = item.id as Id<"attachmentLibrary">;
-            } else if (item.type === "artifact") {
-                args.artifactId = item.id;
-            } else if (item.type === "media") {
-                args.mediaLibraryId = item.id as Id<"mediaLibrary">;
-            }
-
-            await addToChatActive(args);
-            toast.success(`Added ${item.name} to chat context`);
-        } catch (error) {
-            console.error("Failed to add to chat:", error);
-            toast.error("Failed to add to chat");
         }
     };
 
@@ -183,7 +146,7 @@ export function LibraryModal({
     const handleToggleFavorite = async (item: LibraryItem) => {
         try {
             const newFavoriteStatus = !item.isFavorited;
-            
+
             if (item.type === "attachment") {
                 await updateAttachment({
                     attachmentId: item.id as Id<"attachmentLibrary">,
@@ -202,8 +165,8 @@ export function LibraryModal({
             }
 
             toast.success(
-                newFavoriteStatus 
-                    ? `Added ${item.name} to favorites` 
+                newFavoriteStatus
+                    ? `Added ${item.name} to favorites`
                     : `Removed ${item.name} from favorites`
             );
         } catch (error) {
@@ -235,6 +198,24 @@ export function LibraryModal({
             console.error("Failed to delete item:", error);
             toast.error("Failed to delete item");
         }
+    };
+
+    // Add library item to message input via custom event
+    const handleAddToMessage = async (item: LibraryItem) => {
+        // Dispatch custom event that MessageInput will listen for
+        const addLibraryItemEvent = new CustomEvent("addLibraryItemToMessage", {
+            detail: {
+                type: item.type,
+                id: item.id,
+                name: item.name,
+                description: item.description,
+                size: item.size,
+                mimeType: item.mimeType,
+            },
+        });
+
+        document.dispatchEvent(addLibraryItemEvent);
+        toast.success(`Added ${item.name} to message input`);
     };
 
     // Get file type icon
@@ -295,7 +276,7 @@ export function LibraryModal({
 
     // Render library item
     const renderLibraryItem = (item: LibraryItem) => {
-        const isSelected = selectedItems.has(item.id);
+        const isSelected = _selectedItems.has(item.id);
 
         if (viewMode === "grid") {
             return (
@@ -303,7 +284,8 @@ export function LibraryModal({
                     key={item.id}
                     className={cn(
                         "group relative p-4 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-purple-300 dark:hover:border-purple-600 transition-all cursor-pointer bg-white dark:bg-gray-800",
-                        isSelected && "border-purple-500 bg-purple-50 dark:bg-purple-900/20"
+                        isSelected &&
+                            "border-purple-500 bg-purple-50 dark:bg-purple-900/20"
                     )}
                     onClick={() => handleSelectItem(item)}
                 >
@@ -321,7 +303,7 @@ export function LibraryModal({
                                 )}
                             </div>
                         </div>
-                        
+
                         <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button
                                 variant="ghost"
@@ -338,22 +320,24 @@ export function LibraryModal({
                                     <StarOff className="w-3 h-3" />
                                 )}
                             </Button>
-                            
+
                             {chatId && (
                                 <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleAddToChat(item);
+                                        handleAddToMessage(item);
                                     }}
                                     className="p-1 h-6 w-6"
+                                    title="Add to message input"
                                 >
                                     <Plus className="w-3 h-3" />
                                 </Button>
                             )}
-                            
-                            {(item.type === "attachment" || item.type === "media") && (
+
+                            {(item.type === "attachment" ||
+                                item.type === "media") && (
                                 <Button
                                     variant="ghost"
                                     size="sm"
@@ -376,7 +360,10 @@ export function LibraryModal({
                                 <span>{formatFileSize(item.size)}</span>
                             )}
                             {item.type === "artifact" && item.language && (
-                                <Badge variant="secondary" className="text-xs px-1 py-0">
+                                <Badge
+                                    variant="secondary"
+                                    className="text-xs px-1 py-0"
+                                >
                                     {item.language}
                                 </Badge>
                             )}
@@ -394,12 +381,19 @@ export function LibraryModal({
                     {item.tags && item.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-2">
                             {item.tags.slice(0, 3).map((tag) => (
-                                <Badge key={tag} variant="outline" className="text-xs px-1 py-0">
+                                <Badge
+                                    key={tag}
+                                    variant="outline"
+                                    className="text-xs px-1 py-0"
+                                >
                                     {tag}
                                 </Badge>
                             ))}
                             {item.tags.length > 3 && (
-                                <Badge variant="outline" className="text-xs px-1 py-0">
+                                <Badge
+                                    variant="outline"
+                                    className="text-xs px-1 py-0"
+                                >
                                     +{item.tags.length - 3}
                                 </Badge>
                             )}
@@ -448,7 +442,7 @@ export function LibraryModal({
                             </span>
                         )}
                         <span>{formatRelativeTime(item.lastUsed)}</span>
-                        
+
                         <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button
                                 variant="ghost"
@@ -465,16 +459,17 @@ export function LibraryModal({
                                     <StarOff className="w-3 h-3" />
                                 )}
                             </Button>
-                            
+
                             {chatId && (
                                 <Button
                                     variant="ghost"
                                     size="sm"
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        handleAddToChat(item);
+                                        handleAddToMessage(item);
                                     }}
                                     className="p-1 h-6 w-6"
+                                    title="Add to message input"
                                 >
                                     <Plus className="w-3 h-3" />
                                 </Button>
@@ -491,12 +486,14 @@ export function LibraryModal({
             <DialogContent className="max-w-6xl w-full h-[80vh] flex flex-col p-0">
                 <DialogHeader className="flex flex-row items-center justify-between p-6 pb-4 border-b border-gray-200 dark:border-gray-700">
                     <div>
-                        <DialogTitle className="text-lg font-semibold">Library</DialogTitle>
+                        <DialogTitle className="text-lg font-semibold">
+                            Library
+                        </DialogTitle>
                         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                             Manage your attachments, artifacts, and media
                         </p>
                     </div>
-                    
+
                     {libraryStats && (
                         <div className="flex items-center space-x-6 text-xs text-gray-500 dark:text-gray-400">
                             <div className="text-center">
@@ -522,32 +519,54 @@ export function LibraryModal({
                 </DialogHeader>
 
                 <div className="flex-1 flex flex-col min-h-0">
-                    <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+                    <Tabs
+                        value={activeTab}
+                        onValueChange={setActiveTab}
+                        className="flex-1 flex flex-col"
+                    >
                         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                             <TabsList className="grid w-fit grid-cols-3">
-                                <TabsTrigger value="attachments" className="flex items-center space-x-2">
+                                <TabsTrigger
+                                    value="attachments"
+                                    className="flex items-center space-x-2"
+                                >
                                     <File className="w-4 h-4" />
                                     <span>Attachments</span>
                                     {libraryStats && (
-                                        <Badge variant="secondary" className="ml-1 text-xs">
+                                        <Badge
+                                            variant="secondary"
+                                            className="ml-1 text-xs"
+                                        >
                                             {libraryStats.attachments.total}
                                         </Badge>
                                     )}
                                 </TabsTrigger>
-                                <TabsTrigger value="artifacts" className="flex items-center space-x-2">
+                                <TabsTrigger
+                                    value="artifacts"
+                                    className="flex items-center space-x-2"
+                                >
                                     <Code className="w-4 h-4" />
                                     <span>Artifacts</span>
                                     {libraryStats && (
-                                        <Badge variant="secondary" className="ml-1 text-xs">
+                                        <Badge
+                                            variant="secondary"
+                                            className="ml-1 text-xs"
+                                        >
                                             {libraryStats.artifacts.total}
                                         </Badge>
                                     )}
                                 </TabsTrigger>
-                                <TabsTrigger value="media" className="flex items-center space-x-2">
+                                <TabsTrigger
+                                    value="media"
+                                    className="flex items-center space-x-2"
+                                >
                                     <Image className="w-4 h-4" />
                                     <span>Media</span>
                                     {libraryStats && (
-                                        <Badge variant="secondary" className="ml-1 text-xs">
+                                        <Badge
+                                            variant="secondary"
+                                            className="ml-1 text-xs"
+                                        >
                                             {libraryStats.media.total}
                                         </Badge>
                                     )}
@@ -561,16 +580,26 @@ export function LibraryModal({
                                     <Input
                                         placeholder="Search library..."
                                         value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        onChange={(e) =>
+                                            setSearchQuery(e.target.value)
+                                        }
                                         className="pl-10 w-64"
                                     />
                                 </div>
 
                                 <div className="flex items-center space-x-1 border rounded-lg p-1">
                                     <Button
-                                        variant={showFavoritesOnly ? "default" : "ghost"}
+                                        variant={
+                                            showFavoritesOnly
+                                                ? "default"
+                                                : "ghost"
+                                        }
                                         size="sm"
-                                        onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                                        onClick={() =>
+                                            setShowFavoritesOnly(
+                                                !showFavoritesOnly
+                                            )
+                                        }
                                         className="p-2"
                                     >
                                         <Heart className="w-4 h-4" />
@@ -579,7 +608,9 @@ export function LibraryModal({
 
                                 <select
                                     value={sortBy}
-                                    onChange={(e) => setSortBy(e.target.value as any)}
+                                    onChange={(e) =>
+                                        setSortBy(e.target.value as any)
+                                    }
                                     className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1 text-sm bg-white dark:bg-gray-800"
                                 >
                                     <option value="recent">Recent</option>
@@ -589,7 +620,11 @@ export function LibraryModal({
 
                                 <div className="flex items-center space-x-1 border rounded-lg p-1">
                                     <Button
-                                        variant={viewMode === "grid" ? "default" : "ghost"}
+                                        variant={
+                                            viewMode === "grid"
+                                                ? "default"
+                                                : "ghost"
+                                        }
                                         size="sm"
                                         onClick={() => setViewMode("grid")}
                                         className="p-2"
@@ -597,7 +632,11 @@ export function LibraryModal({
                                         <Grid className="w-4 h-4" />
                                     </Button>
                                     <Button
-                                        variant={viewMode === "list" ? "default" : "ghost"}
+                                        variant={
+                                            viewMode === "list"
+                                                ? "default"
+                                                : "ghost"
+                                        }
                                         size="sm"
                                         onClick={() => setViewMode("list")}
                                         className="p-2"
@@ -610,36 +649,71 @@ export function LibraryModal({
 
                         {/* Tab Contents */}
                         <div className="flex-1 overflow-hidden">
-                            <TabsContent value={activeTab} className="h-full m-0 p-6 overflow-y-auto">
+                            <TabsContent
+                                value={activeTab}
+                                className="h-full m-0 p-6 overflow-y-auto"
+                            >
                                 {currentLibraryData.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center h-full text-center">
                                         <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
-                                            {activeTab === "attachments" && <File className="w-8 h-8 text-gray-400" />}
-                                            {activeTab === "artifacts" && <Code className="w-8 h-8 text-gray-400" />}
-                                            {activeTab === "media" && <Image className="w-8 h-8 text-gray-400" />}
+                                            {activeTab === "attachments" && (
+                                                <File className="w-8 h-8 text-gray-400" />
+                                            )}
+                                            {activeTab === "artifacts" && (
+                                                <Code className="w-8 h-8 text-gray-400" />
+                                            )}
+                                            {activeTab === "media" && (
+                                                <Image className="w-8 h-8 text-gray-400" />
+                                            )}
                                         </div>
                                         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
                                             No {activeTab} found
                                         </h3>
                                         <p className="text-gray-500 dark:text-gray-400 max-w-sm">
-                                            {searchQuery 
+                                            {searchQuery
                                                 ? `No ${activeTab} match your search criteria.`
-                                                : `You haven't added any ${activeTab} yet. Start by uploading files or creating content.`
-                                            }
+                                                : `You haven't added any ${activeTab} yet. Start by uploading files or creating content.`}
                                         </p>
                                     </div>
                                 ) : (
-                                    <div className={
-                                        viewMode === "grid" 
-                                            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-                                            : "space-y-0"
-                                    }>
-                                        {currentLibraryData.map(renderLibraryItem)}
+                                    <div
+                                        className={
+                                            viewMode === "grid"
+                                                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                                                : "space-y-0"
+                                        }
+                                    >
+                                        {currentLibraryData.map(
+                                            renderLibraryItem
+                                        )}
                                     </div>
                                 )}
                             </TabsContent>
                         </div>
                     </Tabs>
+
+                    {/* Custom Actions - NEW */}
+                    {customActions && customActions.length > 0 && (
+                        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                                Actions
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {customActions.map((action, index) => (
+                                    <Button
+                                        key={index}
+                                        variant={action.variant || "default"}
+                                        size="sm"
+                                        onClick={action.onClick}
+                                        className="flex items-center space-x-2"
+                                    >
+                                        {action.icon}
+                                        <span>{action.label}</span>
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </DialogContent>
         </Dialog>

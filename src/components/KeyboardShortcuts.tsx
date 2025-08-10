@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { SearchInput } } from "./SearchInput";
+import { SearchInput } from "./SearchInput";
 import { X, Edit2, RotateCcw, AlertTriangle, Keyboard, Power, PowerOff, ToggleLeft, ToggleRight } from "lucide-react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";

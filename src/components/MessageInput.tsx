@@ -19,7 +19,7 @@ import {
     Settings,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { getModelCapabilities, getProviderForModel } from "../lib/modelConfig";
@@ -64,6 +64,17 @@ interface MessageInputProps {
             mimeType?: string;
         }>
     ) => Promise<void> | void;
+    // NEW: Edit mode prop
+    editMode?: {
+        isEditing: boolean;
+        messageId: Id<"messages">;
+        originalContent: string;
+        onSave: (
+            content: string,
+            referencedItems?: any[]
+        ) => Promise<void> | void;
+        onCancel: () => void;
+    };
 }
 
 export function MessageInput({
@@ -82,14 +93,17 @@ export function MessageInput({
     sidebarOpen,
     chatId,
     onSendMultiAIMessage,
+    editMode,
 }: MessageInputProps) {
-    const [attachments, setAttachments] = useState<Array<{
-        type: "attachment";
-        libraryId: string;
-        name: string;
-        size: number;
-        mimeType: string;
-    }>>([]);
+    const [attachments, setAttachments] = useState<
+        Array<{
+            type: "attachment";
+            libraryId: string;
+            name: string;
+            size: number;
+            mimeType: string;
+        }>
+    >([]);
     const [isRecording, setIsRecording] = useState(false);
     const [showCommandsPopup, setShowCommandsPopup] = useState(false);
     const [filteredCommands, setFilteredCommands] = useState<any[]>([]);
@@ -104,12 +118,14 @@ export function MessageInput({
     const [selectedLibraryIndex, setSelectedLibraryIndex] = useState(0);
 
     // UNIFIED: Single library referencing state for "#" command
-    const [referencedLibraryItems, setReferencedLibraryItems] = useState<Array<{
-        type: "attachment" | "artifact" | "media";
-        id: string;
-        name: string;
-        description?: string;
-    }>>([]);
+    const [referencedLibraryItems, setReferencedLibraryItems] = useState<
+        Array<{
+            type: "attachment" | "artifact" | "media";
+            id: string;
+            name: string;
+            description?: string;
+        }>
+    >([]);
 
     // Voice chat state
     const [showVoiceChat, setShowVoiceChat] = useState(false);
@@ -135,8 +151,8 @@ export function MessageInput({
     // Get library items for # referencing - NEW
     const librarySearchResults = useQuery(
         api.library.searchLibraryItems,
-        showLibraryPopup && filteredLibraryItems.length === 0 
-            ? { query: "", limit: 50 } 
+        showLibraryPopup && filteredLibraryItems.length === 0
+            ? { query: "", limit: 50 }
             : "skip"
     );
 
@@ -144,7 +160,7 @@ export function MessageInput({
     const preferences = useQuery(api.preferences.getUserPreferences);
 
     // Prompt enhancement mutation
-    const enhancePrompt = useMutation(api.messages.enhancePrompt);
+    const enhancePrompt = useAction(api.messages.enhancePrompt);
 
     // Model capabilities detection - now using actual model config
     const modelCapabilities = useMemo(() => {
@@ -317,6 +333,31 @@ export function MessageInput({
     const handleSubmit = useCallback(
         (transcription?: string) => {
             const content = message || transcription;
+
+            // Handle edit mode
+            if (editMode?.isEditing) {
+                if (content?.trim()) {
+                    // UNIFIED: Merge attachments and referencedLibraryItems for edit
+                    const allReferencedItems = [
+                        // Convert attachments to library items format
+                        ...attachments.map((attachment) => ({
+                            type: "attachment" as const,
+                            id: attachment.libraryId,
+                            name: attachment.name,
+                            description: `${attachment.mimeType} file`,
+                            size: attachment.size,
+                            mimeType: attachment.mimeType,
+                        })),
+                        // Add existing referenced library items
+                        ...referencedLibraryItems,
+                    ];
+
+                    void editMode.onSave(content, allReferencedItems);
+                }
+                return;
+            }
+
+            // Normal send message logic
             if (
                 content?.trim() ||
                 attachments.length > 0 ||
@@ -336,7 +377,7 @@ export function MessageInput({
                 // UNIFIED: Merge attachments and referencedLibraryItems into single array
                 const allReferencedItems = [
                     // Convert attachments to library items format
-                    ...attachments.map(attachment => ({
+                    ...attachments.map((attachment) => ({
                         type: "attachment" as const,
                         id: attachment.libraryId,
                         name: attachment.name,
@@ -349,8 +390,17 @@ export function MessageInput({
                 ];
 
                 // Handle multi-AI or regular submission
-                if (isMultiAIMode && selectedModels && selectedModels.length >= 2 && onSendMultiAIMessage) {
-                    void onSendMultiAIMessage(content || "", selectedModels, allReferencedItems);
+                if (
+                    isMultiAIMode &&
+                    selectedModels &&
+                    selectedModels.length >= 2 &&
+                    onSendMultiAIMessage
+                ) {
+                    void onSendMultiAIMessage(
+                        content || "",
+                        selectedModels,
+                        allReferencedItems
+                    );
                 } else {
                     void onSendMessage(content || "", allReferencedItems);
                 }
@@ -368,6 +418,7 @@ export function MessageInput({
             referencedLibraryItems,
             isMultiAIMode,
             selectedModels,
+            editMode,
         ]
     );
 
@@ -376,6 +427,22 @@ export function MessageInput({
         const handleKeyDown = (e: KeyboardEvent) => {
             // Only handle shortcuts when textarea is focused
             if (document.activeElement !== textareaRef.current) return;
+
+            // Edit mode specific shortcuts
+            if (editMode?.isEditing) {
+                if (checkShortcutMatch(e, "sendMessage")) {
+                    e.preventDefault();
+                    handleSubmit();
+                    return;
+                }
+
+                if (e.key === "Escape") {
+                    e.preventDefault();
+                    editMode.onCancel();
+                    return;
+                }
+                return; // Don't handle other shortcuts in edit mode
+            }
 
             // Handle custom shortcuts
             if (checkShortcutMatch(e, "sendMessage")) {
@@ -463,12 +530,13 @@ export function MessageInput({
         onCommandsChange,
         setAttachments,
         handleSubmit,
+        editMode,
     ]);
 
     // Use custom shortcuts hook
     const { checkShortcutMatch } = useCustomShortcuts();
 
-    // Listen for custom events from keyboard shortcuts
+    // Listen for custom events from keyboard shortcuts and library modal
     useEffect(() => {
         const handleFocusMessageInput = () => {
             textareaRef.current?.focus();
@@ -484,7 +552,10 @@ export function MessageInput({
                 try {
                     const result = await enhancePrompt({
                         originalPrompt: message,
-                        context: activeCommands.length > 0 ? `Active commands: ${activeCommands.join(', ')}` : undefined,
+                        context:
+                            activeCommands.length > 0
+                                ? `Active commands: ${activeCommands.join(", ")}`
+                                : undefined,
                         responseMode: preferences?.aiSettings?.responseMode,
                     });
                     if (result.wasEnhanced) {
@@ -503,18 +574,56 @@ export function MessageInput({
             }
         };
 
+        // NEW: Handle adding library items from LibraryModal
+        const handleAddLibraryItemToMessage = (e: CustomEvent) => {
+            const { type, id, name, description, size, mimeType } = e.detail;
+
+            // Add to referenced library items
+            setReferencedLibraryItems((prev) => [
+                ...prev.filter((item) => item.id !== id), // Remove if already exists
+                { type, id, name, description, size, mimeType },
+            ]);
+        };
+
         document.addEventListener("focusMessageInput", handleFocusMessageInput);
         document.addEventListener("openLiveChatModal", handleOpenLiveChatModal);
         document.addEventListener("enhancePrompt", handleEnhancePrompt);
-        document.addEventListener("openChatAISettings", handleOpenChatAISettings);
+        document.addEventListener(
+            "openChatAISettings",
+            handleOpenChatAISettings
+        );
+        document.addEventListener(
+            "addLibraryItemToMessage",
+            handleAddLibraryItemToMessage as EventListener
+        );
 
         return () => {
-            document.removeEventListener("focusMessageInput", handleFocusMessageInput);
-            document.removeEventListener("openLiveChatModal", handleOpenLiveChatModal);
+            document.removeEventListener(
+                "focusMessageInput",
+                handleFocusMessageInput
+            );
+            document.removeEventListener(
+                "openLiveChatModal",
+                handleOpenLiveChatModal
+            );
             document.removeEventListener("enhancePrompt", handleEnhancePrompt);
-            document.removeEventListener("openChatAISettings", handleOpenChatAISettings);
+            document.removeEventListener(
+                "openChatAISettings",
+                handleOpenChatAISettings
+            );
+            document.removeEventListener(
+                "addLibraryItemToMessage",
+                handleAddLibraryItemToMessage as EventListener
+            );
         };
-    }, [preferences, message, activeCommands, enhancePrompt, onMessageChange, chatId]);
+    }, [
+        preferences,
+        message,
+        activeCommands,
+        enhancePrompt,
+        onMessageChange,
+        chatId,
+    ]);
 
     useEffect(() => {
         if (textareaRef.current) {
@@ -667,13 +776,22 @@ export function MessageInput({
             setShowCommandsPopup(false);
             setShowLibraryPopup(false);
             const queryWithoutHash = libraryQuery.substring(1); // Remove #
-            
+
             // Use proper library search instead of chatArtifacts
             if (librarySearchResults && librarySearchResults.length > 0) {
-                const filtered = librarySearchResults.filter(item => 
-                    item.name.toLowerCase().includes(queryWithoutHash.toLowerCase()) ||
-                    item.description?.toLowerCase().includes(queryWithoutHash.toLowerCase()) ||
-                    item.tags?.some(tag => tag.toLowerCase().includes(queryWithoutHash.toLowerCase()))
+                const filtered = librarySearchResults.filter(
+                    (item) =>
+                        item.name
+                            .toLowerCase()
+                            .includes(queryWithoutHash.toLowerCase()) ||
+                        item.description
+                            ?.toLowerCase()
+                            .includes(queryWithoutHash.toLowerCase()) ||
+                        item.tags?.some((tag) =>
+                            tag
+                                .toLowerCase()
+                                .includes(queryWithoutHash.toLowerCase())
+                        )
                 );
                 setFilteredLibraryItems(filtered.length > 0 ? filtered : []);
                 setShowLibraryPopup(filtered.length > 0);
@@ -786,7 +904,6 @@ export function MessageInput({
                 return;
             }
             if (e.key === "Escape") {
-               
                 setShowCommandsPopup(false);
                 return;
             }
@@ -839,7 +956,10 @@ export function MessageInput({
                 try {
                     const result = await enhancePrompt({
                         originalPrompt: message,
-                        context: activeCommands.length > 0 ? `Active commands: ${activeCommands.join(', ')}` : undefined,
+                        context:
+                            activeCommands.length > 0
+                                ? `Active commands: ${activeCommands.join(", ")}`
+                                : undefined,
                         responseMode: preferences?.aiSettings?.responseMode,
                     });
                     if (result.wasEnhanced) {
@@ -858,322 +978,422 @@ export function MessageInput({
             }
         };
 
+        // NEW: Handle adding library items from LibraryModal
+        const handleAddLibraryItemToMessage = (e: CustomEvent) => {
+            const { type, id, name, description, size, mimeType } = e.detail;
+
+            // Add to referenced library items
+            setReferencedLibraryItems((prev) => [
+                ...prev.filter((item) => item.id !== id), // Remove if already exists
+                { type, id, name, description, size, mimeType },
+            ]);
+        };
+
         document.addEventListener("focusMessageInput", handleFocusMessageInput);
         document.addEventListener("openLiveChatModal", handleOpenLiveChatModal);
         document.addEventListener("enhancePrompt", handleEnhancePrompt);
-        document.addEventListener("openChatAISettings", handleOpenChatAISettings);
+        document.addEventListener(
+            "openChatAISettings",
+            handleOpenChatAISettings
+        );
+        document.addEventListener(
+            "addLibraryItemToMessage",
+            handleAddLibraryItemToMessage as EventListener
+        );
 
         return () => {
-            document.removeEventListener("focusMessageInput", handleFocusMessageInput);
-            document.removeEventListener("openLiveChatModal", handleOpenLiveChatModal);
+            document.removeEventListener(
+                "focusMessageInput",
+                handleFocusMessageInput
+            );
+            document.removeEventListener(
+                "openLiveChatModal",
+                handleOpenLiveChatModal
+            );
             document.removeEventListener("enhancePrompt", handleEnhancePrompt);
-            document.removeEventListener("openChatAISettings", handleOpenChatAISettings);
+            document.removeEventListener(
+                "openChatAISettings",
+                handleOpenChatAISettings
+            );
+            document.removeEventListener(
+                "addLibraryItemToMessage",
+                handleAddLibraryItemToMessage as EventListener
+            );
         };
-    }, [preferences, message, activeCommands, enhancePrompt, onMessageChange, chatId]);
+    }, [
+        preferences,
+        message,
+        activeCommands,
+        enhancePrompt,
+        onMessageChange,
+        chatId,
+    ]);
 
     return (
         <div
             className={`fixed -bottom-1 ${sidebarOpen ? "w-[58%]" : "w-4/5"} px-4 z-[999] transition-all duration-300 ease-in-out ${showMessageInput ? "transform translate-y-0 opacity-100" : "transform translate-y-full opacity-0 pointer-events-none"}`}
         >
             {/* Commands Popup */}
-            {showCommandsPopup && filteredCommands.length > 0 && (
-                <div className="absolute bottom-full mb-2 left-4 right-4 bg-gray-900/95 backdrop-blur-md border border-purple-600/30 rounded-lg p-3 shadow-xl z-[60]">
-                    <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-medium text-purple-100">
-                            Available Commands
-                        </h4>
-                        <button
-                            onClick={() => setShowCommandsPopup(false)}
-                            className="p-1 rounded hover:bg-purple-600/20 transition-colors text-purple-400 hover:text-purple-300"
-                            title="Close"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-                    </div>
-                    <div className="space-y-1">
-                        {filteredCommands.map((cmd, index) => {
-                            const isDisabled =
-                                !cmd.isValid || cmd.isAlreadyActive;
-                            const canClick =
-                                cmd.isValid && !cmd.isAlreadyActive;
+            {!editMode?.isEditing &&
+                showCommandsPopup &&
+                filteredCommands.length > 0 && (
+                    <div className="absolute bottom-full mb-2 left-4 right-4 bg-gray-900/95 backdrop-blur-md border border-purple-600/30 rounded-lg p-3 shadow-xl z-[60]">
+                        <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-medium text-purple-100">
+                                Available Commands
+                            </h4>
+                            <button
+                                onClick={() => setShowCommandsPopup(false)}
+                                className="p-1 rounded hover:bg-purple-600/20 transition-colors text-purple-400 hover:text-purple-300"
+                                title="Close"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="space-y-1">
+                            {filteredCommands.map((cmd, index) => {
+                                const isDisabled =
+                                    !cmd.isValid || cmd.isAlreadyActive;
+                                const canClick =
+                                    cmd.isValid && !cmd.isAlreadyActive;
 
-                            return (
-                                <button
-                                    key={cmd.command}
-                                    onClick={() =>
-                                        canClick && selectCommand(cmd.command)
-                                    }
-                                    disabled={isDisabled}
-                                    className={`w-full flex items-start gap-3 p-2 rounded text-left transition-colors ${
-                                        isDisabled
-                                            ? "opacity-50 cursor-not-allowed bg-gray-800/50"
-                                            : index === selectedCommandIndex
-                                              ? "bg-purple-600/30"
-                                              : "hover:bg-purple-600/20"
-                                    }`}
-                                >
-                                    <div
-                                        className={`mt-0.5 ${isDisabled ? "text-gray-500" : "text-purple-400"}`}
+                                return (
+                                    <button
+                                        key={cmd.command}
+                                        onClick={() =>
+                                            canClick &&
+                                            selectCommand(cmd.command)
+                                        }
+                                        disabled={isDisabled}
+                                        className={`w-full flex items-start gap-3 p-2 rounded text-left transition-colors ${
+                                            isDisabled
+                                                ? "opacity-50 cursor-not-allowed bg-gray-800/50"
+                                                : index === selectedCommandIndex
+                                                  ? "bg-purple-600/30"
+                                                  : "hover:bg-purple-600/20"
+                                        }`}
                                     >
-                                        {cmd.icon}
-                                    </div>
-                                    <div className="flex-1">
                                         <div
-                                            className={`font-mono flex items-center gap-2 ${isDisabled ? "text-gray-400" : "text-purple-100"}`}
+                                            className={`mt-0.5 ${isDisabled ? "text-gray-500" : "text-purple-400"}`}
                                         >
-                                            {cmd.command}
-                                            {cmd.isAlreadyActive && (
-                                                <span className="text-xs bg-purple-600/30 text-purple-300 px-1.5 py-0.5 rounded">
-                                                    Active
-                                                </span>
-                                            )}
+                                            {cmd.icon}
                                         </div>
-                                        <div
-                                            className={`text-xs ${isDisabled ? "text-gray-500" : "text-purple-300"}`}
-                                        >
-                                            {cmd.description}
-                                        </div>
-                                        {cmd.restrictionMessage && (
-                                            <div className="text-xs text-orange-300 mt-1 italic">
-                                                ⚠️ {cmd.restrictionMessage}
+                                        <div className="flex-1">
+                                            <div
+                                                className={`font-mono flex items-center gap-2 ${isDisabled ? "text-gray-400" : "text-purple-100"}`}
+                                            >
+                                                {cmd.command}
+                                                {cmd.isAlreadyActive && (
+                                                    <span className="text-xs bg-purple-600/30 text-purple-300 px-1.5 py-0.5 rounded">
+                                                        Active
+                                                    </span>
+                                                )}
                                             </div>
-                                        )}
-                                        {!cmd.restrictionMessage &&
-                                            !cmd.isAlreadyActive && (
-                                                <div
-                                                    className={`text-xs mt-1 font-mono ${isDisabled ? "text-gray-600" : "text-purple-400"}`}
-                                                >
-                                                    {cmd.example}
+                                            <div
+                                                className={`text-xs ${isDisabled ? "text-gray-500" : "text-purple-300"}`}
+                                            >
+                                                {cmd.description}
+                                            </div>
+                                            {cmd.restrictionMessage && (
+                                                <div className="text-xs text-orange-300 mt-1 italic">
+                                                    ⚠️ {cmd.restrictionMessage}
                                                 </div>
                                             )}
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-purple-600/20">
-                        <div className="text-xs text-purple-400">
-                            ↑↓ to navigate • Enter to select • Esc to close
+                                            {!cmd.restrictionMessage &&
+                                                !cmd.isAlreadyActive && (
+                                                    <div
+                                                        className={`text-xs mt-1 font-mono ${isDisabled ? "text-gray-600" : "text-purple-400"}`}
+                                                    >
+                                                        {cmd.example}
+                                                    </div>
+                                                )}
+                                        </div>
+                                    </button>
+                                );
+                            })}
                         </div>
-                        {activeCommands.length > 0 && (
-                            <div className="text-xs text-orange-300 mt-1">
-                                💡 Only /search and /canvas can be combined
-                                together
+                        <div className="mt-2 pt-2 border-t border-purple-600/20">
+                            <div className="text-xs text-purple-400">
+                                ↑↓ to navigate • Enter to select • Esc to close
                             </div>
-                        )}
+                            {activeCommands.length > 0 && (
+                                <div className="text-xs text-orange-300 mt-1">
+                                    💡 Only /search and /canvas can be combined
+                                    together
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
             {/* Library Popup - NEW "#" COMMAND INTEGRATION */}
-            {showLibraryPopup && filteredLibraryItems.length > 0 && (
-                <div className="absolute bottom-full mb-2 left-4 right-4 bg-gray-900/95 backdrop-blur-md border border-green-600/30 rounded-lg p-3 shadow-xl z-[60]">
-                    <div className="flex items-center justify-between mb-2">
-                        <h4 className="text-sm font-medium text-green-100">
-                            Available Library Items
-                        </h4>
-                        <button
-                            onClick={() => setShowLibraryPopup(false)}
-                            className="p-1 rounded hover:bg-green-600/20 transition-colors text-green-400 hover:text-green-300"
-                            title="Close"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-                    </div>
-                    <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {filteredLibraryItems.map((item, index) => (
+            {!editMode?.isEditing &&
+                showLibraryPopup &&
+                filteredLibraryItems.length > 0 && (
+                    <div className="absolute bottom-full mb-2 left-4 right-4 bg-gray-900/95 backdrop-blur-md border border-green-600/30 rounded-lg p-3 shadow-xl z-[60]">
+                        <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-medium text-green-100">
+                                Available Library Items
+                            </h4>
                             <button
-                                key={item.artifactId}
-                                onClick={() => selectLibraryItem(item)}
-                                className={`w-full flex items-start gap-3 p-2 rounded text-left transition-colors ${index === selectedLibraryIndex ? "bg-green-600/30" : "hover:bg-green-600/20"}`}
+                                onClick={() => setShowLibraryPopup(false)}
+                                className="p-1 rounded hover:bg-green-600/20 transition-colors text-green-400 hover:text-green-300"
+                                title="Close"
                             >
-                                <div className="text-green-400 mt-0.5">
-                                    <FileText className="w-4 h-4" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-green-100 font-medium font-mono text-sm truncate">
-                                        #{item.filename}
-                                    </div>
-                                    <div className="text-xs text-green-300 line-clamp-2">
-                                        {item.description ||
-                                            `${item.language} file`}
-                                    </div>
-                                    <div className="text-xs text-green-400 mt-1">
-                                        Created{" "}
-                                        {new Date(
-                                            item.createdAt
-                                        ).toLocaleDateString()}
-                                    </div>
-                                </div>
+                                <X className="w-5 h-5" />
                             </button>
-                        ))}
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-green-600/20">
-                        <div className="text-xs text-green-400">
-                            ↑↓ to navigate • Enter to select • Esc to close
+                        </div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {filteredLibraryItems.map((item, index) => (
+                                <button
+                                    key={item.artifactId}
+                                    onClick={() => selectLibraryItem(item)}
+                                    className={`w-full flex items-start gap-3 p-2 rounded text-left transition-colors ${index === selectedLibraryIndex ? "bg-green-600/30" : "hover:bg-green-600/20"}`}
+                                >
+                                    <div className="text-green-400 mt-0.5">
+                                        <FileText className="w-4 h-4" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-green-100 font-medium font-mono text-sm truncate">
+                                            #{item.filename}
+                                        </div>
+                                        <div className="text-xs text-green-300 line-clamp-2">
+                                            {item.description ||
+                                                `${item.language} file`}
+                                        </div>
+                                        <div className="text-xs text-green-400 mt-1">
+                                            Created{" "}
+                                            {new Date(
+                                                item.createdAt
+                                            ).toLocaleDateString()}
+                                        </div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-green-600/20">
+                            <div className="text-xs text-green-400">
+                                ↑↓ to navigate • Enter to select • Esc to close
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
 
             <div className="space-y-3">
-                <div className="relative border border-purple-600/20 rounded-xl bg-black/20 backdrop-blur-md p-3 focus-within:border-purple-500 transition-colors">
-                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-purple-600/20">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            {/* Multi-AI Mode Toggle */}
+                {/* Edit Mode Header */}
+                {editMode?.isEditing && (
+                    <div className="bg-orange-600/10 border border-orange-600/30 rounded-lg p-3 mb-3">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
+                                <span className="text-sm font-medium text-orange-300">
+                                    Editing Message
+                                </span>
+                            </div>
                             <button
-                                type="button"
-                                onClick={() => {
-                                    // Toggle multi-AI mode via parent component
-                                    const event = new CustomEvent("toggleMultiAI");
-                                    document.dispatchEvent(event);
-                                }}
-                                className={`h-6 px-2 text-xs transition-colors duration-200 rounded flex items-center gap-1 ${
-                                    isMultiAIMode
-                                        ? "bg-green-600/20 text-green-300 border border-green-500/30"
-                                        : "bg-purple-600/20 text-purple-300 hover:bg-purple-600/30"
-                                }`}
-                                title={isMultiAIMode ? "Multi-AI mode active" : "Enable Multi-AI mode"}
+                                onClick={editMode.onCancel}
+                                className="text-orange-400 hover:text-orange-300 transition-colors"
+                                title="Cancel editing"
                             >
-                                <Zap className="w-3 h-3" />
-                                {isMultiAIMode ? "Multi-AI" : "Single"}
+                                <X className="w-4 h-4" />
                             </button>
-
-                            {/* Model Selector */}
-                            {isMultiAIMode ? (
-                                <ModelSelector
-                                    selectedModel={selectedModel}
-                                    onModelChange={(model) => void onModelChange(model)}
-                                    context="multi-ai"
-                                    multiSelect={true}
-                                    selectedModels={selectedModels || []}
-                                    onModelsChange={setSelectedModels}
-                                    maxSelections={8}
-                                />
-                            ) : (
-                                <ModelSelector
-                                    selectedModel={selectedModel}
-                                    onModelChange={(model) => void onModelChange(model)}
-                                />
-                            )}
-
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                    if (showCommandsPopup) {
-                                        setShowCommandsPopup(false);
-                                        return;
-                                    }
-                                    setShowCommandsPopup(true);
-                                    setFilteredCommands(commandsWithValidation);
-                                    setIsToolboxOpen(true);
-                                }}
-                                className="h-6 px-2 text-xs bg-purple-600/20 hover:bg-purple-600/30 text-purple-300"
-                            >
-                                <Cpu className="w-3 h-3 mr-1" />
-                                Tools
-                            </Button>
-                            
-                            {/* Active Commands */}
-                            {activeCommands.map((cmdString) => {
-                                const command = commands.find(
-                                    (c) => c.command === cmdString
-                                );
-                                if (!command) return null;
-                                return (
-                                    <div
-                                        key={command.command}
-                                        className="flex items-center h-6 px-2 text-xs bg-transparent border border-purple-500/30 rounded-md text-purple-300"
-                                    >
-                                        <span className="text-purple-400 mr-1.5">
-                                            {command.icon}
-                                        </span>
-                                        {command.label}
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                removeActiveCommand(
-                                                    command.command
-                                                )
-                                            }
-                                            className="ml-1.5 -mr-0.5 text-purple-400 hover:text-red-400"
-                                        >
-                                            <X className="w-3 h-3" />
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                            {/* Referenced Library Items - NEW "#" COMMAND INTEGRATION */}
-                            {referencedLibraryItems.map((itemId) => {
-                                const item = chatArtifacts.find(
-                                    (a) => a.artifactId === itemId
-                                );
-                                if (!item) return null;
-                                return (
-                                    <div
-                                        key={itemId}
-                                        className="flex items-center h-6 px-2 text-xs bg-transparent border border-green-500/30 rounded-md text-green-300"
-                                    >
-                                        <span className="text-green-400 mr-1.5">
-                                            <FileText className="w-3 h-3" />
-                                        </span>
-                                        #{item.filename}
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                removeReferencedArtifact(
-                                                    itemId
-                                                )
-                                            }
-                                            className="ml-1.5 -mr-0.5 text-green-400 hover:text-red-400"
-                                        >
-                                            <X className="w-3 h-3" />
-                                        </button>
-                                    </div>
-                                );
-                            })}
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-purple-400">
-                            <span className="items-center gap-1 hidden md:flex">
-                                <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
-                                    Ctrl+Enter
-                                </kbd>{" "}
-                                <span>to send</span>
-                            </span>
-                            <span className="text-purple-500 hidden md:inline">
-                                •
-                            </span>
-                                <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
-                                    /
-                                </kbd>{" "}
-                                <span>for commands</span>
-                            </span>
-                            {chatArtifacts.length > 0 && (
-                                <>
-                                    <span className="text-purple-500">•</span>
-                                    <span className="flex items-center gap-1">
-                                        <kbd className="px-1.5 py-0.5 bg-blue-600/20 border border-blue-500/30 rounded">
-                                            @
-                                        </kbd>{" "}
-                                        <span>for artifacts</span>
-                                    </span>
-                                </>
-                            )}
-                            {chatArtifacts.length > 0 && (
-                                <>
-                                    <span className="text-purple-500">•</span>
-                                    <span className="flex items-center gap-1">
-                                        <kbd className="px-1.5 py-0.5 bg-green-600/20 border border-green-500/30 rounded">
-                                            #
-                                        </kbd>{" "}
-                                        <span>for libraries</span>
-                                    </span>
-                                </>
-                            )}
+                        <div className="text-xs text-orange-300/80">
+                            💡 Editing this message will create a new
+                            conversation branch. Press{" "}
+                            <kbd className="px-1 py-0.5 bg-orange-600/20 rounded text-xs">
+                                Ctrl+Enter
+                            </kbd>{" "}
+                            to save or{" "}
+                            <kbd className="px-1 py-0.5 bg-orange-600/20 rounded text-xs">
+                                Esc
+                            </kbd>{" "}
+                            to cancel.
                         </div>
                     </div>
+                )}
+
+                <div
+                    className={`relative border rounded-xl bg-black/20 backdrop-blur-md p-3 focus-within:border-purple-500 transition-colors ${
+                        editMode?.isEditing
+                            ? "border-orange-600/50 bg-orange-600/5"
+                            : "border-purple-600/20"
+                    }`}
+                >
+                    {/* Header - Hide most features in edit mode */}
+                    {!editMode?.isEditing && (
+                        <div className="flex items-center justify-between mb-3 pb-3 border-b border-purple-600/20">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {/* Multi-AI Mode Toggle */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        // Toggle multi-AI mode via parent component
+                                        const event = new CustomEvent(
+                                            "toggleMultiAI"
+                                        );
+                                        document.dispatchEvent(event);
+                                    }}
+                                    className={`h-6 px-2 text-xs transition-colors duration-200 rounded flex items-center gap-1 ${
+                                        isMultiAIMode
+                                            ? "bg-green-600/20 text-green-300 border border-green-500/30"
+                                            : "bg-purple-600/20 text-purple-300 hover:bg-purple-600/30"
+                                    }`}
+                                    title={
+                                        isMultiAIMode
+                                            ? "Multi-AI mode active"
+                                            : "Enable Multi-AI mode"
+                                    }
+                                >
+                                    <Zap className="w-3 h-3" />
+                                    {isMultiAIMode ? "Multi-AI" : "Single"}
+                                </button>
+
+                                {/* Model Selector */}
+                                {isMultiAIMode ? (
+                                    <ModelSelector
+                                        selectedModel={selectedModel}
+                                        onModelChange={(model) =>
+                                            void onModelChange(model)
+                                        }
+                                        context="multi-ai"
+                                        multiSelect={true}
+                                        selectedModels={selectedModels || []}
+                                        onModelsChange={setSelectedModels}
+                                        maxSelections={8}
+                                    />
+                                ) : (
+                                    <ModelSelector
+                                        selectedModel={selectedModel}
+                                        onModelChange={(model) =>
+                                            void onModelChange(model)
+                                        }
+                                    />
+                                )}
+
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                        if (showCommandsPopup) {
+                                            setShowCommandsPopup(false);
+                                            return;
+                                        }
+                                        setShowCommandsPopup(true);
+                                        setFilteredCommands(
+                                            commandsWithValidation
+                                        );
+                                        setIsToolboxOpen(true);
+                                    }}
+                                    className="h-6 px-2 text-xs bg-purple-600/20 hover:bg-purple-600/30 text-purple-300"
+                                >
+                                    <Cpu className="w-3 h-3 mr-1" />
+                                    Tools
+                                </Button>
+
+                                {/* Active Commands */}
+                                {activeCommands.map((cmdString) => {
+                                    const command = commands.find(
+                                        (c) => c.command === cmdString
+                                    );
+                                    if (!command) return null;
+                                    return (
+                                        <div
+                                            key={command.command}
+                                            className="flex items-center h-6 px-2 text-xs bg-transparent border border-purple-500/30 rounded-md text-purple-300"
+                                        >
+                                            <span className="text-purple-400 mr-1.5">
+                                                {command.icon}
+                                            </span>
+                                            {command.label}
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    removeActiveCommand(
+                                                        command.command
+                                                    )
+                                                }
+                                                className="ml-1.5 -mr-0.5 text-purple-400 hover:text-red-400"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                                {/* Referenced Library Items - NEW "#" COMMAND INTEGRATION */}
+                                {referencedLibraryItems.map((itemId) => {
+                                    const item = chatArtifacts.find(
+                                        (a) => a.artifactId === itemId
+                                    );
+                                    if (!item) return null;
+                                    return (
+                                        <div
+                                            key={itemId}
+                                            className="flex items-center h-6 px-2 text-xs bg-transparent border border-green-500/30 rounded-md text-green-300"
+                                        >
+                                            <span className="text-green-400 mr-1.5">
+                                                <FileText className="w-3 h-3" />
+                                            </span>
+                                            #{item.filename}
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    removeReferencedArtifact(
+                                                        itemId
+                                                    )
+                                                }
+                                                className="ml-1.5 -mr-0.5 text-green-400 hover:text-red-400"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-purple-400">
+                                <span className="items-center gap-1 hidden md:flex">
+                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
+                                        Ctrl+Enter
+                                    </kbd>{" "}
+                                    <span>to send</span>
+                                </span>
+                                <span className="text-purple-500 hidden md:inline">
+                                    •
+                                </span>
+                                <span>
+                                    <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
+                                        /
+                                    </kbd>{" "}
+                                    <span>for commands</span>
+                                </span>
+                                {/* {chatArtifacts.length > 0 && (
+                                    <>
+                                        <span className="text-purple-500">•</span>
+                                        <span className="flex items-center gap-1">
+                                            <kbd className="px-1.5 py-0.5 bg-blue-600/20 border border-blue-500/30 rounded">
+                                                @
+                                            </kbd>{" "}
+                                            <span>for artifacts</span>
+                                        </span>
+                                    </>
+                                )} */}
+                                {chatArtifacts.length > 0 && (
+                                    <>
+                                        <span className="text-purple-500">
+                                            •
+                                        </span>
+                                        <span className="flex items-center gap-1">
+                                            <kbd className="px-1.5 py-0.5 bg-green-600/20 border border-green-500/30 rounded">
+                                                #
+                                            </kbd>{" "}
+                                            <span>for libraries</span>
+                                        </span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Attachment Preview */}
                     {attachments.length > 0 && (
@@ -1250,115 +1470,186 @@ export function MessageInput({
                                     )
                                 }
                                 onKeyDown={handleKeyDown}
-                                placeholder={placeholder || defaultPlaceholder}
-                                className="relative text-base min-h-10 max-h-80 resize-none border-0 bg-transparent p-0 text-purple-200/90 placeholder-purple-400/80 focus-visible:ring-0 focus-visible:ring-offset-0"
+                                placeholder={
+                                    editMode?.isEditing
+                                        ? "Edit your message... Press Ctrl+Enter to save, Esc to cancel"
+                                        : placeholder || defaultPlaceholder
+                                }
+                                className={`relative text-base min-h-10 max-h-80 resize-none border-0 bg-transparent p-0 placeholder-purple-400/80 focus-visible:ring-0 focus-visible:ring-offset-0 ${
+                                    editMode?.isEditing
+                                        ? "text-orange-200/90 placeholder-orange-400/80"
+                                        : "text-purple-200/90"
+                                }`}
                                 disabled={isLoading}
                             />
                         </div>
                         <div className="flex items-center gap-1">
-                            <VoiceInput
-                                onTranscription={handleInputChange}
-                                isRecording={isRecording}
-                                onRecordingChange={setIsRecording}
-                                sendMessage={handleSubmit}
-                            />
-                            {/* 1-Click Prompt Enhancement Button - Phase 4 */}
-                            {preferences?.aiSettings?.promptEnhancement && message.trim() && (
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={async () => {
-                                        try {
-                                            const result = await enhancePrompt({
-                                                originalPrompt: message,
-                                                context: activeCommands.length > 0 ? `Active commands: ${activeCommands.join(', ')}` : undefined,
-                                                responseMode: preferences?.aiSettings?.responseMode,
-                                            });
-                                            if (result.wasEnhanced) {
-                                                onMessageChange(result.enhancedPrompt);
-                                                toast.success("Prompt enhanced!");
-                                            }
-                                        } catch (error) {
-                                            toast.error("Failed to enhance prompt");
-                                        }
-                                    }}
-                                    className="h-8 w-8 p-0 text-yellow-400 bg-yellow-600/20 hover:bg-yellow-600/30 transition-colors duration-200 ease-in-out"
-                                    title="Enhance this prompt with AI (Ctrl+Shift+E)"
-                                >
-                                    <Zap className="w-4 h-4" />
-                                </Button>
-                            )}
-                            {/* Chat AI Settings Button - Phase 4 */}
-                            {chatId && (
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setShowChatAISettings(true)}
-                                    className="h-8 w-8 p-0 text-indigo-400 bg-indigo-600/20 hover:bg-indigo-600/30 transition-colors duration-200 ease-in-out"
-                                    title="Chat AI Settings (Ctrl+Shift+A)"
-                                >
-                                    <Settings className="w-4 h-4" />
-                                </Button>
-                            )}
-                            {/* Voice Chat Button - only show for live chat capable models */}
-                            {modelCapabilities.liveChat && (
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => setShowVoiceChat(true)}
-                                    className="h-8 w-8 p-0 text-purple-400 bg-purple-600/20 hover:bg-purple-600/30 transition-colors duration-200 ease-in-out"
-                                    title="Start real-time live chat"
-                                >
-                                    <Zap className="w-4 h-4" />
-                                </Button>
-                            )}
-                            {/* File Upload - only show for models that support files or vision */}
-                            {(modelCapabilities.files ||
-                                modelCapabilities.vision) && (
-                                <FileUpload
-                                    onFileUploaded={(file) => {
-                                        setAttachments((prev) => [
-                                            ...prev,
-                                            file,
-                                        ]);
-                                        toast.success(`${file.name} attached`);
-                                    }}
-                                />
-                            )}
-                            {/* Send/Stop Button */}
-                            {isStreaming && onStopStreaming ? (
-                                <Button
-                                    type="button"
-                                    onClick={() => void onStopStreaming()}
-                                    size="sm"
-                                    className="h-8 w-8 p-0 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 transition-all"
-                                    title="Stop streaming"
-                                >
-                                    <Square className="w-4 h-4" />
-                                </Button>
+                            {editMode?.isEditing ? (
+                                // Edit mode buttons
+                                <>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={editMode.onCancel}
+                                        className="h-8 w-8 p-0 text-orange-400 hover:text-orange-300 hover:bg-orange-600/20"
+                                        title="Cancel editing"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                        onClick={() => handleSubmit()}
+                                        disabled={isLoading || !message.trim()}
+                                        size="sm"
+                                        className="h-8 w-8 p-0 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 transition-all"
+                                        title="Save changes (Ctrl+Enter)"
+                                    >
+                                        {isLoading ? (
+                                            <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                                        ) : (
+                                            <Send className="w-4 h-4" />
+                                        )}
+                                    </Button>
+                                </>
                             ) : (
-                                <Button
-                                    onClick={() => handleSubmit()}
-                                    disabled={
-                                        isLoading ||
-                                        (!message.trim() &&
-                                            attachments.length === 0 &&
-                                            activeCommands.length === 0 &&
-                                            referencedLibraryItems.length === 0)
-                                    }
-                                    size="sm"
-                                    className="h-8 w-8 p-0 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 transition-all"
-                                    title="Send message"
-                                >
-                                    {isLoading ? (
-                                        <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                        <Send className="w-4 h-4" />
+                                // Normal mode buttons
+                                <>
+                                    <VoiceInput
+                                        onTranscription={handleInputChange}
+                                        isRecording={isRecording}
+                                        onRecordingChange={setIsRecording}
+                                        sendMessage={handleSubmit}
+                                    />
+                                    {/* 1-Click Prompt Enhancement Button - Phase 4 */}
+                                    {preferences?.aiSettings
+                                        ?.promptEnhancement &&
+                                        message.trim() && (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={async () => {
+                                                    try {
+                                                        const result =
+                                                            await enhancePrompt(
+                                                                {
+                                                                    originalPrompt:
+                                                                        message,
+                                                                    context:
+                                                                        activeCommands.length >
+                                                                        0
+                                                                            ? `Active commands: ${activeCommands.join(", ")}`
+                                                                            : undefined,
+                                                                    responseMode:
+                                                                        preferences
+                                                                            ?.aiSettings
+                                                                            ?.responseMode,
+                                                                }
+                                                            );
+                                                        if (
+                                                            result.wasEnhanced
+                                                        ) {
+                                                            onMessageChange(
+                                                                result.enhancedPrompt
+                                                            );
+                                                            toast.success(
+                                                                "Prompt enhanced!"
+                                                            );
+                                                        }
+                                                    } catch (error) {
+                                                        toast.error(
+                                                            "Failed to enhance prompt"
+                                                        );
+                                                    }
+                                                }}
+                                                className="h-8 w-8 p-0 text-yellow-400 bg-yellow-600/20 hover:bg-yellow-600/30 transition-colors duration-200 ease-in-out"
+                                                title="Enhance this prompt with AI (Ctrl+Shift+E)"
+                                            >
+                                                <Zap className="w-4 h-4" />
+                                            </Button>
+                                        )}
+                                    {/* Chat AI Settings Button - Phase 4 */}
+                                    {chatId && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() =>
+                                                setShowChatAISettings(true)
+                                            }
+                                            className="h-8 w-8 p-0 text-indigo-400 bg-indigo-600/20 hover:bg-indigo-600/30 transition-colors duration-200 ease-in-out"
+                                            title="Chat AI Settings (Ctrl+Shift+A)"
+                                        >
+                                            <Settings className="w-4 h-4" />
+                                        </Button>
                                     )}
-                                </Button>
+                                    {/* Voice Chat Button - only show for live chat capable models */}
+                                    {modelCapabilities.liveChat && (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() =>
+                                                setShowVoiceChat(true)
+                                            }
+                                            className="h-8 w-8 p-0 text-purple-400 bg-purple-600/20 hover:bg-purple-600/30 transition-colors duration-200 ease-in-out"
+                                            title="Start real-time live chat"
+                                        >
+                                            <Zap className="w-4 h-4" />
+                                        </Button>
+                                    )}
+                                    {/* File Upload - only show for models that support files or vision */}
+                                    {(modelCapabilities.files ||
+                                        modelCapabilities.vision) && (
+                                        <FileUpload
+                                            onFileUploaded={(file) => {
+                                                setAttachments((prev) => [
+                                                    ...prev,
+                                                    file,
+                                                ]);
+                                                toast.success(
+                                                    `${file.name} attached`
+                                                );
+                                            }}
+                                        />
+                                    )}
+                                    {/* Send/Stop Button */}
+                                    {isStreaming && onStopStreaming ? (
+                                        <Button
+                                            type="button"
+                                            onClick={() =>
+                                                void onStopStreaming()
+                                            }
+                                            size="sm"
+                                            className="h-8 w-8 p-0 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 transition-all"
+                                            title="Stop streaming"
+                                        >
+                                            <Square className="w-4 h-4" />
+                                        </Button>
+                                    ) : (
+                                        <Button
+                                            onClick={() => handleSubmit()}
+                                            disabled={
+                                                isLoading ||
+                                                (!message.trim() &&
+                                                    attachments.length === 0 &&
+                                                    activeCommands.length ===
+                                                        0 &&
+                                                    referencedLibraryItems.length ===
+                                                        0)
+                                            }
+                                            size="sm"
+                                            className="h-8 w-8 p-0 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 transition-all"
+                                            title="Send message"
+                                        >
+                                            {isLoading ? (
+                                                <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <Send className="w-4 h-4" />
+                                            )}
+                                        </Button>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>

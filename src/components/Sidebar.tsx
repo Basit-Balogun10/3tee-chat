@@ -895,6 +895,7 @@ export function Sidebar({
             <AdvancedSearchModal 
                 open={showAdvancedSearch}
                 onOpenChange={setShowAdvancedSearch}
+                onSelectChat={onSelectChat}
             />
 
             {/* Library Modal */}

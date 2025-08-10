@@ -2,7 +2,50 @@ import { v } from "convex/values";
 import { query, mutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel"; // FIX: Import Id type
+import type { Id } from "./_generated/dataModel";
+import { sha256 } from "@oslojs/crypto/sha2";
+import { encodeHexLowerCase } from "@oslojs/encoding";
+import { generateRandomString } from "@oslojs/crypto/random";
+import type { RandomReader } from "@oslojs/crypto/random";
+
+// Oslo RandomReader for crypto operations
+const random: RandomReader = {
+    read(bytes: Uint8Array): void {
+        crypto.getRandomValues(bytes);
+    },
+};
+
+// Generate secure salt using oslo/crypto
+function generateSalt(): string {
+    const alphabet =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    return generateRandomString(random, alphabet, 32);
+}
+
+// Hash password using oslo/crypto SHA-256 with iterations
+function hashPassword(password: string, salt: string): string {
+    const passwordBytes = new TextEncoder().encode(password);
+    const saltBytes = new TextEncoder().encode(salt);
+
+    // Combine password and salt
+    const combined = new Uint8Array(passwordBytes.length + saltBytes.length);
+    combined.set(passwordBytes);
+    combined.set(saltBytes, passwordBytes.length);
+
+    // Apply multiple iterations of SHA-256 for security (PBKDF2-like)
+    let hash = combined;
+    for (let i = 0; i < 100000; i++) {
+        hash = sha256(hash);
+    }
+
+    return encodeHexLowerCase(hash);
+}
+
+// Verify password function using same hash algorithm
+async function verifyPassword(password: string, chat: any): Promise<boolean> {
+    const hashedInput = hashPassword(password, chat.passwordSalt);
+    return hashedInput === chat.passwordHash;
+}
 
 export const listChats = query({
     args: {},
@@ -112,36 +155,36 @@ export const getChatMessages = query({
             .filter((msg) => msg !== null)
             .sort((a, b) => a.timestamp - b.timestamp);
 
-        // Auto-populate artifacts for messages that reference them in metadata
-        const messagesWithArtifacts = await Promise.all(
-            validMessages.map(async (message) => {
-                if (
-                    message.metadata?.artifacts &&
-                    message.metadata.artifacts.length > 0
-                ) {
-                    // Get full artifact objects for the artifact IDs stored in metadata
-                    const artifacts = await Promise.all(
-                        message.metadata.artifacts.map(async (artifactId) => {
-                            // Get artifact by _id since metadata.artifacts contains artifact _ids
-                            const artifact = await ctx.db.get(artifactId);
-                            return artifact;
-                        })
-                    );
+        // // Auto-populate artifacts for messages that reference them in metadata
+        // const messagesWithArtifacts = await Promise.all(
+        //     validMessages.map(async (message) => {
+        //         if (
+        //             message.metadata?.artifacts &&
+        //             message.metadata.artifacts.length > 0
+        //         ) {
+        //             // Get full artifact objects for the artifact IDs stored in metadata
+        //             const artifacts = await Promise.all(
+        //                 message.metadata.artifacts.map(async (artifactId) => {
+        //                     // Get artifact by _id since metadata.artifacts contains artifact _ids
+        //                     const artifact = await ctx.db.get(artifactId);
+        //                     return artifact;
+        //                 })
+        //             );
 
-                    // Filter out any null artifacts (in case of cleanup/deletion)
-                    const validArtifacts = artifacts.filter(Boolean);
+        //             // Filter out any null artifacts (in case of cleanup/deletion)
+        //             const validArtifacts = artifacts.filter(Boolean);
 
-                    return {
-                        ...message,
-                        // Add populated artifacts field for frontend convenience
-                        artifacts: validArtifacts,
-                    };
-                }
-                return message;
-            })
-        );
+        //             return {
+        //                 ...message,
+        //                 // Add populated artifacts field for frontend convenience
+        //                 artifacts: validArtifacts,
+        //             };
+        //         }
+        //         return message;
+        //     })
+        // );
 
-        return messagesWithArtifacts;
+        return validMessages;
     },
 });
 
@@ -151,7 +194,7 @@ export const createChat = mutation({
         model: v.string(),
         projectId: v.optional(v.id("projects")),
     },
-    handler: async (ctx, args) => {
+    handler: async (ctx, args): Promise<any> => {
         const userId = await getAuthUserId(ctx);
         if (!userId) throw new Error("Not authenticated");
 
@@ -191,7 +234,7 @@ export const createChat = mutation({
         let isPasswordProtected = false;
         let passwordHash, passwordSalt;
         if (
-            preferences?.passwordSettings?.defaultLockNewChats &&
+            preferences?.passwordSettings?.useDefaultPassword &&
             preferences?.passwordSettings?.defaultPasswordHash &&
             preferences?.passwordSettings?.defaultPasswordSalt
         ) {
@@ -1074,11 +1117,8 @@ export const setPasswordProtection = mutation({
         }
 
         // Generate salt and hash password using Node.js crypto
-        const crypto = await import("node:crypto");
-        const salt = crypto.randomBytes(16).toString("hex");
-        const hash = crypto
-            .pbkdf2Sync(args.password, salt, 100000, 64, "sha512")
-            .toString("hex");
+        const salt = generateSalt();
+        const hash = hashPassword(args.password, salt);
 
         await ctx.db.patch(args.chatId, {
             isPasswordProtected: true,
@@ -1115,18 +1155,8 @@ export const removePasswordProtection = mutation({
         }
 
         // Verify current password
-        const crypto = await import("node:crypto");
-        const hash = crypto
-            .pbkdf2Sync(
-                args.currentPassword,
-                chat.passwordSalt,
-                100000,
-                64,
-                "sha512"
-            )
-            .toString("hex");
-
-        if (hash !== chat.passwordHash) {
+        const isValid = await verifyPassword(args.currentPassword, chat);
+        if (!isValid) {
             throw new Error("Invalid password");
         }
 
@@ -1166,12 +1196,7 @@ export const verifyPasswordProtection = mutation({
         }
 
         // Verify password
-        const crypto = await import("node:crypto");
-        const hash = crypto
-            .pbkdf2Sync(args.password, chat.passwordSalt, 100000, 64, "sha512")
-            .toString("hex");
-
-        const isValid = hash === chat.passwordHash;
+        const isValid = await verifyPassword(args.password, chat);
 
         if (isValid) {
             // Update last verified time for session tracking
@@ -1252,11 +1277,8 @@ export const setPasswordProtectionEnhanced = mutation({
             salt = currentPrefs.passwordSettings.defaultPasswordSalt;
         } else if (args.password) {
             // Use provided password
-            const crypto = await import("node:crypto");
-            salt = crypto.randomBytes(16).toString("hex");
-            hash = crypto
-                .pbkdf2Sync(args.password, salt, 100000, 64, "sha512")
-                .toString("hex");
+            salt = generateSalt();
+            hash = hashPassword(args.password, salt);
         } else {
             throw new Error(
                 "Either provide a password or enable useDefaultPassword"

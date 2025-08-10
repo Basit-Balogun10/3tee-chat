@@ -28,7 +28,6 @@ export const addMessage = mutation({
         model: v.optional(v.string()),
         isStreaming: v.optional(v.boolean()),
         parentMessageId: v.optional(v.id("messages")),
-        branchId: v.optional(v.string()),
         attachments: v.optional(
             v.array(
                 v.object({
@@ -45,6 +44,21 @@ export const addMessage = mutation({
                 })
             )
         ),
+        referencedLibraryItems: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("attachment"),
+                        v.literal("artifact"),
+                        v.literal("media")
+                    ),
+                    id: v.string(), // Library ID or artifact ID
+                    name: v.string(),
+                    size: v.optional(v.number()),
+                    mimeType: v.optional(v.string()),
+                })
+            )
+        ),
         commands: v.optional(v.array(v.string())),
     },
     handler: async (ctx, args) => {
@@ -53,16 +67,14 @@ export const addMessage = mutation({
 
         const chat = await ctx.db.get(args.chatId);
         if (!chat || (chat.userId !== userId && !chat.isPublic)) {
-            throw new Error("Chat not found");
+            throw new Error("Chat not found or access denied");
         }
 
         // NEW BRANCHING SYSTEM: Get the active branch
         // PHASE 2: Case 3 - When we send a new message to a chat, it's stored in the active branch's messages array
         const activeBranchId = chat.activeBranchId;
         if (!activeBranchId) {
-            throw new Error(
-                "Chat has no active branch - this should not happen"
-            );
+            throw new Error("No active branch found for chat");
         }
 
         const activeBranch = await ctx.db.get(activeBranchId);
@@ -72,7 +84,7 @@ export const addMessage = mutation({
 
         // Create the message - now belongs to a branch, not directly to chat
         const messageId = await ctx.db.insert("messages", {
-            branchId: activeBranchId, // Messages now belong to branches
+            branchId: activeBranchId,
             role: args.role,
             content: args.content,
             timestamp: Date.now(),
@@ -80,9 +92,10 @@ export const addMessage = mutation({
             isStreaming: args.isStreaming,
             parentMessageId: args.parentMessageId,
             attachments: args.attachments,
-            // Set branch relationships
-            branches: [activeBranchId], // This message appears in the active branch
-            activeBranchId: activeBranchId, // Current active branch for this message
+            referencedLibraryItems: args.referencedLibraryItems,
+            commands: args.commands,
+            branches: [activeBranchId],
+            activeBranchId: activeBranchId,
         });
 
         // Add message to the active branch's messages array
@@ -201,8 +214,6 @@ Generate only the title, nothing else:`;
                 "title" in titleResponse
             ) {
                 aiTitle = (titleResponse as any).title.trim();
-            } else if (typeof titleResponse === "string") {
-                aiTitle = titleResponse.trim();
             }
 
             // Ensure title is not empty and within limits
@@ -343,8 +354,7 @@ export const retryMessage = action({
             chatId: branch.chatId, // Get chatId from branch
             messageId: args.messageId,
             model: args.model || message.model || "gemini-2.0-flash",
-            attachments: message.attachments || [],
-            referencedArtifacts: message.referencedArtifacts || [],
+            referencedLibraryItems: message.referencedLibraryItems || [],
         });
 
         return versionId;
@@ -358,18 +368,32 @@ export const sendMessage = action({
         content: v.string(),
         model: v.string(),
         commands: v.optional(v.array(v.string())),
-        // UNIFIED: Single referencedLibraryItems parameter instead of separate attachments + referencedArtifacts
+        attachments: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("image"),
+                        v.literal("pdf"),
+                        v.literal("file"),
+                        v.literal("audio"),
+                        v.literal("video")
+                    ),
+                    storageId: v.id("_storage"),
+                    name: v.string(),
+                    size: v.number(),
+                })
+            )
+        ),
         referencedLibraryItems: v.optional(
             v.array(
                 v.object({
                     type: v.union(
                         v.literal("attachment"),
-                        v.literal("artifact"), 
+                        v.literal("artifact"),
                         v.literal("media")
                     ),
                     id: v.string(),
                     name: v.string(),
-                    description: v.optional(v.string()),
                     size: v.optional(v.number()),
                     mimeType: v.optional(v.string()),
                 })
@@ -380,24 +404,6 @@ export const sendMessage = action({
         ctx,
         args
     ): Promise<{ userMessageId: any; assistantMessageId: any }> => {
-        // UNIFIED: Convert referencedLibraryItems to legacy format for backend compatibility
-        const attachments = args.referencedLibraryItems
-            ?.filter(item => item.type === "attachment")
-            .map(item => ({
-                type: item.mimeType?.startsWith('image/') ? 'image' as const :
-                      item.mimeType === 'application/pdf' ? 'pdf' as const :
-                      item.mimeType?.startsWith('audio/') ? 'audio' as const :
-                      item.mimeType?.startsWith('video/') ? 'video' as const :
-                      'file' as const,
-                storageId: item.id as any, // Library ID used as storage ID temporarily
-                name: item.name,
-                size: item.size || 0,
-            })) || [];
-
-        const referencedArtifacts = args.referencedLibraryItems
-            ?.filter(item => item.type === "artifact")
-            .map(item => item.id) || [];
-
         // If messageId is provided, then it's a retry and we don't need to add new user message
         const userMessageId: any = args.messageId
             ? args.messageId
@@ -405,7 +411,8 @@ export const sendMessage = action({
                   chatId: args.chatId,
                   role: "user",
                   content: args.content,
-                  attachments: attachments,
+                  attachments: args.attachments,
+                  referencedLibraryItems: args.referencedLibraryItems,
                   commands: args.commands,
               });
 
@@ -421,14 +428,14 @@ export const sendMessage = action({
             }
         );
 
-        // Pass converted data to AI generation
+        // Pass unified library items to AI generation
         await ctx.runAction(internal.ai.generateStreamingResponse, {
             chatId: args.chatId,
             messageId: assistantMessageId,
             model: args.model,
             commands: args.commands,
-            attachments: attachments,
-            referencedArtifacts: referencedArtifacts,
+            attachments: args.attachments,
+            referencedLibraryItems: args.referencedLibraryItems,
         });
 
         return { userMessageId, assistantMessageId };
@@ -602,23 +609,21 @@ export const generateResponseToMessage = action({
         userMessageId: v.id("messages"),
         model: v.string(),
         commands: v.optional(v.array(v.string())),
-        attachments: v.optional(
+        referencedLibraryItems: v.optional(
             v.array(
                 v.object({
                     type: v.union(
-                        v.literal("image"),
-                        v.literal("pdf"),
-                        v.literal("file"),
-                        v.literal("audio"),
-                        v.literal("video")
+                        v.literal("attachment"),
+                        v.literal("artifact"),
+                        v.literal("media")
                     ),
-                    storageId: v.id("_storage"),
+                    id: v.string(),
                     name: v.string(),
-                    size: v.number(),
+                    size: v.optional(v.number()),
+                    mimeType: v.optional(v.string()),
                 })
             )
         ),
-        referencedArtifacts: v.optional(v.array(v.string())),
     },
     handler: async (ctx, args): Promise<any> => {
         // Create assistant message placeholder
@@ -639,8 +644,7 @@ export const generateResponseToMessage = action({
             messageId: assistantMessageId,
             model: args.model,
             commands: args.commands || [],
-            attachments: args.attachments || [],
-            referencedArtifacts: args.referencedArtifacts || [],
+            referencedLibraryItems: args.referencedLibraryItems || [],
         });
 
         return assistantMessageId;
@@ -955,21 +959,34 @@ export const editAssistantMessage = mutation({
     },
 });
 
-export const enhancePrompt = mutation({
+export const enhancePrompt = action({
     args: {
         originalPrompt: v.string(),
         context: v.optional(v.string()),
         responseMode: v.optional(v.string()),
     },
-    handler: async (ctx, args) => {
+    handler: async (
+        ctx,
+        args
+    ): Promise<{
+        enhancedPrompt: string;
+        wasEnhanced: boolean;
+        originalPrompt?: string;
+        error?: string;
+    }> => {
         const userId = await getAuthUserId(ctx);
         if (!userId) throw new Error("Not authenticated");
 
         // Get user preferences to check if prompt enhancement is enabled
-        const preferences = await ctx.db
-            .query("preferences")
-            .withIndex("by_user", (q) => q.eq("userId", userId))
-            .first();
+        // const preferences = await ctx.db
+        //     .query("preferences")
+        //     .withIndex("by_user", (q) => q.eq("userId", userId))
+        //     .first();
+
+        const preferences = await ctx.runQuery(
+            internal.preferences.getUserPreferencesInternal,
+            { userId }
+        );
 
         if (!preferences?.aiSettings?.promptEnhancement) {
             return { enhancedPrompt: args.originalPrompt, wasEnhanced: false };
@@ -981,7 +998,7 @@ export const enhancePrompt = mutation({
             "balanced";
 
         // Create enhancement instructions based on response mode
-        const modeInstructions = {
+        const modeInstructions: Record<string, string> = {
             balanced:
                 "Make this prompt clearer and more specific while maintaining balance",
             concise:
@@ -1015,17 +1032,20 @@ Return only the enhanced prompt without explanations.`;
 
         try {
             // Call AI generation to enhance the prompt
-            const result = await ctx.runAction(internal.ai.generateResponse, {
-                messages: [
-                    {
-                        role: "user" as const,
-                        content: enhancementPrompt,
-                    },
-                ],
-                model: "gemini-2.0-flash", // Use a fast model for prompt enhancement
-                temperature: 0.3, // Lower temperature for consistent enhancement
-                maxTokens: 500,
-            });
+            const result: any = await ctx.runAction(
+                internal.ai.generateResponse,
+                {
+                    messages: [
+                        {
+                            role: "user" as const,
+                            content: enhancementPrompt,
+                        },
+                    ],
+                    model: "gemini-2.0-flash", // Use a fast model for prompt enhancement
+                    temperature: 0.3, // Lower temperature for consistent enhancement
+                    // maxTokens: 500,
+                }
+            );
 
             return {
                 enhancedPrompt: result.content || args.originalPrompt,
@@ -1066,7 +1086,21 @@ export const sendMultiAIMessage = action({
                 })
             )
         ),
-        referencedArtifacts: v.optional(v.array(v.string())),
+        referencedLibraryItems: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("attachment"),
+                        v.literal("artifact"),
+                        v.literal("media")
+                    ),
+                    id: v.string(),
+                    name: v.string(),
+                    size: v.optional(v.number()),
+                    mimeType: v.optional(v.string()),
+                })
+            )
+        ),
     },
     handler: async (
         ctx,
@@ -1087,6 +1121,7 @@ export const sendMultiAIMessage = action({
             role: "user",
             content: args.content,
             attachments: args.attachments,
+            referencedLibraryItems: args.referencedLibraryItems,
             commands: args.commands,
         });
 
@@ -1121,7 +1156,7 @@ export const sendMultiAIMessage = action({
             models: args.models,
             commands: args.commands,
             attachments: args.attachments,
-            referencedArtifacts: args.referencedArtifacts,
+            referencedLibraryItems: args.referencedLibraryItems,
             responseIds: responseIds.map((r) => r.responseId),
         });
 
@@ -1249,6 +1284,24 @@ export const updatePrimaryResponse = mutation({
             ...response,
             isPrimary: response.responseId === args.responseId,
         }));
+
+        // Update message with new primary response
+        await ctx.db.patch(args.messageId, {
+            content: selectedResponse.content,
+            model: selectedResponse.model,
+            metadata: {
+                ...message.metadata,
+                multiAIResponses: {
+                    ...multiAI,
+                    responses: updatedResponses,
+                    primaryResponseId: args.responseId,
+                },
+            },
+        });
+
+        return { success: true };
+    },
+});
 
 // Delete a response from multi-AI message
 export const deleteMultiAIResponse = mutation({
@@ -1432,5 +1485,53 @@ export const updateMessageMultiAI = mutation({
         });
 
         return { success: true };
+    },
+});
+
+// Update message attachments
+export const updateMessageAttachments = mutation({
+    args: {
+        messageId: v.id("messages"),
+        attachments: v.array(
+            v.object({
+                type: v.union(
+                    v.literal("image"),
+                    v.literal("pdf"),
+                    v.literal("file"),
+                    v.literal("audio"),
+                    v.literal("video")
+                ),
+                storageId: v.id("_storage"),
+                name: v.string(),
+                size: v.number(),
+            })
+        ),
+    },
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const message = await ctx.db.get(args.messageId);
+        if (!message) throw new Error("Message not found");
+
+        // NEW BRANCHING SYSTEM: Get chat through branch relationship
+        const branch = await ctx.db.get(message.branchId);
+        if (!branch) throw new Error("Branch not found");
+
+        const chat = await ctx.db.get(branch.chatId);
+        if (!chat || (chat.userId !== userId && !chat.isPublic)) {
+            throw new Error("Unauthorized");
+        }
+
+        // Update message with new attachments
+        await ctx.db.patch(args.messageId, {
+            attachments: args.attachments,
+        });
+
+        console.log("✅ MESSAGE ATTACHMENTS UPDATED:", {
+            messageId: args.messageId,
+            attachmentCount: args.attachments.length,
+            timestamp: new Date().toISOString(),
+        });
     },
 });

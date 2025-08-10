@@ -3,11 +3,9 @@
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
-import { deepseek } from "@ai-sdk/deepseek";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { togetherai } from "@ai-sdk/togetherai";
 
-// Provider configuration - same as before but with proper typing
+// Provider configuration with proper typing
 export const PROVIDER_CONFIGS = {
     openai: {
         displayName: "OpenAI",
@@ -25,7 +23,10 @@ export const PROVIDER_CONFIGS = {
     anthropic: {
         displayName: "Anthropic",
         userKeyField: "anthropicApiKey" as const,
-        defaultModels: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"] as const,
+        defaultModels: [
+            "claude-3-5-sonnet-20241022",
+            "claude-3-5-haiku-20241022",
+        ] as const,
         supportedFeatures: {
             streaming: true,
             toolCalling: true,
@@ -37,7 +38,11 @@ export const PROVIDER_CONFIGS = {
     google: {
         displayName: "Google",
         userKeyField: "googleApiKey" as const,
-        defaultModels: ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"] as const,
+        defaultModels: [
+            "gemini-2.0-flash-exp",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+        ] as const,
         supportedFeatures: {
             streaming: true,
             toolCalling: true,
@@ -94,8 +99,8 @@ export const PROVIDER_CONFIGS = {
 // Type for provider names
 export type ProviderName = keyof typeof PROVIDER_CONFIGS;
 
-// Provider client factory using AI SDK
-class ProviderManager {
+// Modern AI SDK Provider Manager
+export class ProviderManager {
     private clients: Map<string, any> = new Map();
 
     getProvider(provider: ProviderName, apiKey?: string): any {
@@ -109,59 +114,43 @@ class ProviderManager {
 
         switch (provider) {
             case "openai":
-                client = openai({
-                    apiKey: apiKey || process.env.OPENAI_API_KEY,
-                    // Support for Azure OpenAI if no user key provided
-                    ...((!apiKey && process.env.AZURE_OPENAI_ENDPOINT)
-                        ? {
-                              baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
-                              apiVersion:
-                                  process.env.OPENAI_API_VERSION ||
-                                  "2024-07-01-preview",
-                          }
-                        : {}),
-                });
+                // Create OpenAI provider instance
+                client = openai;
                 break;
 
             case "anthropic":
-                client = anthropic({
-                    apiKey: apiKey || process.env.ANTHROPIC_API_KEY || "",
-                });
+                // Create Anthropic provider instance
+                client = anthropic;
                 break;
 
             case "google":
-                client = google({
-                    apiKey: apiKey || process.env.GOOGLE_AI_API_KEY || "",
-                    // Support for Vertex AI if no user key provided
-                    ...((!apiKey && process.env.GOOGLE_CLOUD_PROJECT) ? {
-                        project: process.env.GOOGLE_CLOUD_PROJECT,
-                        location: process.env.GOOGLE_CLOUD_LOCATION || "us-east1",
-                    } : {})
-                });
+                // Create Google provider instance
+                client = google;
                 break;
 
             case "deepseek":
-                client = deepseek({
-                    apiKey: apiKey || process.env.DEEPSEEK_API_KEY || "",
-                });
+                // For now, use OpenAI-compatible endpoint for DeepSeek
+                client = openai;
                 break;
 
             case "openrouter":
+                // Create OpenRouter provider instance
                 client = createOpenRouter({
-                    apiKey: apiKey || process.env.OPENROUTER_API_KEY,
+                    apiKey: apiKey || process.env.OPENROUTER_API_KEY || "",
                 });
                 break;
 
             case "together":
-                client = togetherai({
-                    apiKey: apiKey || process.env.TOGETHER_API_KEY || "",
-                });
+                // For now, use OpenAI-compatible endpoint for Together
+                client = openai;
                 break;
 
             default: {
-                // This should never happen due to TypeScript typing
+                // This will never be reached due to TypeScript exhaustive checking
                 const exhaustiveCheck: never = provider;
-                throw new Error(`Unsupported provider: ${exhaustiveCheck}`);
+                throw new Error(
+                    `Unsupported provider: ${String(exhaustiveCheck)}`
+                );
             }
         }
 
@@ -171,68 +160,74 @@ class ProviderManager {
 
     // Get model instance for use with AI SDK functions
     getModel(provider: ProviderName, model: string, apiKey?: string): any {
-        const providerInstance = this.getProvider(provider, apiKey);
-        return providerInstance(model);
-    }
+        try {
+            // Get the provider instance first
+            const providerInstance = this.getProvider(provider, apiKey);
 
-    // Legacy compatibility method that mimics the old callProvider interface
-    async callProvider(
-        provider: ProviderName,
-        model: string,
-        messages: any[],
-        options: {
-            apiKey?: string;
-            stream?: boolean;
-            temperature?: number;
-            maxTokens?: number;
-            attachments?: any[];
-            tools?: any;
-            toolChoice?: any;
-            stop?: string[];
-            topP?: number;
-            frequencyPenalty?: number;
-            presencePenalty?: number;
-        } = {}
-    ): Promise<any> {
-        const modelInstance = this.getModel(provider, model, options.apiKey);
-
-        // Convert old message format to simple format for AI SDK
-        const convertedMessages = messages.map(msg => ({
-            role: msg.role,
-            content: msg.content
-        }));
-
-        // Use AI SDK's generateText or streamText based on options
-        if (options.stream) {
-            const { streamText } = await import('ai');
-            return streamText({
-                model: modelInstance,
-                messages: convertedMessages,
-                temperature: options.temperature,
-                // Use maxTokens instead of maxTokens for AI SDK v5
-                ...(options.maxTokens && { maxTokens: options.maxTokens }),
-                tools: options.tools,
-                toolChoice: options.toolChoice,
-                stop: options.stop,
-                topP: options.topP,
-                frequencyPenalty: options.frequencyPenalty,
-                presencePenalty: options.presencePenalty,
-            });
-        } else {
-            const { generateText } = await import('ai');
-            return generateText({
-                model: modelInstance,
-                messages: convertedMessages,
-                temperature: options.temperature,
-                // Use maxTokens instead of maxTokens for AI SDK v5
-                ...(options.maxTokens && { maxTokens: options.maxTokens }),
-                tools: options.tools,
-                toolChoice: options.toolChoice,
-                stop: options.stop,
-                topP: options.topP,
-                frequencyPenalty: options.frequencyPenalty,
-                presencePenalty: options.presencePenalty,
-            });
+            // Return the model from the provider instance
+            if (provider === "openai") {
+                return providerInstance(model, {
+                    apiKey: apiKey || process.env.OPENAI_API_KEY,
+                    ...(model.includes("o1")
+                        ? {
+                              baseURL: "https://api.openai.com/v1",
+                          }
+                        : {}),
+                    // Support for Azure OpenAI if no user key provided
+                    ...(!apiKey && process.env.AZURE_OPENAI_ENDPOINT
+                        ? {
+                              baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${model}`,
+                              defaultQuery: {
+                                  "api-version":
+                                      process.env.OPENAI_API_VERSION ||
+                                      "2024-07-01-preview",
+                              },
+                              defaultHeaders: {
+                                  "api-key": process.env.AZURE_OPENAI_API_KEY,
+                              },
+                          }
+                        : {}),
+                });
+            } else if (provider === "anthropic") {
+                return providerInstance(model, {
+                    apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
+                });
+            } else if (provider === "google") {
+                return providerInstance(model, {
+                    apiKey: apiKey || process.env.GOOGLE_AI_API_KEY,
+                    // Support for Vertex AI if no user key provided
+                    ...(!apiKey && process.env.GOOGLE_CLOUD_PROJECT
+                        ? {
+                              project: process.env.GOOGLE_CLOUD_PROJECT,
+                              location:
+                                  process.env.GOOGLE_CLOUD_LOCATION ||
+                                  "us-east1",
+                          }
+                        : {}),
+                });
+            } else if (provider === "deepseek") {
+                return providerInstance(model, {
+                    apiKey: apiKey || process.env.DEEPSEEK_API_KEY,
+                    baseURL: "https://api.deepseek.com/v1",
+                });
+            } else if (provider === "openrouter") {
+                // OpenRouter uses the provider instance directly with model
+                return providerInstance(model);
+            } else if (provider === "together") {
+                return providerInstance(model, {
+                    apiKey: apiKey || process.env.TOGETHER_API_KEY,
+                    baseURL: "https://api.together.xyz/v1",
+                });
+            } else {
+                throw new Error(`Unsupported provider: ${provider}`);
+            }
+        } catch (error) {
+            console.error(`Failed to initialize ${provider} client:`, error);
+            throw new Error(
+                `Failed to initialize ${provider} client: ${
+                    error instanceof Error ? error.message : String(error)
+                }`
+            );
         }
     }
 
@@ -256,54 +251,65 @@ class ProviderManager {
 // Helper function to determine provider from model name
 export function getProviderFromModel(model: string): ProviderName {
     // OpenAI models
-    if (model.startsWith("gpt-") || model.startsWith("o1") || model.includes("gpt")) {
+    if (
+        model.startsWith("gpt-") ||
+        model.startsWith("o1") ||
+        model.includes("gpt")
+    ) {
         return "openai";
     }
-    
+
     // Anthropic models
     if (model.startsWith("claude-")) {
         return "anthropic";
     }
-    
+
     // Google models
     if (model.startsWith("gemini-") || model.includes("gemini")) {
         return "google";
     }
-    
+
     // DeepSeek models
     if (model.startsWith("deepseek-") || model.includes("deepseek")) {
         return "deepseek";
     }
-    
+
     // Together AI models
-    if (model.includes("llama") || model.includes("mixtral") || model.includes("together")) {
+    if (
+        model.includes("llama") ||
+        model.includes("mixtral") ||
+        model.includes("together")
+    ) {
         return "together";
     }
-    
-    // Default to OpenRouter for unknown models (backwards compatibility)
-    return "openrouter";
+
+    // OpenRouter models (with provider prefix)
+    if (model.includes("/")) {
+        return "openrouter";
+    }
+
+    // Default to OpenAI for unknown models
+    return "openai";
 }
 
-// Helper function to get user API keys (same as before)
-export async function getUserApiKeys(ctx: any): Promise<Record<string, string | undefined>> {
-    const userId = await ctx.auth.getUserIdentity();
-    if (!userId) return {};
-
+// Helper function to get user API keys
+export async function getUserApiKeys(
+    ctx: any
+): Promise<Record<string, string | undefined>> {
     try {
-        const userPreferences = await ctx.runQuery(
-            "preferences.getUserPreferences" as any
+        const userId = await ctx.auth.getUserIdentity();
+        if (!userId) return {};
+
+        const preferences = await ctx.runQuery(
+            "preferences.getUserPreferences",
+            {
+                userId: userId.subject,
+            }
         );
-        
-        return {
-            openaiApiKey: userPreferences?.apiKeys?.openaiApiKey,
-            anthropicApiKey: userPreferences?.apiKeys?.anthropicApiKey,
-            googleApiKey: userPreferences?.apiKeys?.googleApiKey,
-            deepseekApiKey: userPreferences?.apiKeys?.deepseekApiKey,
-            openrouterApiKey: userPreferences?.apiKeys?.openrouterApiKey,
-            togetherApiKey: userPreferences?.apiKeys?.togetherApiKey, // Add Together.ai support
-        };
+
+        return preferences?.apiKeys || {};
     } catch (error) {
-        console.error("Failed to get user API keys:", error);
+        console.error("Error getting user API keys:", error);
         return {};
     }
 }

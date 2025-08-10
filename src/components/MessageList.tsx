@@ -126,6 +126,18 @@ interface MessageListProps {
     onMessageHover?: (messageId: Id<"messages"> | null) => void;
     setSelectedChatId: Dispatch<SetStateAction<Id<"chats"> | null>>;
     scrollToBottom: () => void;
+    // NEW: Edit mode props to replace custom events
+    editingMessageId?: Id<"messages"> | null;
+    onStartEdit: (
+        messageId: Id<"messages">,
+        content: string,
+        attachments: Array<{
+            type: "image" | "pdf" | "file" | "audio" | "video";
+            storageId: Id<"_storage">;
+            name: string;
+            size: number;
+        }>
+    ) => void;
 }
 
 export function MessageList({
@@ -137,18 +149,10 @@ export function MessageList({
     onMessageHover,
     setSelectedChatId,
     scrollToBottom,
+    editingMessageId,
+    onStartEdit,
 }: MessageListProps) {
-    const [editingMessageId, setEditingMessageId] =
-        useState<Id<"messages"> | null>(null);
-    const [editContent, setEditContent] = useState("");
-    const [_editAttachments, setEditAttachments] = useState<
-        Array<{
-            type: "image" | "pdf" | "file" | "audio" | "video";
-            storageId: Id<"_storage">;
-            name: string;
-            size: number;
-        }>
-    >();
+    // Remove old edit states - no longer needed since we use MessageInput for editing
     // Per-message render state instead of global
     const [messageRenderModes, setMessageRenderModes] = useState<
         Record<string, "rendered" | "raw">
@@ -508,10 +512,8 @@ export function MessageList({
     }, [messages, onBranchFromMessage, handleForkChat, onRetryMessage]);
 
     const handleEdit = (message: Message) => {
-        setEditingMessageId(message._id);
-        setEditContent(message.content);
-        // Initialize edit attachments with existing message attachments
-        setEditAttachments(message.attachments || []);
+        // Use prop-based approach instead of custom events
+        onStartEdit(message._id, message.content, message.attachments || []);
 
         // Log edit initiation
         console.log("✏️ EDIT INITIATED:", {
@@ -523,46 +525,12 @@ export function MessageList({
         });
     };
 
-    const handleSaveEdit = async (isAssistantMessage = false) => {
-        if (editingMessageId && editContent.trim()) {
-            const message = messages.find((m) => m._id === editingMessageId);
+    // Remove old handleSaveEdit and handleCancelEdit functions - they're no longer needed
+    // const handleSaveEdit = async (isAssistantMessage = false) => { ... }
+    // const handleCancelEdit = () => { ... }
 
-            if (message?.role === "assistant" || isAssistantMessage) {
-                // Direct edit for AI messages (like Google AI Studio)
-                try {
-                    await editAssistantMessage({
-                        messageId: editingMessageId,
-                        newContent: editContent,
-                    });
-                    toast.success("AI message updated successfully");
-                    setEditingMessageId(null);
-                    setEditContent("");
-                } catch {
-                    toast.error("Failed to update AI message");
-                }
-            } else {
-                // Branch creation for user messages (existing behavior)
-                void onBranchFromMessage(editingMessageId, editContent);
-                toast.success("Created new conversation branch");
-                setEditingMessageId(null);
-                setEditContent("");
-            }
-        }
-    };
-
-    const handleCancelEdit = () => {
-        setEditingMessageId(null);
-        setEditContent("");
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            handleSaveEdit(true); // Create branch on Ctrl+Enter
-        } else if (e.key === "Escape") {
-            handleCancelEdit();
-        }
-    };
+    // Remove old handleKeyDown function - no longer needed
+    // const handleKeyDown = (e: React.KeyboardEvent) => { ... }
 
     const handleCopy = async (content: string) => {
         try {
@@ -1166,9 +1134,56 @@ export function MessageList({
         }
     };
 
+    // Find the editing message
+    const editingMessage = editingMessageId
+        ? messages.find((m) => m._id === editingMessageId)
+        : null;
+
+    // Scroll to editing message
+    const scrollToEditingMessage = useCallback(() => {
+        if (editingMessageId) {
+            const messageElement = document.querySelector(
+                `[data-message-id="${editingMessageId}"]`
+            );
+            if (messageElement) {
+                messageElement.scrollIntoView({
+                    behavior: "smooth",
+                    block: "center",
+                });
+            }
+        }
+    }, [editingMessageId]);
+
     return (
-        <div className="relative h-full mb-8" onClick={closeRetryModels}>
-            <div className="flex-1 flex flex-col p-4 gap-y-6 overflow-y-auto">
+        <div className="flex-1 overflow-hidden flex flex-col">
+            {/* Fixed Editing Header */}
+            {editingMessage && (
+                <div className="sticky top-0 z-30 bg-gray-900/95 backdrop-blur-lg border-b border-purple-600/30 shadow-xl">
+                    <div className="p-4">
+                        <div className="bg-purple-600/10 border border-purple-600/30 rounded-lg p-3 backdrop-blur-sm shadow-lg">
+                            <div
+                                className="text-sm text-purple-200/90 cursor-pointer hover:text-purple-100 transition-colors line-clamp-2"
+                                onClick={scrollToEditingMessage}
+                                title="Click to scroll to message"
+                            >
+                                {editingMessage.content.length > 120
+                                    ? editingMessage.content.substring(0, 120) +
+                                      "..."
+                                    : editingMessage.content}
+                            </div>
+                            <div className="text-xs text-purple-300/70 mt-2">
+                                💡 Changes will create a new conversation branch
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Messages Container */}
+            <div
+                className="flex-1 overflow-y-auto px-4 space-y-6 scrollbar-thin scrollbar-thumb-purple-600/30 scrollbar-track-transparent"
+                style={{ scrollBehavior: "smooth" }}
+            >
                 {messages.map((message, index) => {
                     const isLastAiMessage =
                         lastAiMessage && message._id === lastAiMessage._id;
@@ -1228,6 +1243,10 @@ export function MessageList({
                                         message.role === "user"
                                             ? "bg-gradient-to-r from-purple-600/30 to-pink-600/10 backdrop-blur-sm text-white"
                                             : "bg-transparent backdrop-blur-sm border border-purple-600/30 text-purple-100"
+                                    } ${
+                                        editingMessageId === message._id
+                                            ? "ring-2 ring-purple-400/50 bg-purple-600/5 border-purple-600/40"
+                                            : ""
                                     }`}
                                     onMouseEnter={() => {
                                         setHoveredMessageId(message._id);
@@ -1251,6 +1270,22 @@ export function MessageList({
                                         }
                                     }}
                                 >
+                                    {/* Edit Mode Indicator */}
+                                    {editingMessageId === message._id && (
+                                        <div className="mb-3 pb-3 border-b border-purple-600/30">
+                                            <div className="flex items-center gap-2 text-sm text-purple-300">
+                                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse"></div>
+                                                <span className="font-medium">
+                                                    This message is being edited
+                                                    below
+                                                </span>
+                                                <span className="text-purple-400/80">
+                                                    📝
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* Message Header (for assistant messages) */}
                                     {message.role === "assistant" &&
                                         message.model &&
@@ -1318,181 +1353,121 @@ export function MessageList({
                                             </div>
                                         )}
 
-                                    {/* Message Content */}
-                                    {editingMessageId === message._id ? (
-                                        <div className="space-y-3">
-                                            <div className="text-sm text-center text-orange-300 mb-2 p-3 bg-orange-600/10 rounded border border-orange-600/20">
-                                                💡 Editing this message will
-                                                create a new conversation branch
-                                                starting from this point of the
-                                                conversation. You can switch
-                                                between branches using the
-                                                navigation arrows.
-                                            </div>
-                                            <textarea
-                                                value={editContent}
-                                                onChange={(e) =>
-                                                    setEditContent(
-                                                        e.target.value
+                                    {/* Message Content - No more textarea editing */}
+                                    <div className="relative">
+                                        {renderMessageMetadata(message)}
+
+                                        {message.role === "assistant" &&
+                                        (showCarouselForMessage ===
+                                            message._id ||
+                                            !message.metadata.multiAIResponses
+                                                ?.primaryResponseId) ? (
+                                            <MultiAIResponseCarousel
+                                                messageId={message._id}
+                                                responses={
+                                                    message.metadata
+                                                        .multiAIResponses
+                                                        ?.responses || []
+                                                }
+                                                onPrimaryChange={(
+                                                    _responseId
+                                                ) => {
+                                                    setShowCarouselForMessage(
+                                                        null
+                                                    );
+                                                    toast.success(
+                                                        "Primary response updated"
+                                                    );
+                                                }}
+                                                onClose={() =>
+                                                    setShowCarouselForMessage(
+                                                        null
                                                     )
                                                 }
-                                                onKeyDown={handleKeyDown}
-                                                className="w-full min-h-[100px] p-3 bg-purple-500/10 border border-purple-400/30 rounded-lg text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-400 resize-none"
-                                                placeholder="Edit your message... (Enter to save, Ctrl+Enter to save and branch, Shift+Enter for new line)"
-                                                autoFocus
                                             />
-                                            <div className="flex justify-end">
-                                                <div className="flex items-center gap-1 text-xs text-purple-400">
-                                                    <span className="flex items-center gap-1">
-                                                        <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
-                                                            Ctrl+Enter
-                                                        </kbd>
-                                                        <span>
-                                                            to save and branch
-                                                        </span>
-                                                    </span>
-                                                    <span className="flex items-center gap-1">
-                                                        <kbd className="px-1.5 py-0.5 bg-purple-600/20 border border-purple-500/30 rounded">
-                                                            Esc
-                                                        </kbd>
-                                                        <span>to cancel</span>
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className="flex justify-end gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={handleCancelEdit}
-                                                >
-                                                    Cancel
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    onClick={() =>
-                                                        handleSaveEdit(true)
+                                        ) : (
+                                            <div
+                                                className={`${
+                                                    isCollapsed
+                                                        ? "line-clamp-1 cursor-pointer pr-4"
+                                                        : ""
+                                                }`}
+                                                onClick={() => {
+                                                    if (
+                                                        isCollapsed &&
+                                                        isLongMessage
+                                                    ) {
+                                                        toggleMessageCollapse(
+                                                            message._id
+                                                        );
                                                     }
-                                                >
-                                                    Save & Branch
-                                                </Button>
+                                                }}
+                                            >
+                                                {/* Use MarkdownRenderer for all messages, streaming or not */}
+                                                {messageRenderMode ===
+                                                "rendered" ? (
+                                                    <div className="relative">
+                                                        <MarkdownRenderer
+                                                            content={
+                                                                // Show primary response content if multi-AI, otherwise regular content
+                                                                message.metadata
+                                                                    ?.multiAIResponses
+                                                                    ? message.metadata.multiAIResponses.responses.find(
+                                                                          (r) =>
+                                                                              r.isPrimary
+                                                                      )
+                                                                          ?.content ||
+                                                                      message.content
+                                                                    : message.content ||
+                                                                      ""
+                                                            }
+                                                            className="text-purple-100"
+                                                            isStreaming={
+                                                                message.isStreaming
+                                                            }
+                                                        />
+                                                        {/* Streaming cursor */}
+                                                        {message.isStreaming && (
+                                                            <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="whitespace-pre-wrap break-words font-mono text-sm rounded-lg p-3">
+                                                        {message.metadata
+                                                            ?.multiAIResponses
+                                                            ? message.metadata.multiAIResponses.responses.find(
+                                                                  (r) =>
+                                                                      r.isPrimary
+                                                              )?.content ||
+                                                              message.content
+                                                            : message.content ||
+                                                              ""}
+                                                    </div>
+                                                )}
                                             </div>
-                                        </div>
-                                    ) : (
-                                        <div className="relative">
-                                            {renderMessageMetadata(message)}
+                                        )}
 
-                                            {message.role === "assistant" &&
-                                            (showCarouselForMessage ===
-                                                message._id ||
-                                                !message.metadata
-                                                    .multiAIResponses
-                                                    .primaryResponseId) ? (
-                                                <MultiAIResponseCarousel
-                                                    messageId={message._id}
-                                                    responses={
-                                                        message.metadata
-                                                            .multiAIResponses
-                                                            .responses
-                                                    }
-                                                    onPrimaryChange={(
-                                                        _responseId
-                                                    ) => {
-                                                        setShowCarouselForMessage(
-                                                            null
-                                                        );
-                                                        toast.success(
-                                                            "Primary response updated"
-                                                        );
-                                                    }}
-                                                    onClose={() => setShowCarouselForMessage(null)}
-                                                />
-                                            ) : (
-                                                <div
-                                                    className={`${
-                                                        isCollapsed
-                                                            ? "line-clamp-1 cursor-pointer pr-4"
-                                                            : ""
-                                                    }`}
-                                                    onClick={() => {
-                                                        if (
-                                                            isCollapsed &&
-                                                            isLongMessage
-                                                        ) {
-                                                            toggleMessageCollapse(
-                                                                message._id
-                                                            );
+                                        {/* Check if message has navigator content to decide layout */}
+
+                                        {message.attachments &&
+                                            message.attachments.length > 0 && (
+                                                <div className="mt-3">
+                                                    <AttachmentPreview
+                                                        attachments={
+                                                            message.attachments
                                                         }
-                                                    }}
-                                                >
-                                                    {/* Use MarkdownRenderer for all messages, streaming or not */}
-                                                    {messageRenderMode ===
-                                                    "rendered" ? (
-                                                        <div className="relative">
-                                                            <MarkdownRenderer
-                                                                content={
-                                                                    // Show primary response content if multi-AI, otherwise regular content
-                                                                    message
-                                                                        .metadata
-                                                                        ?.multiAIResponses
-                                                                        ? message.metadata.multiAIResponses.responses.find(
-                                                                              (
-                                                                                  r
-                                                                              ) =>
-                                                                                  r.isPrimary
-                                                                          )
-                                                                              ?.content ||
-                                                                          message.content
-                                                                        : message.content ||
-                                                                          ""
-                                                                }
-                                                                className="text-purple-100"
-                                                                isStreaming={
-                                                                    message.isStreaming
-                                                                }
-                                                            />
-                                                            {/* Streaming cursor */}
-                                                            {message.isStreaming && (
-                                                                <span className="inline-block w-2 h-4 bg-purple-400 animate-pulse ml-1 align-middle" />
-                                                            )}
-                                                        </div>
-                                                    ) : (
-                                                        <div className="whitespace-pre-wrap break-words font-mono text-sm rounded-lg p-3">
-                                                            {message.metadata
-                                                                ?.multiAIResponses
-                                                                ? message.metadata.multiAIResponses.responses.find(
-                                                                      (r) =>
-                                                                          r.isPrimary
-                                                                  )?.content ||
-                                                                  message.content
-                                                                : message.content ||
-                                                                  ""}
-                                                        </div>
-                                                    )}
+                                                        messageId={message._id}
+                                                    />
                                                 </div>
                                             )}
 
-                                            {/* Check if message has navigator content to decide layout */}
-
-                                            {message.attachments &&
-                                                message.attachments.length >
-                                                    0 && (
-                                                    <div className="mt-3">
-                                                        <AttachmentPreview
-                                                            attachments={
-                                                                message.attachments
-                                                            }
-                                                        />
-                                                    </div>
-                                                )}
-
-                                            {/* Always show navigator - simplified positioning */}
-                                            <div className="mt-2 flex items-center justify-end">
-                                                <MessageBranchNavigator
-                                                    messageId={message._id}
-                                                />
-                                            </div>
+                                        {/* Always show navigator - simplified positioning */}
+                                        <div className="mt-2 flex items-center justify-end">
+                                            <MessageBranchNavigator
+                                                messageId={message._id}
+                                            />
                                         </div>
-                                    )}
+                                    </div>
                                 </div>
 
                                 {/* Message Icons on Hover - Bottom Right */}

@@ -23,6 +23,7 @@
 🔧 Chat auto-archiving (configurable in settings, default 30 days if active)
 🔧 Notification/optional sound when model replies (customizable in settings whether to only play when tab is not focused or disable completely)
 
+
 --- PHASE 3: Advanced Search & Data Management (Enhanced data operations) ---
 ## ✅ **PHASE 3: ADVANCED SEARCH & DATA MANAGEMENT**
 ✅ Enhanced search with advanced filtering, search across all chats and messages

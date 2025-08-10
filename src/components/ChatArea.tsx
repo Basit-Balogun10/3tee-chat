@@ -48,6 +48,19 @@ export function ChatArea({
     const [hoveredMessageId, setHoveredMessageId] =
         useState<Id<"messages"> | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [editingMessage, setEditingMessage] = useState<{
+        messageId: Id<"messages">;
+        originalContent: string;
+        originalCommands: string[];
+        originalReferencedItems: Array<{
+            type: "attachment" | "artifact" | "media";
+            id: string;
+            name: string;
+            description?: string;
+            size?: number;
+            mimeType?: string;
+        }>;
+    } | null>(null);
 
     // Queries and mutations
     const chat = useQuery(api.chats.getChat, { chatId });
@@ -110,31 +123,38 @@ export function ChatArea({
 
             if (
                 !content.trim() &&
-                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
+                (!referencedLibraryItems ||
+                    referencedLibraryItems.length === 0) &&
                 activeCommands.length === 0
             )
                 return;
 
             try {
                 setIsLoading(true);
-                
-                // UNIFIED: Convert referencedLibraryItems to backend format
-                const attachments = referencedLibraryItems
-                    ?.filter(item => item.type === "attachment")
-                    .map(item => ({
-                        type: item.mimeType?.startsWith('image/') ? 'image' as const :
-                              item.mimeType === 'application/pdf' ? 'pdf' as const :
-                              item.mimeType?.startsWith('audio/') ? 'audio' as const :
-                              item.mimeType?.startsWith('video/') ? 'video' as const :
-                              'file' as const,
-                        storageId: item.id as Id<"_storage">, // Library ID used as storage ID
-                        name: item.name,
-                        size: item.size || 0,
-                    })) || [];
 
-                const referencedArtifacts = referencedLibraryItems
-                    ?.filter(item => item.type === "artifact")
-                    .map(item => item.id) || [];
+                // UNIFIED: Convert referencedLibraryItems to backend format
+                const attachments =
+                    referencedLibraryItems
+                        ?.filter((item) => item.type === "attachment")
+                        .map((item) => ({
+                            type: item.mimeType?.startsWith("image/")
+                                ? ("image" as const)
+                                : item.mimeType === "application/pdf"
+                                  ? ("pdf" as const)
+                                  : item.mimeType?.startsWith("audio/")
+                                    ? ("audio" as const)
+                                    : item.mimeType?.startsWith("video/")
+                                      ? ("video" as const)
+                                      : ("file" as const),
+                            storageId: item.id as Id<"_storage">, // Library ID used as storage ID
+                            name: item.name,
+                            size: item.size || 0,
+                        })) || [];
+
+                const referencedArtifacts =
+                    referencedLibraryItems
+                        ?.filter((item) => item.type === "artifact")
+                        .map((item) => item.id) || [];
 
                 await sendMessage({
                     chatId,
@@ -174,7 +194,8 @@ export function ChatArea({
 
             if (
                 !content.trim() &&
-                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
+                (!referencedLibraryItems ||
+                    referencedLibraryItems.length === 0) &&
                 activeCommands.length === 0
             )
                 return;
@@ -190,22 +211,28 @@ export function ChatArea({
                 setIsLoading(true);
 
                 // UNIFIED: Convert referencedLibraryItems to backend format
-                const attachments = referencedLibraryItems
-                    ?.filter(item => item.type === "attachment")
-                    .map(item => ({
-                        type: item.mimeType?.startsWith('image/') ? 'image' as const :
-                              item.mimeType === 'application/pdf' ? 'pdf' as const :
-                              item.mimeType?.startsWith('audio/') ? 'audio' as const :
-                              item.mimeType?.startsWith('video/') ? 'video' as const :
-                              'file' as const,
-                        storageId: item.id as Id<"_storage">, // Library ID used as storage ID
-                        name: item.name,
-                        size: item.size || 0,
-                    })) || [];
+                const attachments =
+                    referencedLibraryItems
+                        ?.filter((item) => item.type === "attachment")
+                        .map((item) => ({
+                            type: item.mimeType?.startsWith("image/")
+                                ? ("image" as const)
+                                : item.mimeType === "application/pdf"
+                                  ? ("pdf" as const)
+                                  : item.mimeType?.startsWith("audio/")
+                                    ? ("audio" as const)
+                                    : item.mimeType?.startsWith("video/")
+                                      ? ("video" as const)
+                                      : ("file" as const),
+                            storageId: item.id as Id<"_storage">, // Library ID used as storage ID
+                            name: item.name,
+                            size: item.size || 0,
+                        })) || [];
 
-                const referencedArtifacts = referencedLibraryItems
-                    ?.filter(item => item.type === "artifact")
-                    .map(item => item.id) || [];
+                const referencedArtifacts =
+                    referencedLibraryItems
+                        ?.filter((item) => item.type === "artifact")
+                        .map((item) => item.id) || [];
 
                 await sendMultiAIMessage({
                     chatId,
@@ -673,6 +700,70 @@ export function ChatArea({
         handleBranchNavigation,
     ]);
 
+    // Edit handlers
+    const handleStartEdit = useCallback(
+        (
+            messageId: Id<"messages">,
+            content: string,
+            commands: string[] = [],
+            referencedItems: any[] = []
+        ) => {
+            setEditingMessage({
+                messageId,
+                originalContent: content,
+                originalCommands: commands,
+                originalReferencedItems: referencedItems,
+            });
+
+            // Pre-populate MessageInput with edit content
+            setMessageInput(content);
+            setActiveCommands(commands);
+            // Set referenced items appropriately
+
+            // Focus the MessageInput
+            setTimeout(() => {
+                const messageInput = document.querySelector("textarea");
+                messageInput?.focus();
+            }, 100);
+        },
+        [setMessageInput, setActiveCommands]
+    );
+
+    const handleSaveEdit = useCallback(
+        async (content: string, referencedItems?: any[]) => {
+            if (!editingMessage) return;
+
+            try {
+                // Call the existing edit handler or create a new branch
+                await handleBranchFromMessage(
+                    editingMessage.messageId,
+                    content
+                );
+
+                // Clear edit state
+                setEditingMessage(null);
+                setMessageInput("");
+                setActiveCommands([]);
+
+                toast.success("Message updated successfully");
+            } catch (error) {
+                toast.error("Failed to update message");
+            }
+        },
+        [
+            editingMessage,
+            handleBranchFromMessage,
+            setMessageInput,
+            setActiveCommands,
+        ]
+    );
+
+    const handleCancelEdit = useCallback(() => {
+        setEditingMessage(null);
+        setMessageInput("");
+        setActiveCommands([]);
+    }, [setMessageInput, setActiveCommands]);
+
     return (
         <PasswordGateway chatId={chatId}>
             <div className="flex flex-col w-4/5 mx-auto h-full">
@@ -687,6 +778,8 @@ export function ChatArea({
                         onMessageHover={setHoveredMessageId}
                         setSelectedChatId={setSelectedChatId}
                         scrollToBottom={scrollToBottom}
+                        editingMessageId={editingMessage?.messageId}
+                        onStartEdit={handleStartEdit}
                     />
                 </div>
 
@@ -715,9 +808,22 @@ export function ChatArea({
                         sidebarOpen={sidebarOpen}
                         chatId={chatId}
                         onSendMultiAIMessage={handleSendMultiAIMessage}
+                        editMode={
+                            editingMessage
+                                ? {
+                                      isEditing: true,
+                                      messageId: editingMessage.messageId,
+                                      originalContent:
+                                          editingMessage.originalContent,
+                                      onSave: handleSaveEdit,
+                                      onCancel: handleCancelEdit,
+                                  }
+                                : undefined
+                        }
                     />
                 )}
+                {/* </div> */}
             </div>
         </PasswordGateway>
-    );
+    )
 }

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Id } from "./_generated/dataModel";
 
@@ -10,20 +10,24 @@ import { Id } from "./_generated/dataModel";
 // Get user's attachment library with filtering and sorting
 export const getAttachmentLibrary = query({
     args: {
-        type: v.optional(v.union(
-            v.literal("all"),
-            v.literal("image"),
-            v.literal("pdf"),
-            v.literal("file"),
-            v.literal("audio"),
-            v.literal("video")
-        )),
-        sortBy: v.optional(v.union(
-            v.literal("recent"),
-            v.literal("name"),
-            v.literal("size"),
-            v.literal("usage")
-        )),
+        type: v.optional(
+            v.union(
+                v.literal("all"),
+                v.literal("image"),
+                v.literal("pdf"),
+                v.literal("file"),
+                v.literal("audio"),
+                v.literal("video")
+            )
+        ),
+        sortBy: v.optional(
+            v.union(
+                v.literal("recent"),
+                v.literal("name"),
+                v.literal("size"),
+                v.literal("usage")
+            )
+        ),
         favoriteOnly: v.optional(v.boolean()),
         searchQuery: v.optional(v.string()),
     },
@@ -39,8 +43,18 @@ export const getAttachmentLibrary = query({
         if (args.type && args.type !== "all") {
             query = ctx.db
                 .query("attachmentLibrary")
-                .withIndex("by_user_type", (q) => 
-                    q.eq("userId", userId).eq("type", args.type)
+                .withIndex("by_user_type", (q) =>
+                    q
+                        .eq("userId", userId)
+                        .eq(
+                            "type",
+                            args.type as
+                                | "image"
+                                | "pdf"
+                                | "file"
+                                | "audio"
+                                | "video"
+                        )
                 );
         }
 
@@ -48,7 +62,7 @@ export const getAttachmentLibrary = query({
         if (args.favoriteOnly) {
             query = ctx.db
                 .query("attachmentLibrary")
-                .withIndex("by_user_favorited", (q) => 
+                .withIndex("by_user_favorited", (q) =>
                     q.eq("userId", userId).eq("isFavorited", true)
                 );
         }
@@ -58,10 +72,17 @@ export const getAttachmentLibrary = query({
         // Apply search filter
         if (args.searchQuery) {
             const searchLower = args.searchQuery.toLowerCase();
-            attachments = attachments.filter(attachment => 
-                (attachment.displayName || attachment.originalName).toLowerCase().includes(searchLower) ||
-                attachment.description?.toLowerCase().includes(searchLower) ||
-                attachment.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+            attachments = attachments.filter(
+                (attachment) =>
+                    (attachment.displayName || attachment.originalName)
+                        .toLowerCase()
+                        .includes(searchLower) ||
+                    attachment.description
+                        ?.toLowerCase()
+                        .includes(searchLower) ||
+                    attachment.tags?.some((tag) =>
+                        tag.toLowerCase().includes(searchLower)
+                    )
             );
         }
 
@@ -70,7 +91,9 @@ export const getAttachmentLibrary = query({
         attachments.sort((a, b) => {
             switch (sortBy) {
                 case "name":
-                    return (a.displayName || a.originalName).localeCompare(b.displayName || b.originalName);
+                    return (a.displayName || a.originalName).localeCompare(
+                        b.displayName || b.originalName
+                    );
                 case "size":
                     return b.size - a.size;
                 case "usage":
@@ -108,7 +131,7 @@ export const addToAttachmentLibrary = mutation({
         if (!userId) throw new Error("Not authenticated");
 
         const now = Date.now();
-        
+
         return await ctx.db.insert("attachmentLibrary", {
             userId,
             storageId: args.storageId,
@@ -146,10 +169,13 @@ export const updateAttachmentLibraryItem = mutation({
         }
 
         const updates: any = { updatedAt: Date.now() };
-        if (args.displayName !== undefined) updates.displayName = args.displayName;
-        if (args.description !== undefined) updates.description = args.description;
+        if (args.displayName !== undefined)
+            updates.displayName = args.displayName;
+        if (args.description !== undefined)
+            updates.description = args.description;
         if (args.tags !== undefined) updates.tags = args.tags;
-        if (args.isFavorited !== undefined) updates.isFavorited = args.isFavorited;
+        if (args.isFavorited !== undefined)
+            updates.isFavorited = args.isFavorited;
 
         await ctx.db.patch(args.attachmentId, updates);
     },
@@ -169,21 +195,9 @@ export const deleteAttachmentLibraryItem = mutation({
             throw new Error("Attachment not found or unauthorized");
         }
 
-        // Remove from all active chat attachments
-        const activeAttachments = await ctx.db
-            .query("chatActiveAttachments")
-            .withIndex("by_attachment_library", (q) => 
-                q.eq("attachmentLibraryId", args.attachmentId)
-            )
-            .collect();
-
-        for (const active of activeAttachments) {
-            await ctx.db.delete(active._id);
-        }
-
         // Delete the storage file
         await ctx.storage.delete(attachment.storageId);
-        
+
         // Delete the library entry
         await ctx.db.delete(args.attachmentId);
     },
@@ -196,17 +210,17 @@ export const deleteAttachmentLibraryItem = mutation({
 // Get user's media library
 export const getMediaLibrary = query({
     args: {
-        type: v.optional(v.union(
-            v.literal("all"),
-            v.literal("image"),
-            v.literal("video"),
-            v.literal("audio")
-        )),
-        sortBy: v.optional(v.union(
-            v.literal("recent"),
-            v.literal("name"),
-            v.literal("usage")
-        )),
+        type: v.optional(
+            v.union(
+                v.literal("all"),
+                v.literal("image"),
+                v.literal("video"),
+                v.literal("audio")
+            )
+        ),
+        sortBy: v.optional(
+            v.union(v.literal("recent"), v.literal("name"), v.literal("usage"))
+        ),
         favoriteOnly: v.optional(v.boolean()),
         searchQuery: v.optional(v.string()),
     },
@@ -222,8 +236,10 @@ export const getMediaLibrary = query({
         if (args.type && args.type !== "all") {
             query = ctx.db
                 .query("mediaLibrary")
-                .withIndex("by_user_type", (q) => 
-                    q.eq("userId", userId).eq("type", args.type)
+                .withIndex("by_user_type", (q) =>
+                    q
+                        .eq("userId", userId)
+                        .eq("type", args.type as "image" | "video" | "audio")
                 );
         }
 
@@ -231,7 +247,7 @@ export const getMediaLibrary = query({
         if (args.favoriteOnly) {
             query = ctx.db
                 .query("mediaLibrary")
-                .withIndex("by_user_favorited", (q) => 
+                .withIndex("by_user_favorited", (q) =>
                     q.eq("userId", userId).eq("isFavorited", true)
                 );
         }
@@ -241,11 +257,14 @@ export const getMediaLibrary = query({
         // Apply search filter
         if (args.searchQuery) {
             const searchLower = args.searchQuery.toLowerCase();
-            media = media.filter(item => 
-                item.title.toLowerCase().includes(searchLower) ||
-                item.description?.toLowerCase().includes(searchLower) ||
-                item.prompt?.toLowerCase().includes(searchLower) ||
-                item.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+            media = media.filter(
+                (item) =>
+                    item.title.toLowerCase().includes(searchLower) ||
+                    item.description?.toLowerCase().includes(searchLower) ||
+                    item.prompt?.toLowerCase().includes(searchLower) ||
+                    item.tags?.some((tag) =>
+                        tag.toLowerCase().includes(searchLower)
+                    )
             );
         }
 
@@ -294,7 +313,7 @@ export const addToMediaLibrary = mutation({
         if (!userId) throw new Error("Not authenticated");
 
         const now = Date.now();
-        
+
         return await ctx.db.insert("mediaLibrary", {
             userId,
             type: args.type,
@@ -340,9 +359,11 @@ export const updateMediaLibraryItem = mutation({
 
         const updates: any = { updatedAt: Date.now() };
         if (args.title !== undefined) updates.title = args.title;
-        if (args.description !== undefined) updates.description = args.description;
+        if (args.description !== undefined)
+            updates.description = args.description;
         if (args.tags !== undefined) updates.tags = args.tags;
-        if (args.isFavorited !== undefined) updates.isFavorited = args.isFavorited;
+        if (args.isFavorited !== undefined)
+            updates.isFavorited = args.isFavorited;
 
         await ctx.db.patch(args.mediaId, updates);
     },
@@ -362,18 +383,6 @@ export const deleteMediaLibraryItem = mutation({
             throw new Error("Media not found or unauthorized");
         }
 
-        // Remove from all active chat attachments
-        const activeAttachments = await ctx.db
-            .query("chatActiveAttachments")
-            .withIndex("by_media_library", (q) => 
-                q.eq("mediaLibraryId", args.mediaId)
-            )
-            .collect();
-
-        for (const active of activeAttachments) {
-            await ctx.db.delete(active._id);
-        }
-
         // Delete storage files if they exist
         if (media.storageId) {
             await ctx.storage.delete(media.storageId);
@@ -381,7 +390,7 @@ export const deleteMediaLibraryItem = mutation({
         if (media.thumbnailStorageId) {
             await ctx.storage.delete(media.thumbnailStorageId);
         }
-        
+
         // Delete the library entry
         await ctx.db.delete(args.mediaId);
     },
@@ -394,12 +403,14 @@ export const deleteMediaLibraryItem = mutation({
 // Get user's artifact library (enhanced existing artifacts)
 export const getArtifactLibrary = query({
     args: {
-        sortBy: v.optional(v.union(
-            v.literal("recent"),
-            v.literal("name"),
-            v.literal("usage"),
-            v.literal("language")
-        )),
+        sortBy: v.optional(
+            v.union(
+                v.literal("recent"),
+                v.literal("name"),
+                v.literal("usage"),
+                v.literal("language")
+            )
+        ),
         favoriteOnly: v.optional(v.boolean()),
         searchQuery: v.optional(v.string()),
         language: v.optional(v.string()),
@@ -416,7 +427,7 @@ export const getArtifactLibrary = query({
         if (args.favoriteOnly) {
             query = ctx.db
                 .query("artifacts")
-                .withIndex("by_user_favorited", (q) => 
+                .withIndex("by_user_favorited", (q) =>
                     q.eq("userId", userId).eq("isFavorited", true)
                 );
         }
@@ -425,16 +436,21 @@ export const getArtifactLibrary = query({
 
         // Apply filters
         if (args.language) {
-            artifacts = artifacts.filter(artifact => artifact.language === args.language);
+            artifacts = artifacts.filter(
+                (artifact) => artifact.language === args.language
+            );
         }
 
         if (args.searchQuery) {
             const searchLower = args.searchQuery.toLowerCase();
-            artifacts = artifacts.filter(artifact => 
-                artifact.filename.toLowerCase().includes(searchLower) ||
-                artifact.description?.toLowerCase().includes(searchLower) ||
-                artifact.content.toLowerCase().includes(searchLower) ||
-                artifact.tags?.some(tag => tag.toLowerCase().includes(searchLower))
+            artifacts = artifacts.filter(
+                (artifact) =>
+                    artifact.filename.toLowerCase().includes(searchLower) ||
+                    artifact.description?.toLowerCase().includes(searchLower) ||
+                    artifact.content.toLowerCase().includes(searchLower) ||
+                    artifact.tags?.some((tag) =>
+                        tag.toLowerCase().includes(searchLower)
+                    )
             );
         }
 
@@ -473,7 +489,9 @@ export const updateArtifactLibraryItem = mutation({
 
         const artifact = await ctx.db
             .query("artifacts")
-            .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.artifactId))
+            .withIndex("by_artifact_id", (q) =>
+                q.eq("artifactId", args.artifactId)
+            )
             .first();
 
         if (!artifact || artifact.userId !== userId) {
@@ -482,191 +500,13 @@ export const updateArtifactLibraryItem = mutation({
 
         const updates: any = { updatedAt: Date.now() };
         if (args.filename !== undefined) updates.filename = args.filename;
-        if (args.description !== undefined) updates.description = args.description;
+        if (args.description !== undefined)
+            updates.description = args.description;
         if (args.tags !== undefined) updates.tags = args.tags;
-        if (args.isFavorited !== undefined) updates.isFavorited = args.isFavorited;
+        if (args.isFavorited !== undefined)
+            updates.isFavorited = args.isFavorited;
 
         await ctx.db.patch(artifact._id, updates);
-    },
-});
-
-// ========================
-// CHAT ACTIVE ATTACHMENTS MANAGEMENT
-// ========================
-
-// Get active attachments for a chat
-export const getChatActiveAttachments = query({
-    args: {
-        chatId: v.id("chats"),
-    },
-    handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) return [];
-
-        const activeAttachments = await ctx.db
-            .query("chatActiveAttachments")
-            .withIndex("by_chat_active", (q) => 
-                q.eq("chatId", args.chatId).eq("isActive", true)
-            )
-            .collect();
-
-        // Sort by order
-        activeAttachments.sort((a, b) => (a.order || 0) - (b.order || 0));
-
-        // Populate full attachment data
-        const populatedAttachments = await Promise.all(
-            activeAttachments.map(async (active) => {
-                let fullData = null;
-
-                if (active.attachmentLibraryId) {
-                    fullData = await ctx.db.get(active.attachmentLibraryId);
-                } else if (active.artifactId) {
-                    fullData = await ctx.db
-                        .query("artifacts")
-                        .withIndex("by_artifact_id", (q) => q.eq("artifactId", active.artifactId))
-                        .first();
-                } else if (active.mediaLibraryId) {
-                    fullData = await ctx.db.get(active.mediaLibraryId);
-                }
-
-                return {
-                    ...active,
-                    fullData,
-                };
-            })
-        );
-
-        return populatedAttachments.filter(item => item.fullData !== null);
-    },
-});
-
-// Add item to chat's active attachments
-export const addToChatActiveAttachments = mutation({
-    args: {
-        chatId: v.id("chats"),
-        type: v.union(
-            v.literal("attachment"),
-            v.literal("artifact"),
-            v.literal("media")
-        ),
-        attachmentLibraryId: v.optional(v.id("attachmentLibrary")),
-        artifactId: v.optional(v.string()),
-        mediaLibraryId: v.optional(v.id("mediaLibrary")),
-        name: v.string(),
-    },
-    handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) throw new Error("Not authenticated");
-
-        // Verify chat access
-        const chat = await ctx.db.get(args.chatId);
-        if (!chat || (chat.userId !== userId && !chat.isPublic)) {
-            throw new Error("Chat not found or unauthorized");
-        }
-
-        const now = Date.now();
-
-        // Check if already active
-        const existing = await ctx.db
-            .query("chatActiveAttachments")
-            .withIndex("by_chat", (q) => q.eq("chatId", args.chatId))
-            .filter((q) => {
-                if (args.attachmentLibraryId) {
-                    return q.eq(q.field("attachmentLibraryId"), args.attachmentLibraryId);
-                } else if (args.artifactId) {
-                    return q.eq(q.field("artifactId"), args.artifactId);
-                } else if (args.mediaLibraryId) {
-                    return q.eq(q.field("mediaLibraryId"), args.mediaLibraryId);
-                }
-                return false;
-            })
-            .first();
-
-        if (existing) {
-            // Reactivate if exists but inactive
-            if (!existing.isActive) {
-                await ctx.db.patch(existing._id, {
-                    isActive: true,
-                    lastUsedAt: now,
-                });
-            }
-            return existing._id;
-        }
-
-        // Get next order position
-        const maxOrder = await ctx.db
-            .query("chatActiveAttachments")
-            .withIndex("by_chat", (q) => q.eq("chatId", args.chatId))
-            .collect()
-            .then(items => Math.max(0, ...items.map(item => item.order || 0)));
-
-        return await ctx.db.insert("chatActiveAttachments", {
-            chatId: args.chatId,
-            userId,
-            type: args.type,
-            attachmentLibraryId: args.attachmentLibraryId,
-            artifactId: args.artifactId,
-            mediaLibraryId: args.mediaLibraryId,
-            name: args.name,
-            isActive: true,
-            addedAt: now,
-            order: maxOrder + 1,
-        });
-    },
-});
-
-// Remove item from chat's active attachments
-export const removeFromChatActiveAttachments = mutation({
-    args: {
-        chatId: v.id("chats"),
-        activeAttachmentId: v.id("chatActiveAttachments"),
-    },
-    handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) throw new Error("Not authenticated");
-
-        const activeAttachment = await ctx.db.get(args.activeAttachmentId);
-        if (!activeAttachment || 
-            activeAttachment.chatId !== args.chatId || 
-            activeAttachment.userId !== userId) {
-            throw new Error("Active attachment not found or unauthorized");
-        }
-
-        await ctx.db.patch(args.activeAttachmentId, {
-            isActive: false,
-        });
-    },
-});
-
-// Reorder chat active attachments
-export const reorderChatActiveAttachments = mutation({
-    args: {
-        chatId: v.id("chats"),
-        orderedIds: v.array(v.id("chatActiveAttachments")),
-    },
-    handler: async (ctx, args) => {
-        const userId = await getAuthUserId(ctx);
-        if (!userId) throw new Error("Not authenticated");
-
-        // Verify all attachments belong to user and chat
-        const attachments = await Promise.all(
-            args.orderedIds.map(id => ctx.db.get(id))
-        );
-
-        for (const attachment of attachments) {
-            if (!attachment || 
-                attachment.chatId !== args.chatId || 
-                attachment.userId !== userId) {
-                throw new Error("Unauthorized attachment in reorder");
-            }
-        }
-
-        // Update order
-        for (let i = 0; i < args.orderedIds.length; i++) {
-            await ctx.db.patch(args.orderedIds[i], {
-                order: i + 1,
-            });
-        }
     },
 });
 
@@ -674,17 +514,22 @@ export const reorderChatActiveAttachments = mutation({
 // UNIFIED LIBRARY SEARCH FOR "#" COMMAND
 // ========================
 
-// Search across all library types for "#" command integration
+// PRIORITY 4: Advanced Library Search - Enhanced intelligent search and filtering
 export const searchLibraryItems = query({
     args: {
         query: v.optional(v.string()),
-        type: v.optional(v.union(
-            v.literal("all"),
-            v.literal("attachment"),
-            v.literal("artifact"),
-            v.literal("media")
-        )),
+        type: v.optional(
+            v.union(
+                v.literal("all"),
+                v.literal("attachment"),
+                v.literal("artifact"),
+                v.literal("media")
+            )
+        ),
         limit: v.optional(v.number()),
+        chatId: v.optional(v.id("chats")), // For contextual suggestions
+        includeRecentlyUsed: v.optional(v.boolean()),
+        includePopular: v.optional(v.boolean()),
     },
     handler: async (ctx, args) => {
         const userId = await getAuthUserId(ctx);
@@ -694,8 +539,168 @@ export const searchLibraryItems = query({
         const limit = args.limit || 20;
         const type = args.type || "all";
 
-        // Search results array
-        let results: any[] = [];
+        // Search results array with relevance scoring
+        let results: Array<{
+            type: "attachment" | "artifact" | "media";
+            id: string;
+            name: string;
+            filename: string;
+            description?: string;
+            createdAt: number;
+            updatedAt: number;
+            tags?: string[];
+            relevanceScore: number;
+            isRecentlyUsed?: boolean;
+            isPopular?: boolean;
+            contextualMatch?: boolean;
+            [key: string]: any;
+        }> = [];
+
+        // Get contextual information if chatId provided
+        let chatContext: string[] = [];
+        const recentlyUsedInChat: string[] = [];
+
+        if (args.chatId) {
+            try {
+                // Get recent messages from chat for context
+                const chat = await ctx.db.get(args.chatId);
+                if (chat && chat.activeBranchId) {
+                    const branch = await ctx.db.get(chat.activeBranchId);
+                    if (branch) {
+                        const recentMessageIds = branch.messages.slice(-10); // Last 10 messages
+                        const messages = await Promise.all(
+                            recentMessageIds.map((id) => ctx.db.get(id))
+                        );
+
+                        // Extract keywords from recent messages for contextual matching
+                        chatContext = messages
+                            .filter((m) => m && m.content)
+                            .flatMap(
+                                (m) =>
+                                    m!.content
+                                        .toLowerCase()
+                                        .split(/\s+/)
+                                        .filter((word) => word.length > 3)
+                                        .slice(0, 5) // Top 5 words per message
+                            );
+
+                        // Get recently used items in this chat
+                        messages.forEach((m) => {
+                            if (m?.referencedLibraryItems) {
+                                recentlyUsedInChat.push(
+                                    ...m.referencedLibraryItems.map(
+                                        (item) => item.id
+                                    )
+                                );
+                            }
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error("Failed to get chat context:", error);
+            }
+        }
+
+        // Helper function to calculate relevance score
+        const calculateRelevanceScore = (
+            item: any,
+            _itemType: string
+        ): number => {
+            let score = 0;
+
+            // Base score from usage
+            const usageCount = item.usageCount || item.referenceCount || 0;
+            score += Math.min(usageCount * 2, 20); // Max 20 points from usage
+
+            // Recency boost (more recent = higher score)
+            const daysSinceUpdate =
+                (Date.now() - item.updatedAt) / (1000 * 60 * 60 * 24);
+            score += Math.max(10 - daysSinceUpdate, 0); // Max 10 points for very recent items
+
+            // Search query matching
+            if (searchQuery) {
+                const name =
+                    item.originalName || item.filename || item.title || "";
+                const description = item.description || "";
+                const tags = (item.tags || []).join(" ");
+                const allText = `${name} ${description} ${tags}`.toLowerCase();
+
+                // Exact name match gets highest score
+                if (name.toLowerCase() === searchQuery) {
+                    score += 50;
+                } else if (name.toLowerCase().includes(searchQuery)) {
+                    score += 30;
+                } else if (description.toLowerCase().includes(searchQuery)) {
+                    score += 20;
+                } else if (tags.toLowerCase().includes(searchQuery)) {
+                    score += 15;
+                } else if (allText.includes(searchQuery)) {
+                    score += 10;
+                }
+
+                // Fuzzy matching for typos (simple implementation)
+                const searchWords = searchQuery.split(" ");
+                const textWords = allText.split(" ");
+                let fuzzyMatches = 0;
+                searchWords.forEach((searchWord) => {
+                    textWords.forEach((textWord) => {
+                        if (
+                            textWord.includes(searchWord) ||
+                            searchWord.includes(textWord)
+                        ) {
+                            fuzzyMatches++;
+                        }
+                    });
+                });
+                score += fuzzyMatches * 2;
+            } else {
+                // No search query - boost popular and recent items
+                score += usageCount > 5 ? 15 : 0;
+                score += daysSinceUpdate < 7 ? 10 : 0;
+            }
+
+            // Contextual relevance (if chat context available)
+            let contextualMatch = false;
+            let isRecentlyUsed = false;
+            let isPopular = false;
+
+            if (chatContext.length > 0) {
+                const itemText =
+                    `${item.originalName || item.filename || item.title} ${item.description || ""}`.toLowerCase();
+                const contextMatches = chatContext.filter((word) =>
+                    itemText.includes(word)
+                ).length;
+                score += contextMatches * 5; // 5 points per context match
+
+                if (contextMatches > 0) {
+                    contextualMatch = true;
+                }
+            }
+
+            // Recently used in this chat gets boost
+            if (recentlyUsedInChat.includes(item._id || item.artifactId)) {
+                score += 25;
+                isRecentlyUsed = true;
+            }
+
+            // Favorites get boost
+            if (item.isFavorited) {
+                score += 15;
+            }
+
+            // Popular items boost
+            if (usageCount > 10) {
+                isPopular = true;
+                score += 10;
+            }
+
+            // Store flags on item for later use
+            item.contextualMatch = contextualMatch;
+            item.isRecentlyUsed = isRecentlyUsed;
+            item.isPopular = isPopular;
+
+            return score;
+        };
 
         // 1. Search attachmentLibrary
         if (type === "all" || type === "attachment") {
@@ -705,28 +710,37 @@ export const searchLibraryItems = query({
                 .collect();
 
             const filteredAttachments = attachments
-                .filter(item => {
+                .filter((item) => {
                     if (!searchQuery) return true;
-                    return (
-                        item.originalName.toLowerCase().includes(searchQuery) ||
-                        item.displayName?.toLowerCase().includes(searchQuery) ||
-                        item.description?.toLowerCase().includes(searchQuery) ||
-                        item.tags?.some(tag => tag.toLowerCase().includes(searchQuery))
-                    );
+                    const searchableText =
+                        `${item.originalName} ${item.displayName || ""} ${item.description || ""} ${(item.tags || []).join(" ")}`.toLowerCase();
+                    return searchableText.includes(searchQuery);
                 })
-                .map(item => ({
-                    type: "attachment" as const,
-                    id: item._id,
-                    name: item.displayName || item.originalName,
-                    filename: item.displayName || item.originalName,
-                    description: item.description || `${item.type} file`,
-                    createdAt: item.createdAt,
-                    updatedAt: item.updatedAt,
-                    tags: item.tags,
-                    size: item.size,
-                    mimeType: item.mimeType,
-                    usageCount: item.usageCount || 0,
-                }));
+                .map((item) => {
+                    const relevanceScore = calculateRelevanceScore(
+                        item,
+                        "attachment"
+                    );
+
+                    return {
+                        type: "attachment" as const,
+                        id: item._id,
+                        name: item.displayName || item.originalName,
+                        filename: item.displayName || item.originalName,
+                        description: item.description || `${item.type} file`,
+                        createdAt: item.createdAt,
+                        updatedAt: item.updatedAt,
+                        tags: item.tags,
+                        size: item.size,
+                        mimeType: item.mimeType,
+                        fileType: item.type,
+                        usageCount: item.usageCount || 0,
+                        relevanceScore,
+                        isRecentlyUsed: (item as any).isRecentlyUsed,
+                        isPopular: (item as any).isPopular,
+                        contextualMatch: (item as any).contextualMatch,
+                    };
+                });
 
             results.push(...filteredAttachments);
         }
@@ -739,28 +753,38 @@ export const searchLibraryItems = query({
                 .collect();
 
             const filteredArtifacts = artifacts
-                .filter(item => {
+                .filter((item) => {
                     if (!searchQuery) return true;
-                    return (
-                        item.filename.toLowerCase().includes(searchQuery) ||
-                        item.description?.toLowerCase().includes(searchQuery) ||
-                        item.language.toLowerCase().includes(searchQuery) ||
-                        item.tags?.some(tag => tag.toLowerCase().includes(searchQuery))
-                    );
+                    const searchableText =
+                        `${item.filename} ${item.description || ""} ${item.language} ${(item.tags || []).join(" ")} ${item.content.substring(0, 200)}`.toLowerCase();
+                    return searchableText.includes(searchQuery);
                 })
-                .map(item => ({
-                    type: "artifact" as const,
-                    id: item.artifactId,
-                    name: item.filename,
-                    filename: item.filename,
-                    description: item.description || `${item.language} file`,
-                    createdAt: item.createdAt,
-                    updatedAt: item.updatedAt,
-                    tags: item.tags,
-                    language: item.language,
-                    usageCount: item.usageCount || 0,
-                    referenceCount: item.referenceCount || 0,
-                }));
+                .map((item) => {
+                    const relevanceScore = calculateRelevanceScore(
+                        item,
+                        "artifact"
+                    );
+
+                    return {
+                        type: "artifact" as const,
+                        id: item.artifactId,
+                        name: item.filename,
+                        filename: item.filename,
+                        description:
+                            item.description || `${item.language} file`,
+                        createdAt: item.createdAt,
+                        updatedAt: item.updatedAt,
+                        tags: item.tags,
+                        language: item.language,
+                        usageCount: item.usageCount || 0,
+                        referenceCount: item.referenceCount || 0,
+                        relevanceScore,
+                        isRecentlyUsed: (item as any).isRecentlyUsed,
+                        isPopular: (item as any).isPopular,
+                        contextualMatch: (item as any).contextualMatch,
+                        contentPreview: item.content.substring(0, 100) + "...",
+                    };
+                });
 
             results.push(...filteredArtifacts);
         }
@@ -773,45 +797,77 @@ export const searchLibraryItems = query({
                 .collect();
 
             const filteredMedia = mediaItems
-                .filter(item => {
+                .filter((item) => {
                     if (!searchQuery) return true;
-                    return (
-                        item.title.toLowerCase().includes(searchQuery) ||
-                        item.description?.toLowerCase().includes(searchQuery) ||
-                        item.prompt?.toLowerCase().includes(searchQuery) ||
-                        item.tags?.some(tag => tag.toLowerCase().includes(searchQuery))
-                    );
+                    const searchableText =
+                        `${item.title} ${item.description || ""} ${item.prompt || ""} ${(item.tags || []).join(" ")}`.toLowerCase();
+                    return searchableText.includes(searchQuery);
                 })
-                .map(item => ({
-                    type: "media" as const,
-                    id: item._id,
-                    name: item.title,
-                    filename: item.title,
-                    description: item.description || `${item.type} media`,
-                    createdAt: item.createdAt,
-                    updatedAt: item.updatedAt,
-                    tags: item.tags,
-                    mediaType: item.type,
-                    referenceCount: item.referenceCount || 0,
-                }));
+                .map((item) => {
+                    const relevanceScore = calculateRelevanceScore(
+                        item,
+                        "media"
+                    );
+
+                    return {
+                        type: "media" as const,
+                        id: item._id,
+                        name: item.title,
+                        filename: item.title,
+                        description: item.description || `${item.type} media`,
+                        createdAt: item.createdAt,
+                        updatedAt: item.updatedAt,
+                        tags: item.tags,
+                        mediaType: item.type,
+                        referenceCount: item.referenceCount || 0,
+                        relevanceScore,
+                        isRecentlyUsed: (item as any).isRecentlyUsed,
+                        isPopular: (item as any).isPopular,
+                        contextualMatch: (item as any).contextualMatch,
+                        prompt: item.prompt,
+                        model: item.model,
+                    };
+                });
 
             results.push(...filteredMedia);
         }
 
-        // Sort by usage/relevance and limit results
+        // Sort by relevance score (highest first), then by recency
         results.sort((a, b) => {
-            // Sort by usage count first, then by recency
-            const usageA = a.usageCount || a.referenceCount || 0;
-            const usageB = b.usageCount || b.referenceCount || 0;
-            
-            if (usageA !== usageB) {
-                return usageB - usageA; // Higher usage first
+            if (a.relevanceScore !== b.relevanceScore) {
+                return b.relevanceScore - a.relevanceScore;
             }
-            
-            return b.updatedAt - a.updatedAt; // More recent first
+            return b.updatedAt - a.updatedAt;
         });
 
-        return results.slice(0, limit);
+        // Apply filtering based on options
+        if (args.includeRecentlyUsed && !args.includePopular) {
+            results = results.filter((item) => item.isRecentlyUsed);
+        } else if (args.includePopular && !args.includeRecentlyUsed) {
+            results = results.filter((item) => item.isPopular);
+        } else if (args.includeRecentlyUsed && args.includePopular) {
+            results = results.filter(
+                (item) => item.isRecentlyUsed || item.isPopular
+            );
+        }
+
+        // Return top results with metadata for UI
+        const topResults = results.slice(0, limit);
+
+        // Add search metadata for better UX
+        const metadata = {
+            totalResults: results.length,
+            hasContextualMatches: results.some((r) => r.contextualMatch),
+            hasRecentlyUsed: results.some((r) => r.isRecentlyUsed),
+            hasPopular: results.some((r) => r.isPopular),
+            searchQuery,
+            chatContext: chatContext.length > 0,
+        };
+
+        return {
+            results: topResults,
+            metadata,
+        };
     },
 });
 
@@ -833,11 +889,13 @@ export const trackLibraryItemUsage = mutation({
         const now = Date.now();
 
         if (args.type === "attachment") {
-            const attachment = await ctx.db.get(args.itemId as Id<"attachmentLibrary">);
+            const attachment = await ctx.db.get(
+                args.itemId as Id<"attachmentLibrary">
+            );
             if (attachment && attachment.userId === userId) {
                 const currentChats = attachment.usedInChats || [];
-                const updatedChats = currentChats.includes(args.chatId) 
-                    ? currentChats 
+                const updatedChats = currentChats.includes(args.chatId)
+                    ? currentChats
                     : [...currentChats, args.chatId];
 
                 await ctx.db.patch(attachment._id, {
@@ -849,13 +907,15 @@ export const trackLibraryItemUsage = mutation({
         } else if (args.type === "artifact") {
             const artifact = await ctx.db
                 .query("artifacts")
-                .withIndex("by_artifact_id", (q) => q.eq("artifactId", args.itemId))
+                .withIndex("by_artifact_id", (q) =>
+                    q.eq("artifactId", args.itemId)
+                )
                 .first();
 
             if (artifact && artifact.userId === userId) {
                 const currentChats = artifact.referencedInChats || [];
-                const updatedChats = currentChats.includes(args.chatId) 
-                    ? currentChats 
+                const updatedChats = currentChats.includes(args.chatId)
+                    ? currentChats
                     : [...currentChats, args.chatId];
 
                 await ctx.db.patch(artifact._id, {
@@ -868,8 +928,8 @@ export const trackLibraryItemUsage = mutation({
             const media = await ctx.db.get(args.itemId as Id<"mediaLibrary">);
             if (media && media.userId === userId) {
                 const currentChats = media.referencedInChats || [];
-                const updatedChats = currentChats.includes(args.chatId) 
-                    ? currentChats 
+                const updatedChats = currentChats.includes(args.chatId)
+                    ? currentChats
                     : [...currentChats, args.chatId];
 
                 await ctx.db.patch(media._id, {
@@ -890,13 +950,16 @@ export const getLibraryStats = query({
         if (!userId) return null;
 
         const [attachments, artifacts, media] = await Promise.all([
-            ctx.db.query("attachmentLibrary")
+            ctx.db
+                .query("attachmentLibrary")
                 .withIndex("by_user", (q) => q.eq("userId", userId))
                 .collect(),
-            ctx.db.query("artifacts")
+            ctx.db
+                .query("artifacts")
                 .withIndex("by_user", (q) => q.eq("userId", userId))
                 .collect(),
-            ctx.db.query("mediaLibrary")
+            ctx.db
+                .query("mediaLibrary")
                 .withIndex("by_user", (q) => q.eq("userId", userId))
                 .collect(),
         ]);
@@ -904,35 +967,82 @@ export const getLibraryStats = query({
         return {
             attachments: {
                 total: attachments.length,
-                favorites: attachments.filter(a => a.isFavorited).length,
+                favorites: attachments.filter((a) => a.isFavorited).length,
                 totalSize: attachments.reduce((sum, a) => sum + a.size, 0),
                 byType: {
-                    image: attachments.filter(a => a.type === "image").length,
-                    pdf: attachments.filter(a => a.type === "pdf").length,
-                    file: attachments.filter(a => a.type === "file").length,
-                    audio: attachments.filter(a => a.type === "audio").length,
-                    video: attachments.filter(a => a.type === "video").length,
+                    image: attachments.filter((a) => a.type === "image").length,
+                    pdf: attachments.filter((a) => a.type === "pdf").length,
+                    file: attachments.filter((a) => a.type === "file").length,
+                    audio: attachments.filter((a) => a.type === "audio").length,
+                    video: attachments.filter((a) => a.type === "video").length,
                 },
             },
             artifacts: {
                 total: artifacts.length,
-                favorites: artifacts.filter(a => a.isFavorited).length,
-                totalReferences: artifacts.reduce((sum, a) => sum + (a.referenceCount || 0), 0),
-                byLanguage: artifacts.reduce((acc, a) => {
-                    acc[a.language] = (acc[a.language] || 0) + 1;
-                    return acc;
-                }, {} as Record<string, number>),
+                favorites: artifacts.filter((a) => a.isFavorited).length,
+                totalReferences: artifacts.reduce(
+                    (sum, a) => sum + (a.referenceCount || 0),
+                    0
+                ),
+                byLanguage: artifacts.reduce(
+                    (acc, a) => {
+                        acc[a.language] = (acc[a.language] || 0) + 1;
+                        return acc;
+                    },
+                    {} as Record<string, number>
+                ),
             },
             media: {
                 total: media.length,
-                favorites: media.filter(m => m.isFavorited).length,
-                totalReferences: media.reduce((sum, m) => sum + (m.referenceCount || 0), 0),
+                favorites: media.filter((m) => m.isFavorited).length,
+                totalReferences: media.reduce(
+                    (sum, m) => sum + (m.referenceCount || 0),
+                    0
+                ),
                 byType: {
-                    image: media.filter(m => m.type === "image").length,
-                    video: media.filter(m => m.type === "video").length,
-                    audio: media.filter(m => m.type === "audio").length,
+                    image: media.filter((m) => m.type === "image").length,
+                    video: media.filter((m) => m.type === "video").length,
+                    audio: media.filter((m) => m.type === "audio").length,
                 },
             },
         };
+    },
+});
+
+// Helper to get single attachment library item (internal use)
+export const getAttachmentLibraryItem = query({
+    args: {
+        attachmentId: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) return null;
+
+        const attachment = await ctx.db.get(
+            args.attachmentId as Id<"attachmentLibrary">
+        );
+        if (!attachment || attachment.userId !== userId) {
+            return null;
+        }
+
+        return attachment;
+    },
+});
+
+// Helper to get single media library item (internal use)
+export const getMediaLibraryItem = query({
+    args: {
+        mediaId: v.string(),
+    },
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) return null;
+
+        const media = await ctx.db.get(args.mediaId as Id<"mediaLibrary">);
+        if (!media || media.userId !== userId) {
+            return null;
+        }
+
+        return media;
     },
 });
