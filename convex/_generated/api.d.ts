@@ -34,6 +34,7 @@ import type * as messages from "../messages.js";
 import type * as preferences from "../preferences.js";
 import type * as projects from "../projects.js";
 import type * as router from "../router.js";
+import type * as search from "../search.js";
 import type * as sharing from "../sharing.js";
 import type * as users from "../users.js";
 
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   preferences: typeof preferences;
   projects: typeof projects;
   router: typeof router;
+  search: typeof search;
   sharing: typeof sharing;
   users: typeof users;
 }>;

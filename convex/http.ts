@@ -1,9 +1,22 @@
 import { auth } from "./auth";
 import router from "./router";
-import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
+
+// =============================================================================
+// AI SDK MIGRATION - PHASE 3: SSE API Endpoints
+// =============================================================================
+
+import { streamText } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { google } from "@ai-sdk/google";
+import { anthropic } from "@ai-sdk/anthropic";
+import {
+    buildModelMessages,
+    getChatMessagesForAI,
+    convertUIMessageToRawParts,
+} from "./aiSdkHelpers";
 
 const http = router;
 
@@ -13,7 +26,7 @@ auth.addHttpRoutes(http);
 http.route({
     path: "/api/assemblyai-token",
     method: "GET",
-    handler: httpAction(async (ctx) => {
+    handler: httpAction(async (_ctx) => {
         const apiKey = process.env.ASSEMBLYAI_API_KEY;
 
         // CORS headers for all responses
@@ -88,7 +101,7 @@ http.route({
 http.route({
     path: "/api/assemblyai-token",
     method: "OPTIONS",
-    handler: httpAction(async (ctx) => {
+    handler: httpAction(async (_ctx) => {
         return new Response(null, {
             status: 200,
             headers: {
@@ -270,7 +283,7 @@ export const openaiRealtimeEphemeralKey = httpAction(async (ctx, request) => {
 });
 
 // Google Gemini Live ephemeral key generation
-export const geminiLiveEphemeralKey = httpAction(async (ctx, request) => {
+export const geminiLiveEphemeralKey = httpAction(async (ctx, _request) => {
     try {
         const userId = await getAuthUserId(ctx);
         console.log("userId: ", userId);
@@ -294,7 +307,7 @@ export const geminiLiveEphemeralKey = httpAction(async (ctx, request) => {
         //         userId,
         //     }
         // );
-        const result = {}
+        const result = {};
 
         return new Response(JSON.stringify(result), {
             status: 200,
@@ -333,7 +346,7 @@ http.route({
 http.route({
     path: "/api/openai-realtime-key",
     method: "OPTIONS",
-    handler: httpAction(async (ctx) => {
+    handler: httpAction(async (_ctx) => {
         return new Response(null, {
             status: 200,
             headers: {
@@ -355,7 +368,154 @@ http.route({
 http.route({
     path: "/api/gemini-live-key",
     method: "OPTIONS",
-    handler: httpAction(async (ctx) => {
+    handler: httpAction(async (_ctx) => {
+        return new Response(null, {
+            status: 200,
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            },
+        });
+    }),
+});
+
+// Single AI chat endpoint - lightweight entry point
+http.route({
+    path: "/api/chat",
+    method: "POST",
+    handler: httpAction(async (ctx, req) => {
+        try {
+            const body = await req.json();
+            const {
+                chatId,
+                model = "gemini-2.0-flash",
+                attachments = [],
+                commands = [],
+                referencedLibraryItems = [],
+            } = body;
+
+            const messages = body.messages || [];
+            const lastMessage = messages[messages.length - 1];
+
+            if (!lastMessage || lastMessage.role !== "user") {
+                throw new Error("Last message must be from user");
+            }
+
+            // Add user message first
+            await ctx.runMutation(internal.messages.addMessage, {
+                chatId,
+                role: "user",
+                content: lastMessage.content,
+                attachments,
+                commands,
+                referencedLibraryItems,
+            });
+
+            // Generate streaming response using existing AI generation workflow
+            const result = await ctx.runAction(
+                internal.ai.generateStreamingResponse,
+                {
+                    chatId,
+                    model,
+                    attachments,
+                    commands,
+                    referencedLibraryItems,
+                }
+            );
+
+            return result;
+        } catch (error) {
+            console.error("Error in chat endpoint:", error);
+            return new Response(
+                JSON.stringify({ error: "Internal server error" }),
+                {
+                    status: 500,
+                    headers: { "Content-Type": "application/json" },
+                }
+            );
+        }
+    }),
+});
+
+// Multi-AI chat endpoint - lightweight entry point
+http.route({
+    path: "/api/multi-chat",
+    method: "POST",
+    handler: httpAction(async (ctx, req) => {
+        try {
+            const body = await req.json();
+            const {
+                chatId,
+                models = ["gemini-2.0-flash", "gpt-4o"],
+                attachments = [],
+                commands = [],
+                referencedLibraryItems = [],
+            } = body;
+
+            const messages = body.messages || [];
+            const lastMessage = messages[messages.length - 1];
+
+            if (!lastMessage || lastMessage.role !== "user") {
+                throw new Error("Last message must be from user");
+            }
+
+            // Add user message first
+            await ctx.runMutation(internal.messages.addMessage, {
+                chatId,
+                role: "user",
+                content: lastMessage.content,
+                attachments,
+                commands,
+                referencedLibraryItems,
+            });
+
+            // Generate multi-AI responses using existing workflow
+            const result = await ctx.runAction(
+                internal.ai.generateMultiAIResponse,
+                {
+                    chatId,
+                    models,
+                    attachments,
+                    commands,
+                    referencedLibraryItems,
+                }
+            );
+
+            return result;
+        } catch (error) {
+            console.error("Error in multi-chat endpoint:", error);
+            return new Response(
+                JSON.stringify({ error: "Internal server error" }),
+                {
+                    status: 500,
+                    headers: { "Content-Type": "application/json" },
+                }
+            );
+        }
+    }),
+});
+
+// CORS preflight handlers for new endpoints
+http.route({
+    path: "/api/chat",
+    method: "OPTIONS",
+    handler: httpAction(async (_ctx) => {
+        return new Response(null, {
+            status: 200,
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            },
+        });
+    }),
+});
+
+http.route({
+    path: "/api/multi-chat",
+    method: "OPTIONS",
+    handler: httpAction(async (_ctx) => {
         return new Response(null, {
             status: 200,
             headers: {

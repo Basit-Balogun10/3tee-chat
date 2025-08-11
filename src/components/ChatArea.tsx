@@ -3,11 +3,10 @@ import {
     SetStateAction,
     useState,
     useEffect,
-    useMemo,
     useCallback,
     useRef,
 } from "react";
-import { useQuery, useAction, useMutation } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
 import { PasswordGateway } from "./PasswordGateway";
@@ -16,6 +15,8 @@ import { MessageInput } from "./MessageInput";
 import { toast } from "sonner";
 import { useCustomShortcuts } from "../hooks/useCustomShortcuts";
 import { useNotificationSounds } from "../lib/utils";
+// AI SDK MIGRATION - Import new hooks
+import { useConvexChat, useMultiAIChat } from "../hooks/useConvexChat";
 
 interface ChatAreaProps {
     chatId: Id<"chats">;
@@ -40,14 +41,32 @@ export function ChatArea({
     sidebarOpen,
     scrollToBottom,
 }: ChatAreaProps) {
+    // AI SDK MIGRATION - New hooks replacing all manual streaming
+    const {
+        messages: aiMessages,
+        input: aiInput,
+        handleInputChange: handleAiInputChange,
+        handleSubmit: handleAiSubmit,
+        sendMessage: sendAiMessage,
+        isLoading: aiIsLoading,
+        error: aiError,
+        stop: stopAiStreaming,
+        existingMessages,
+    } = useConvexChat(chatId);
+
+    const {
+        messages: multiAiMessages,
+        sendMultiAIMessage: sendMultiAiMessage,
+        isLoading: multiAiIsLoading,
+    } = useMultiAIChat(chatId);
+
     // State
     const [selectedModel, setSelectedModel] =
-        useState<string>("gemini-2.0-flash"); // Default fallback
+        useState<string>("gemini-2.0-flash");
     const [messageInput, setMessageInput] = useState("");
     const [activeCommands, setActiveCommands] = useState<string[]>([]);
     const [hoveredMessageId, setHoveredMessageId] =
         useState<Id<"messages"> | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
     const [editingMessage, setEditingMessage] = useState<{
         messageId: Id<"messages">;
         originalContent: string;
@@ -62,30 +81,33 @@ export function ChatArea({
         }>;
     } | null>(null);
 
-    // Queries and mutations
+    // Queries and mutations (only needed for non-messaging operations)
     const chat = useQuery(api.chats.getChat, { chatId });
-    const messagesResult = useQuery(api.chats.getChatMessages, { chatId });
-    const messages = useMemo(() => messagesResult || [], [messagesResult]);
-
-    const sendMessage = useAction(api.messages.sendMessage);
-    const sendMultiAIMessage = useAction(api.messages.sendMultiAIMessage);
-    const markStreamingComplete = useAction(api.ai.markStreamingComplete);
     const updateChatModel = useMutation(api.chats.updateChatModel);
     const deleteMessage = useMutation(api.messages.deleteMessage);
-    const retryMessage = useAction(api.messages.retryMessage);
     const switchMessageVersion = useMutation(api.messages.switchMessageVersion);
 
-    // PHASE 3 & 4 FIX: Branching system mutations
+    // Branching system mutations
     const createBranchFromMessageEdit = useMutation(
         api.branches.createBranchFromMessageEdit
     );
     const navigateToBranch = useMutation(api.branches.navigateToBranch);
+
+    // Use AI SDK messages
+    const messages = existingMessages || [];
 
     // Computed values
     const streamingMessage = messages.find((message) => message.isStreaming);
     const hoveredMessage = hoveredMessageId
         ? messages.find((m) => m._id === hoveredMessageId)
         : null;
+
+    // Sync AI SDK input with local state
+    useEffect(() => {
+        if (messageInput !== aiInput) {
+            setMessageInput(aiInput);
+        }
+    }, [aiInput, messageInput]);
 
     // Initialize selectedModel from chat's model field when chat loads
     useEffect(() => {
@@ -107,9 +129,16 @@ export function ChatArea({
         [chatId, updateChatModel]
     );
 
+    // AI SDK enhanced send message handler
     const handleSendMessage = useCallback(
         async (
             content: string,
+            attachments?: Array<{
+                type: string;
+                storageId: string;
+                name: string;
+                size: number;
+            }>,
             referencedLibraryItems?: Array<{
                 type: "attachment" | "artifact" | "media";
                 id: string;
@@ -119,68 +148,46 @@ export function ChatArea({
                 mimeType?: string;
             }>
         ) => {
-            if (isLoading) return;
+            if (aiIsLoading) return;
 
             if (
                 !content.trim() &&
-                (!referencedLibraryItems ||
-                    referencedLibraryItems.length === 0) &&
+                (!attachments || attachments.length === 0) &&
+                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
                 activeCommands.length === 0
             )
                 return;
 
             try {
-                setIsLoading(true);
-
-                // UNIFIED: Convert referencedLibraryItems to backend format
-                const attachments =
-                    referencedLibraryItems
-                        ?.filter((item) => item.type === "attachment")
-                        .map((item) => ({
-                            type: item.mimeType?.startsWith("image/")
-                                ? ("image" as const)
-                                : item.mimeType === "application/pdf"
-                                  ? ("pdf" as const)
-                                  : item.mimeType?.startsWith("audio/")
-                                    ? ("audio" as const)
-                                    : item.mimeType?.startsWith("video/")
-                                      ? ("video" as const)
-                                      : ("file" as const),
-                            storageId: item.id as Id<"_storage">, // Library ID used as storage ID
-                            name: item.name,
-                            size: item.size || 0,
-                        })) || [];
-
-                const referencedArtifacts =
-                    referencedLibraryItems
-                        ?.filter((item) => item.type === "artifact")
-                        .map((item) => item.id) || [];
-
-                await sendMessage({
-                    chatId,
-                    content: content.trim(),
-                    commands: activeCommands,
+                // Use AI SDK streaming with all original parameters
+                await sendAiMessage(content.trim(), {
                     model: selectedModel,
-                    attachments,
-                    referencedArtifacts,
+                    commands: activeCommands,
+                    attachments: attachments || [],
+                    referencedLibraryItems: referencedLibraryItems || [],
                 });
+
                 setMessageInput("");
                 setActiveCommands([]);
             } catch (error) {
                 console.error("Failed to send message:", error);
                 toast.error("Failed to send message");
-            } finally {
-                setIsLoading(false);
             }
         },
-        [chatId, selectedModel, activeCommands, sendMessage, isLoading]
+        [selectedModel, activeCommands, sendAiMessage, aiIsLoading]
     );
 
-    // Multi-AI send message handler
+    // AI SDK enhanced multi-AI send message handler
     const handleSendMultiAIMessage = useCallback(
         async (
             content: string,
             models: string[],
+            attachments?: Array<{
+                type: string;
+                storageId: string;
+                name: string;
+                size: number;
+            }>,
             referencedLibraryItems?: Array<{
                 type: "attachment" | "artifact" | "media";
                 id: string;
@@ -190,12 +197,12 @@ export function ChatArea({
                 mimeType?: string;
             }>
         ) => {
-            if (isLoading) return;
+            if (aiIsLoading || multiAiIsLoading) return;
 
             if (
                 !content.trim() &&
-                (!referencedLibraryItems ||
-                    referencedLibraryItems.length === 0) &&
+                (!attachments || attachments.length === 0) &&
+                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
                 activeCommands.length === 0
             )
                 return;
@@ -208,39 +215,11 @@ export function ChatArea({
             }
 
             try {
-                setIsLoading(true);
-
-                // UNIFIED: Convert referencedLibraryItems to backend format
-                const attachments =
-                    referencedLibraryItems
-                        ?.filter((item) => item.type === "attachment")
-                        .map((item) => ({
-                            type: item.mimeType?.startsWith("image/")
-                                ? ("image" as const)
-                                : item.mimeType === "application/pdf"
-                                  ? ("pdf" as const)
-                                  : item.mimeType?.startsWith("audio/")
-                                    ? ("audio" as const)
-                                    : item.mimeType?.startsWith("video/")
-                                      ? ("video" as const)
-                                      : ("file" as const),
-                            storageId: item.id as Id<"_storage">, // Library ID used as storage ID
-                            name: item.name,
-                            size: item.size || 0,
-                        })) || [];
-
-                const referencedArtifacts =
-                    referencedLibraryItems
-                        ?.filter((item) => item.type === "artifact")
-                        .map((item) => item.id) || [];
-
-                await sendMultiAIMessage({
-                    chatId,
-                    content: content.trim(),
-                    models,
+                // Use AI SDK multi-AI streaming with all original parameters
+                await sendMultiAiMessage(content.trim(), models, {
                     commands: activeCommands,
-                    attachments,
-                    referencedArtifacts,
+                    attachments: attachments || [],
+                    referencedLibraryItems: referencedLibraryItems || [],
                 });
 
                 setMessageInput("");
@@ -251,11 +230,9 @@ export function ChatArea({
             } catch (error) {
                 console.error("Failed to send multi-AI message:", error);
                 toast.error("Failed to send multi-AI message");
-            } finally {
-                setIsLoading(false);
             }
         },
-        [chatId, activeCommands, sendMultiAIMessage, isLoading]
+        [activeCommands, sendMultiAiMessage, aiIsLoading, multiAiIsLoading]
     );
 
     const handlePrefill = (promptText: string) => {
@@ -273,7 +250,7 @@ export function ChatArea({
         setMessageInput(remainingText);
     };
 
-    // PHASE 3 & 4 FIX: Branch creation from message edit
+    // Branch creation from message edit
     const handleBranchFromMessage = useCallback(
         async (messageId: Id<"messages">, newContent: string) => {
             console.log("🌿 CREATING BRANCH FROM MESSAGE EDIT:", {
@@ -312,40 +289,43 @@ export function ChatArea({
 
     const handleRetryMessage = useCallback(
         async (messageId: Id<"messages">) => {
-            if (isLoading) return;
+            if (aiIsLoading) return;
 
-            setIsLoading(true);
             try {
-                await retryMessage({ messageId });
+                // For AI SDK, trigger regeneration by finding the user message before this one
+                // and resending with the same content
+                const messageIndex = messages.findIndex(m => m._id === messageId);
+                if (messageIndex > 0) {
+                    const previousMessage = messages[messageIndex - 1];
+                    if (previousMessage.role === "user") {
+                        await sendAiMessage(previousMessage.content, {
+                            model: selectedModel,
+                        });
+                        toast.info("Regenerating response...");
+                    }
+                }
             } catch (error) {
                 console.error("Error retrying message:", error);
                 toast.error("Failed to retry message. Please try again.");
-            } finally {
-                setIsLoading(false);
             }
         },
-        [retryMessage, isLoading]
+        [messages, sendAiMessage, selectedModel, aiIsLoading]
     );
 
+    // AI SDK stop streaming handler
     const handleStopStreaming = useCallback(async () => {
-        if (streamingMessage) {
-            try {
-                await markStreamingComplete({
-                    messageId: streamingMessage._id,
-                });
-                setIsLoading(false);
-                toast.success("Streaming stopped");
-            } catch (error) {
-                console.error("Failed to stop streaming:", error);
-                toast.error("Failed to stop streaming");
-            }
+        try {
+            stopAiStreaming();
+            toast.success("Streaming stopped");
+        } catch (error) {
+            console.error("Failed to stop streaming:", error);
+            toast.error("Failed to stop streaming");
         }
-    }, [streamingMessage, markStreamingComplete]);
+    }, [stopAiStreaming]);
 
     const handleDeleteMessage = useCallback(
         async (messageId: Id<"messages">) => {
             try {
-                // PHASE 5 FIX: Use the new branch cleanup deletion function
                 await deleteMessage({ messageId });
                 toast.success("Message deleted");
             } catch (error) {
@@ -406,7 +386,6 @@ export function ChatArea({
         [messages, switchMessageVersion]
     );
 
-    // PHASE 4 FIX: Branch navigation function
     const handleBranchNavigation = useCallback(
         async (messageId: Id<"messages">, direction: "prev" | "next") => {
             try {
@@ -416,7 +395,6 @@ export function ChatArea({
                     return;
                 }
 
-                // Simple branch data construction for navigation
                 const currentActiveIndex = message.branches.findIndex(
                     (branchId) => branchId === message.activeBranchId
                 );
@@ -476,7 +454,7 @@ export function ChatArea({
     const previousStreamingState = useRef<boolean>(false);
 
     useEffect(() => {
-        const isCurrentlyStreaming = !!streamingMessage?.isStreaming;
+        const isCurrentlyStreaming = aiIsLoading;
 
         if (previousStreamingState.current && !isCurrentlyStreaming) {
             // Play notification sound for completed AI reply
@@ -484,9 +462,9 @@ export function ChatArea({
         }
 
         previousStreamingState.current = isCurrentlyStreaming;
-    }, [streamingMessage?.isStreaming, playAIReplySound]);
+    }, [aiIsLoading, playAIReplySound]);
 
-    // PHASE 4 FIX: Enhanced keyboard shortcuts with branch navigation
+    // Enhanced keyboard shortcuts with branch navigation
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Skip if user is typing in input/textarea
@@ -506,11 +484,9 @@ export function ChatArea({
                 // Use custom shortcuts for navigation
                 if (checkShortcutMatch(e, "navigateVersionsBranches")) {
                     e.preventDefault();
-                    // Check if it's left or right arrow to determine direction
                     const isLeft = e.key === "ArrowLeft";
                     const direction = isLeft ? "prev" : "next";
 
-                    // Check if message has versions (retries) first, then branches (edits)
                     if (hoveredMessage) {
                         if (
                             (hoveredMessage as any).messageVersions?.length > 1
@@ -532,49 +508,6 @@ export function ChatArea({
                     return;
                 }
 
-                if (checkShortcutMatch(e, "collapseMessage")) {
-                    e.preventDefault();
-                    // Collapse message - dedicated action
-                    if (hoveredMessage && hoveredMessage.content.length > 100) {
-                        const collapseEvent = new CustomEvent(
-                            "collapseMessage",
-                            {
-                                detail: {
-                                    messageId: hoveredMessageId,
-                                    action: "collapse",
-                                },
-                            }
-                        );
-                        document.dispatchEvent(collapseEvent);
-                    }
-                    return;
-                }
-
-                if (checkShortcutMatch(e, "expandMessage")) {
-                    e.preventDefault();
-                    // Expand message - dedicated action
-                    if (hoveredMessage && hoveredMessage.content.length > 100) {
-                        const expandEvent = new CustomEvent("expandMessage", {
-                            detail: {
-                                messageId: hoveredMessageId,
-                                action: "expand",
-                            },
-                        });
-                        document.dispatchEvent(expandEvent);
-                    }
-                    return;
-                }
-
-                if (checkShortcutMatch(e, "scrollToMessageEnd")) {
-                    e.preventDefault();
-                    // Scroll to end of hovered message
-                    const scrollEvent = new CustomEvent("scrollToMessageEnd", {
-                        detail: { messageId: hoveredMessageId },
-                    });
-                    document.dispatchEvent(scrollEvent);
-                    return;
-                }
-
                 if (checkShortcutMatch(e, "copyMessage")) {
                     e.preventDefault();
                     if (hoveredMessage) {
@@ -586,44 +519,10 @@ export function ChatArea({
                     return;
                 }
 
-                if (checkShortcutMatch(e, "editMessage")) {
-                    e.preventDefault();
-                    if (hoveredMessage?.role === "user") {
-                        const editEvent = new CustomEvent("editMessage", {
-                            detail: {
-                                messageId: hoveredMessageId,
-                                content: hoveredMessage.content,
-                            },
-                        });
-                        document.dispatchEvent(editEvent);
-                    }
-                    return;
-                }
-
                 if (checkShortcutMatch(e, "retryMessage")) {
                     e.preventDefault();
                     if (hoveredMessage?.role === "assistant") {
-                        const retryEvent = new CustomEvent(
-                            "retryMessageWithSameModel",
-                            {
-                                detail: { messageId: hoveredMessageId },
-                            }
-                        );
-                        document.dispatchEvent(retryEvent);
-                    }
-                    return;
-                }
-
-                if (checkShortcutMatch(e, "retryDifferentModel")) {
-                    e.preventDefault();
-                    if (hoveredMessage?.role === "assistant") {
-                        const retryEvent = new CustomEvent(
-                            "retryMessageWithDifferentModel",
-                            {
-                                detail: { messageId: hoveredMessageId },
-                            }
-                        );
-                        document.dispatchEvent(retryEvent);
+                        void handleRetryMessage(hoveredMessageId);
                     }
                     return;
                 }
@@ -639,50 +538,6 @@ export function ChatArea({
                             void handleDeleteMessage(hoveredMessageId);
                         }
                     }
-                    return;
-                }
-
-                if (checkShortcutMatch(e, "forkConversation")) {
-                    e.preventDefault();
-                    if (hoveredMessage?.role === "assistant") {
-                        const forkEvent = new CustomEvent("forkFromMessage", {
-                            detail: { messageId: hoveredMessageId },
-                        });
-                        document.dispatchEvent(forkEvent);
-                    }
-                    return;
-                }
-
-                // Enhanced Deep Link Shortcuts
-                if (
-                    checkShortcutMatch(e, "copyDirectMessageLink") &&
-                    hoveredMessageId
-                ) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const copyDirectLinkEvent = new CustomEvent(
-                        "copyDirectMessageLink",
-                        {
-                            detail: { messageId: hoveredMessageId },
-                        }
-                    );
-                    document.dispatchEvent(copyDirectLinkEvent);
-                    return;
-                }
-
-                if (
-                    checkShortcutMatch(e, "createSharedMessageLink") &&
-                    hoveredMessageId
-                ) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const createSharedLinkEvent = new CustomEvent(
-                        "createSharedMessageLink",
-                        {
-                            detail: { messageId: hoveredMessageId },
-                        }
-                    );
-                    document.dispatchEvent(createSharedLinkEvent);
                     return;
                 }
             }
@@ -715,18 +570,15 @@ export function ChatArea({
                 originalReferencedItems: referencedItems,
             });
 
-            // Pre-populate MessageInput with edit content
             setMessageInput(content);
             setActiveCommands(commands);
-            // Set referenced items appropriately
 
-            // Focus the MessageInput
             setTimeout(() => {
                 const messageInput = document.querySelector("textarea");
                 messageInput?.focus();
             }, 100);
         },
-        [setMessageInput, setActiveCommands]
+        []
     );
 
     const handleSaveEdit = useCallback(
@@ -734,13 +586,11 @@ export function ChatArea({
             if (!editingMessage) return;
 
             try {
-                // Call the existing edit handler or create a new branch
                 await handleBranchFromMessage(
                     editingMessage.messageId,
                     content
                 );
 
-                // Clear edit state
                 setEditingMessage(null);
                 setMessageInput("");
                 setActiveCommands([]);
@@ -750,24 +600,18 @@ export function ChatArea({
                 toast.error("Failed to update message");
             }
         },
-        [
-            editingMessage,
-            handleBranchFromMessage,
-            setMessageInput,
-            setActiveCommands,
-        ]
+        [editingMessage, handleBranchFromMessage]
     );
 
     const handleCancelEdit = useCallback(() => {
         setEditingMessage(null);
         setMessageInput("");
         setActiveCommands([]);
-    }, [setMessageInput, setActiveCommands]);
+    }, []);
 
     return (
         <PasswordGateway chatId={chatId}>
             <div className="flex flex-col w-4/5 mx-auto h-full">
-                {/* Header section with sliding animation */}
                 <div className="flex-1 flex flex-col">
                     <MessageList
                         messages={messages}
@@ -792,22 +636,34 @@ export function ChatArea({
                         onSendMessage={(
                             content,
                             attachments,
-                            referencedArtifacts
+                            referencedLibraryItems,
                         ) =>
                             void handleSendMessage(
                                 content,
                                 attachments,
-                                referencedArtifacts
+                                referencedLibraryItems
                             )
                         }
-                        isStreaming={streamingMessage?.isStreaming || false}
+                        isStreaming={aiIsLoading}
                         onStopStreaming={handleStopStreaming}
                         selectedModel={selectedModel}
                         onModelChange={(model) => void handleModelChange(model)}
                         showMessageInput={showMessageInput}
                         sidebarOpen={sidebarOpen}
                         chatId={chatId}
-                        onSendMultiAIMessage={handleSendMultiAIMessage}
+                        onSendMultiAIMessage={(
+                            content,
+                            models,
+                            attachments,
+                            referencedLibraryItems,
+                        ) =>
+                            void handleSendMultiAIMessage(
+                                content,
+                                models,
+                                attachments,
+                                referencedLibraryItems
+                            )
+                        }
                         editMode={
                             editingMessage
                                 ? {
@@ -822,7 +678,6 @@ export function ChatArea({
                         }
                     />
                 )}
-                {/* </div> */}
             </div>
         </PasswordGateway>
     )

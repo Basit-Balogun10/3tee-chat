@@ -43,10 +43,15 @@ import {
     Volume2,
     X,
     Shield,
+    BarChart3,
+    Cpu,
+    Mic,
+    Archive,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Id } from "../../convex/_generated/dataModel";
 import jsPDF from "jspdf";
+import { AnalyticsDashboard } from "./AnalyticsDashboard";
 
 interface SettingsModalProps {
     open: boolean;
@@ -66,6 +71,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     const [currentPage, setCurrentPage] = useState<
         "main" | "export" | "delete"
     >("main");
+    const [showAnalyticsDashboard, setShowAnalyticsDashboard] = useState(false);
 
     // Export page state
     const [exportMode, setExportMode] = useState<
@@ -319,6 +325,15 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
         updatePreferences,
         onOpenChange,
     ]);
+
+    const handleOpenAnalytics = () => {
+        setShowAnalyticsDashboard(true);
+    };
+
+    const handleBackToSettings = () => {
+        setShowAnalyticsDashboard(false);
+    };
+
 
     // Add keyboard shortcut for saving settings
     useEffect(() => {
@@ -1715,1640 +1730,1842 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     };
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent
-                className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-y-scroll"
-                hideCloseButton
-            >
-                <DialogHeader>
-                    <DialogTitle className="flex items-center justify-between mb-4">
-                        <div className="flex items-center space-x-2">
-                            <Zap className="w-5 h-5" />
-                            <h2 className="text-lg font-semibold text-purple-100">
-                                Settings
-                            </h2>
-                        </div>
-
-                        <button
-                            onClick={() => onOpenChange(false)}
-                            className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
-                        >
-                            <X className="w-5 h-5 text-purple-300" />
-                        </button>
-                    </DialogTitle>
-                </DialogHeader>
-
-                <Tabs defaultValue="account" className="w-full">
-                    <TabsList className="grid w-full grid-cols-4 bg-purple-600/20 space-x-2">
-                        <TabsTrigger
-                            value="account"
-                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                        >
-                            Account
-                        </TabsTrigger>
-                        <TabsTrigger
-                            value="models"
-                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                        >
-                            AI Models
-                        </TabsTrigger>
-                        <TabsTrigger
-                            value="interface"
-                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                        >
-                            Interface
-                        </TabsTrigger>
-                        <TabsTrigger
-                            value="voice"
-                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                        >
-                            Voice
-                        </TabsTrigger>
-                        <TabsTrigger value="chats">Chats</TabsTrigger>
-                        <TabsTrigger
-                            value="notifications"
-                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                        >
-                            Notifications
-                        </TabsTrigger>
-                        <TabsTrigger
-                            value="ai"
-                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                        >
-                            AI Settings
-                        </TabsTrigger>
-                        <TabsTrigger
-                            value="security"
-                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                        >
-                            Security
-                        </TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="account" className="space-y-4">
-                        <div className="space-y-4">
-                            <div className="text-sm text-center text-purple-200/80 mb-6">
-                                Bring your own API keys for infinite requests to
-                                AI models with no rate limits.
+        <>
+            <Dialog open={open} onOpenChange={onOpenChange}>
+                <DialogContent
+                    className="bg-transparent backdrop-blur-lg border border-purple-600/30 text-purple-100 max-w-2xl max-h-[80vh] overflow-y-scroll"
+                    hideCloseButton
+                >
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center justify-between mb-4">
+                            <div className="flex items-center space-x-2">
+                                <Zap className="w-5 h-5" />
+                                <h2 className="text-lg font-semibold text-purple-100">
+                                    Settings
+                                </h2>
                             </div>
-                            {Object.entries(apiKeys).map(([provider, key]) => {
-                                const hasKey = key.trim().length > 0;
-                                const isEnabled =
-                                    apiKeyPreferences[
-                                        provider as keyof typeof apiKeyPreferences
-                                    ];
-                                const opacity =
-                                    hasKey && isEnabled
-                                        ? "opacity-100"
-                                        : hasKey
-                                          ? "opacity-60"
-                                          : "opacity-100";
 
-                                return (
-                                    <div
-                                        key={provider}
-                                        className={`space-y-2 ${opacity} transition-opacity`}
-                                    >
-                                        <Label className="text-purple-200 capitalize flex items-center gap-2">
-                                            <Key className="w-4 h-4" />
-                                            {provider.charAt(0).toUpperCase() +
-                                                provider.slice(1)}{" "}
-                                            API Key
-                                            {provider === "gemini" && (
-                                                <span className="text-xs bg-blue-600/20 text-blue-300 px-2 py-1 rounded">
-                                                    Free tier available
-                                                </span>
-                                            )}
-                                            {provider === "openrouter" && (
-                                                <span className="text-xs bg-green-600/20 text-green-300 px-2 py-1 rounded">
-                                                    200+ models
-                                                </span>
-                                            )}
-                                            {provider === "deepseek" && (
-                                                <span className="text-xs bg-indigo-600/20 text-indigo-300 px-2 py-1 rounded">
-                                                    Fast & affordable
-                                                </span>
-                                            )}
-                                        </Label>
-                                        <div className="relative">
-                                            <Input
-                                                type={
-                                                    showApiKeys[
-                                                        provider as keyof typeof showApiKeys
-                                                    ]
-                                                        ? "text"
-                                                        : "password"
-                                                }
-                                                value={key}
-                                                onChange={(e) =>
-                                                    setApiKeys((prev) => ({
-                                                        ...prev,
-                                                        [provider]:
-                                                            e.target.value,
-                                                    }))
-                                                }
-                                                placeholder={`Your ${provider} API key...`}
-                                                className="bg-gray-900/60 border-purple-600/30 text-purple-100 placeholder-purple-300/60 pr-20"
-                                            />
-                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="h-6 w-6 p-0"
-                                                    onClick={() =>
-                                                        toggleApiKeyVisibility(
-                                                            provider as keyof typeof showApiKeys
-                                                        )
-                                                    }
-                                                >
-                                                    {showApiKeys[
-                                                        provider as keyof typeof showApiKeys
-                                                    ] ? (
-                                                        <EyeOff className="w-4 h-4" />
-                                                    ) : (
-                                                        <Eye className="w-4 h-4" />
-                                                    )}
-                                                </Button>
-                                                <div className="relative group">
-                                                    <Switch
-                                                        checked={isEnabled}
-                                                        onCheckedChange={() =>
-                                                            toggleApiKeyPreference(
-                                                                provider as keyof typeof apiKeyPreferences
-                                                            )
-                                                        }
-                                                        disabled={!hasKey}
-                                                        className="scale-75"
-                                                        title={getTooltipText(
-                                                            provider,
-                                                            hasKey,
-                                                            isEnabled
-                                                        )}
-                                                    />
-                                                </div>
-                                            </div>
-                                        </div>
+                            <button
+                                onClick={() => onOpenChange(false)}
+                                className="p-2 rounded-lg hover:bg-purple-500/20 transition-colors"
+                            >
+                                <X className="w-5 h-5 text-purple-300" />
+                            </button>
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    <Tabs defaultValue="account" className="w-full">
+                        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 bg-purple-600/20 gap-1">
+                            <TabsTrigger
+                                value="account"
+                                className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors text-xs lg:text-sm"
+                            >
+                                <Key className="w-4 h-4 mr-1 lg:mr-2" />
+                                <span className="hidden sm:inline">
+                                    Account & Keys
+                                </span>
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="interface"
+                                className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors text-xs lg:text-sm"
+                            >
+                                <Palette className="w-4 h-4 mr-1 lg:mr-2" />
+                                <span className="hidden sm:inline">
+                                    Interface
+                                </span>
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="chats"
+                                className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors text-xs lg:text-sm"
+                            >
+                                <MessageSquare className="w-4 h-4 mr-1 lg:mr-2" />
+                                <span className="hidden sm:inline">Chats</span>
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="ai"
+                                className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors text-xs lg:text-sm"
+                            >
+                                <Cpu className="w-4 h-4 mr-1 lg:mr-2" />
+                                <span className="hidden sm:inline">AI</span>
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="security"
+                                className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors text-xs lg:text-sm"
+                            >
+                                <Shield className="w-4 h-4 mr-1 lg:mr-2" />
+                                <span className="hidden sm:inline">
+                                    Security
+                                </span>
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="analytics"
+                                className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors text-xs lg:text-sm"
+                            >
+                                <BarChart3 className="w-4 h-4 mr-1 lg:mr-2" />
+                                <span className="hidden sm:inline">
+                                    Analytics
+                                </span>
+                            </TabsTrigger>
+                        </TabsList>
+
+                        <TabsContent value="account" className="space-y-6 pt-6">
+                            <div className="space-y-6">
+                                {/* API Keys Section */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2">
+                                        <Key className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold text-purple-100">
+                                            API Keys
+                                        </h3>
                                     </div>
-                                );
-                            })}
+                                    <div className="text-sm text-center text-purple-200/80 mb-6">
+                                        Bring your own API keys for infinite
+                                        requests to AI models with no rate
+                                        limits.
+                                    </div>
+                                    {Object.entries(apiKeys).map(
+                                        ([provider, key]) => {
+                                            const hasKey = key.trim().length > 0;
+                                            const isEnabled =
+                                                apiKeyPreferences[
+                                                    provider as keyof typeof apiKeyPreferences
+                                                ];
+                                            const opacity =
+                                                hasKey && isEnabled
+                                                    ? "opacity-100"
+                                                    : hasKey
+                                                      ? "opacity-60"
+                                                      : "opacity-100";
 
-                            <div className="space-y-3 pt-6 border-t border-purple-600/20">
-                                <h4 className="text-sm font-medium text-purple-200">
-                                    🗂️ Data Management
-                                </h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => setCurrentPage("export")}
-                                        className="justify-start h-auto p-3 border-purple-600/30"
-                                    >
-                                        <div className="text-left">
-                                            <div className="font-medium text-purple-200 flex items-center gap-2">
-                                                <Download className="w-4 h-4" />
-                                                Export Data
-                                            </div>
-                                            <div className="text-xs text-purple-400/80">
-                                                Download chats, projects, or
-                                                workspace
-                                            </div>
-                                        </div>
-                                    </Button>
+                                            return (
+                                                <div
+                                                    key={provider}
+                                                    className={`space-y-2 ${opacity} transition-opacity`}
+                                                >
+                                                    <Label className="text-purple-200 capitalize flex items-center gap-2">
+                                                        <Key className="w-4 h-4" />
+                                                        {provider
+                                                            .charAt(0)
+                                                            .toUpperCase() +
+                                                            provider.slice(
+                                                                1
+                                                            )}{" "}
+                                                        API Key
+                                                        {provider ===
+                                                            "gemini" && (
+                                                            <span className="text-xs bg-blue-600/20 text-blue-300 px-2 py-1 rounded">
+                                                                Free tier
+                                                                available
+                                                            </span>
+                                                        )}
+                                                        {provider ===
+                                                            "openrouter" && (
+                                                            <span className="text-xs bg-green-600/20 text-green-300 px-2 py-1 rounded">
+                                                                200+ models
+                                                            </span>
+                                                        )}
+                                                        {provider ===
+                                                            "deepseek" && (
+                                                            <span className="text-xs bg-indigo-600/20 text-indigo-300 px-2 py-1 rounded">
+                                                                Fast &
+                                                                affordable
+                                                            </span>
+                                                        )}
+                                                    </Label>
+                                                    <div className="relative">
+                                                        <Input
+                                                            type={
+                                                                showApiKeys[
+                                                                    provider as keyof typeof showApiKeys
+                                                                ]
+                                                                    ? "text"
+                                                                    : "password"
+                                                            }
+                                                            value={key}
+                                                            onChange={(e) =>
+                                                                setApiKeys(
+                                                                    (prev) => ({
+                                                                        ...prev,
+                                                                        [provider]:
+                                                                            e
+                                                                                .target
+                                                                                .value,
+                                                                    })
+                                                                )
+                                                            }
+                                                            placeholder={`Your ${provider} API key...`}
+                                                            className="bg-gray-900/60 border-purple-600/30 text-purple-100 placeholder-purple-300/60 pr-20"
+                                                        />
+                                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                                            <Button
+                                                                type="button"
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                className="h-6 w-6 p-0"
+                                                                onClick={() =>
+                                                                    toggleApiKeyVisibility(
+                                                                        provider as keyof typeof showApiKeys
+                                                                    )
+                                                                }
+                                                            >
+                                                                {showApiKeys[
+                                                                    provider as keyof typeof showApiKeys
+                                                                ] ? (
+                                                                    <EyeOff className="w-4 h-4" />
+                                                                ) : (
+                                                                    <Eye className="w-4 h-4" />
+                                                                )}
+                                                            </Button>
+                                                            <div className="relative group">
+                                                                <Switch
+                                                                    checked={
+                                                                        isEnabled
+                                                                    }
+                                                                    onCheckedChange={() =>
+                                                                        toggleApiKeyPreference(
+                                                                            provider as keyof typeof apiKeyPreferences
+                                                                        )
+                                                                    }
+                                                                    disabled={
+                                                                        !hasKey
+                                                                    }
+                                                                    className="scale-75"
+                                                                    title={getTooltipText(
+                                                                        provider,
+                                                                        hasKey,
+                                                                        isEnabled
+                                                                    )}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+                                    )}
+                                </div>
 
-                                    <div className="relative">
+                                {/* Default AI Model Section */}
+                                <div className="space-y-4 pt-6 border-t border-purple-600/20">
+                                    <div className="flex items-center gap-2">
+                                        <Cpu className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold text-purple-100">
+                                            Default AI Model
+                                        </h3>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-purple-400/80 mb-2">
+                                            Choose your preferred model for new
+                                            conversations
+                                        </p>
+                                        <ModelSelector
+                                            selectedModel={
+                                                settings.defaultModel
+                                            }
+                                            onModelChange={handleModelChange}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Data Management Section */}
+                                <div className="space-y-3 pt-6 border-t border-purple-600/20">
+                                    <h4 className="text-lg font-semibold text-purple-100 flex items-center gap-2">
+                                        <Folder className="w-5 h-5 text-purple-400" />
+                                        Data Management
+                                    </h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         <Button
                                             variant="outline"
                                             onClick={() =>
-                                                setShowDeleteDropdown(
-                                                    !showDeleteDropdown
-                                                )
+                                                setCurrentPage("export")
                                             }
-                                            className="justify-start h-auto p-3 border-red-600/30 text-red-300 hover:bg-red-600/10 w-full"
+                                            className="justify-start h-auto p-3 border-purple-600/30"
                                         >
-                                            <div className="text-left flex-1">
-                                                <div className="font-medium flex items-center gap-2">
-                                                    <Trash2 className="w-4 h-4" />
-                                                    Delete Data
+                                            <div className="text-left">
+                                                <div className="font-medium text-purple-200 flex items-center gap-2">
+                                                    <Download className="w-4 h-4" />
+                                                    Export Data
                                                 </div>
-                                                <div className="text-xs opacity-70">
-                                                    Remove chats or account
+                                                <div className="text-xs text-purple-400/80">
+                                                    Download chats, projects, or
+                                                    workspace
                                                 </div>
                                             </div>
-                                            {showDeleteDropdown ? (
-                                                <ChevronUp className="w-4 h-4 ml-2" />
-                                            ) : (
-                                                <ChevronDown className="w-4 h-4 ml-2" />
-                                            )}
                                         </Button>
 
-                                        {showDeleteDropdown && (
-                                            <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-900/95 backdrop-blur-sm border border-red-600/30 rounded-lg shadow-xl z-50 overflow-hidden">
-                                                <button
-                                                    onClick={() => {
-                                                        setDeleteType("chats");
-                                                        setCurrentPage(
-                                                            "delete"
-                                                        );
-                                                        setShowDeleteDropdown(
-                                                            false
-                                                        );
-                                                    }}
-                                                    className="w-full flex items-center gap-3 px-3 py-2 text-red-300 hover:bg-red-600/20 transition-colors text-left"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                    <div>
-                                                        <div className="font-medium">
-                                                            Delete All Chats
-                                                        </div>
-                                                        <div className="text-xs opacity-70">
-                                                            Remove all
-                                                            conversations
-                                                        </div>
+                                        <div className="relative">
+                                            <Button
+                                                variant="outline"
+                                                onClick={() =>
+                                                    setShowDeleteDropdown(
+                                                        !showDeleteDropdown
+                                                    )
+                                                }
+                                                className="justify-start h-auto p-3 border-red-600/30 text-red-300 hover:bg-red-600/10 w-full"
+                                            >
+                                                <div className="text-left flex-1">
+                                                    <div className="font-medium flex items-center gap-2">
+                                                        <Trash2 className="w-4 h-4" />
+                                                        Delete Data
                                                     </div>
-                                                </button>
-                                                <div className="border-t border-red-600/20"></div>
-                                                <button
-                                                    onClick={() => {
-                                                        setDeleteType(
-                                                            "account"
-                                                        );
-                                                        setCurrentPage(
-                                                            "delete"
-                                                        );
-                                                        setShowDeleteDropdown(
-                                                            false
-                                                        );
-                                                    }}
-                                                    className="w-full flex items-center gap-3 px-3 py-2 text-red-300 hover:bg-red-600/20 transition-colors text-left"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                    <div>
-                                                        <div className="font-medium">
-                                                            Delete Account
-                                                        </div>
-                                                        <div className="text-xs opacity-70">
-                                                            Permanently remove
-                                                            everything
-                                                        </div>
+                                                    <div className="text-xs opacity-70">
+                                                        Remove chats or account
                                                     </div>
-                                                </button>
-                                            </div>
-                                        )}
+                                                </div>
+                                                {showDeleteDropdown ? (
+                                                    <ChevronUp className="w-4 h-4 ml-2" />
+                                                ) : (
+                                                    <ChevronDown className="w-4 h-4 ml-2" />
+                                                )}
+                                            </Button>
+
+                                            {showDeleteDropdown && (
+                                                <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-900/95 backdrop-blur-sm border border-red-600/30 rounded-lg shadow-xl z-50 overflow-hidden">
+                                                    <button
+                                                        onClick={() => {
+                                                            setDeleteType(
+                                                                "chats"
+                                                            );
+                                                            setCurrentPage(
+                                                                "delete"
+                                                            );
+                                                            setShowDeleteDropdown(
+                                                                false
+                                                            );
+                                                        }}
+                                                        className="w-full flex items-center gap-3 px-3 py-2 text-red-300 hover:bg-red-600/20 transition-colors text-left"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                        <div>
+                                                            <div className="font-medium">
+                                                                Delete All Chats
+                                                            </div>
+                                                            <div className="text-xs opacity-70">
+                                                                Remove all
+                                                                conversations
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                    <div className="border-t border-red-600/20"></div>
+                                                    <button
+                                                        onClick={() => {
+                                                            setDeleteType(
+                                                                "account"
+                                                            );
+                                                            setCurrentPage(
+                                                                "delete"
+                                                            );
+                                                            setShowDeleteDropdown(
+                                                                false
+                                                            );
+                                                        }}
+                                                        className="w-full flex items-center gap-3 px-3 py-2 text-red-300 hover:bg-red-600/20 transition-colors text-left"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                        <div>
+                                                            <div className="font-medium">
+                                                                Delete Account
+                                                            </div>
+                                                            <div className="text-xs opacity-70">
+                                                                Permanently
+                                                                remove
+                                                                everything
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                    </TabsContent>
+                        </TabsContent>
 
-                    <TabsContent value="models" className="space-y-4">
-                        <div className="mt-6 space-y-4">
-                            <div>
-                                <Label className="text-purple-200">
-                                    Default AI Model
-                                </Label>
-                                <p className="text-sm text-purple-400/80 mb-2">
-                                    Choose your preferred model for new
-                                    conversations
-                                </p>
-                                <ModelSelector
-                                    selectedModel={settings.defaultModel}
-                                    onModelChange={handleModelChange}
-                                />
-                            </div>
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="interface" className="space-y-4">
-                        <div className="mt-6 space-y-4">
-                            <div>
-                                <Label className="text-purple-200 flex items-center gap-2">
-                                    <Palette className="w-4 h-4" />
-                                    Theme Preference
-                                </Label>
-                                <p className="text-sm text-purple-400/80 mb-2">
-                                    Choose your visual theme
-                                </p>
-                                <Select
-                                    value={settings.theme}
-                                    onValueChange={(
-                                        value: "light" | "dark" | "system"
-                                    ) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            theme: value,
-                                        }))
-                                    }
-                                >
-                                    <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="glass border border-purple-600/30">
-                                        <SelectItem
-                                            value="light"
-                                            className="text-purple-100"
-                                        >
-                                            ☀️ Light Mode
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="dark"
-                                            className="text-purple-100"
-                                        >
-                                            🌙 Dark Mode
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="system"
-                                            className="text-purple-100"
-                                        >
-                                            ⚡ System Default
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-
-                        <div>
-                            <Label className="text-purple-200 flex items-center gap-2">
-                                <MessageSquare className="w-4 h-4" />
-                                Chat Title Generation
-                            </Label>
-                            <p className="text-sm text-purple-400/80 mb-2">
-                                Choose how new chat titles are created
-                            </p>
-                            <Select
-                                value={settings.chatTitleGeneration}
-                                onValueChange={(
-                                    value: "first-message" | "ai-generated"
-                                ) =>
-                                    setSettings((prev) => ({
-                                        ...prev,
-                                        chatTitleGeneration: value,
-                                    }))
-                                }
-                            >
-                                <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className="glass border border-purple-600/30">
-                                    <SelectItem
-                                        value="first-message"
-                                        className="text-purple-100"
-                                    >
-                                        📝 Use First Message
-                                    </SelectItem>
-                                    <SelectItem
-                                        value="ai-generated"
-                                        className="text-purple-100"
-                                    >
-                                        🤖 AI Generated Title
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                            <div className="mt-2 p-3 bg-blue-600/10 rounded-lg border border-blue-600/20">
-                                <h4 className="text-sm font-medium text-blue-200 mb-1">
-                                    💡 How it works
-                                </h4>
-                                <ul className="text-xs text-blue-300 space-y-1">
-                                    {settings.chatTitleGeneration ===
-                                    "first-message" ? (
-                                        <>
-                                            <li>
-                                                • Chat titles will be based on
-                                                your first message content
-                                            </li>
-                                            <li>
-                                                • Faster title generation with
-                                                no additional AI calls
-                                            </li>
-                                            <li>
-                                                • Titles are created immediately
-                                                when you send your first message
-                                            </li>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <li>
-                                                • AI will create contextually
-                                                appropriate titles for your
-                                                chats
-                                            </li>
-                                            <li>
-                                                • More descriptive and relevant
-                                                titles based on conversation
-                                                content
-                                            </li>
-                                            <li>
-                                                • May take a moment longer as it
-                                                requires an additional AI call
-                                            </li>
-                                        </>
-                                    )}
-                                </ul>
-                            </div>
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="voice" className="space-y-4">
-                        <div className="mt-6 space-y-4 border-purple-600/30">
-                            <Label className="text-purple-200">
-                                Voice Recording End Word
-                            </Label>
-                            <p className="text-sm text-purple-400/80 mb-2">
-                                Say this word to automatically end recording and
-                                send your message
-                            </p>
-                            <Input
-                                type="text"
-                                value={settings.voiceSettings.buzzWord}
-                                onChange={(e) =>
-                                    setSettings((prev) => ({
-                                        ...prev,
-                                        voiceSettings: {
-                                            ...prev.voiceSettings,
-                                            buzzWord: e.target.value,
-                                        },
-                                    }))
-                                }
-                                placeholder="e.g., 'send now', 'submit', 'done'"
-                                className="bg-gray-900/60 border-purple-600/30 text-purple-100 placeholder-purple-300/60"
-                            />
-                            <div className="mt-2 p-3 bg-blue-600/10 rounded-lg border border-blue-600/20">
-                                <h4 className="text-sm font-medium text-blue-200 mb-1">
-                                    💡 How it works
-                                </h4>
-                                <ul className="text-xs text-blue-300 space-y-1">
-                                    <li>
-                                        • Choose a simple, unique word that you
-                                        don't use often in conversation
-                                    </li>
-                                    <li>
-                                        • When this word is detected in your
-                                        speech, recording will stop
-                                        automatically
-                                    </li>
-                                    <li>
-                                        • Your message will be sent immediately
-                                        after detection
-                                    </li>
-                                    <li>
-                                        • Leave empty to manually control
-                                        recording start/stop
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                        <div className="border-purple-600/30">
-                            <Label className="text-purple-200">
-                                Voice Selection
-                            </Label>
-                            <p className="text-sm text-purple-400/80 mb-2">
-                                Choose your preferred AI voice during live chat
-                            </p>
-                            <Select
-                                value={settings.voiceSettings.voice}
-                                onValueChange={(value) =>
-                                    setSettings((prev) => ({
-                                        ...prev,
-                                        voiceSettings: {
-                                            ...prev.voiceSettings,
-                                            voice: value,
-                                        },
-                                    }))
-                                }
-                            >
-                                <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
-                                    <SelectValue placeholder="Select a voice">
-                                        {voices.find(
-                                            (v) =>
-                                                v.id ===
-                                                settings.voiceSettings.voice
-                                        )?.name || "Select a voice"}
-                                    </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent className="glass border border-purple-600/30">
-                                    {voices.map((voice) => (
-                                        <SelectItem
-                                            key={voice.id}
-                                            value={voice.id}
-                                            className="text-purple-100"
-                                        >
-                                            {voice.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="border-purple-600/30">
-                            <Label className="text-purple-200">Language</Label>
-                            <p className="text-sm text-purple-400/80 mb-2">
-                                Choose AI's language during live chat
-                            </p>
-                            <Select
-                                value={settings.voiceSettings.language}
-                                onValueChange={(value) =>
-                                    setSettings((prev) => ({
-                                        ...prev,
-                                        voiceSettings: {
-                                            ...prev.voiceSettings,
-                                            language: value,
-                                        },
-                                    }))
-                                }
-                            >
-                                <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent className="glass border border-purple-600/30 max-h-64 overflow-y-auto">
-                                    {supportedLanguages.map((lang) => (
-                                        <SelectItem
-                                            key={lang.code}
-                                            value={lang.code}
-                                            className="text-purple-100"
-                                        >
-                                            {lang.flag} {lang.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="chats" className="space-y-4">
-                        <div className="mt-6 space-y-4">
-                            <div className="flex items-center justify-between p-4 bg-orange-600/10 rounded-lg border border-orange-600/20">
-                                <div>
-                                    <Label className="text-purple-200">
-                                        Default to Temporary Chats
-                                    </Label>
-                                    <p className="text-sm text-purple-400/80">
-                                        New chats will be temporary by default
-                                        and auto-expire
-                                    </p>
-                                </div>
-                                <Switch
-                                    checked={
-                                        settings.temporaryChatsSettings
-                                            .defaultToTemporary
-                                    }
-                                    onCheckedChange={(checked) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            temporaryChatsSettings: {
-                                                ...prev.temporaryChatsSettings,
-                                                defaultToTemporary: checked,
-                                            },
-                                        }))
-                                    }
-                                />
-                            </div>
-
-                            <div>
-                                <Label className="text-purple-200">
-                                    Default Lifespan (Hours)
-                                </Label>
-                                <p className="text-sm text-purple-400/80 mb-2">
-                                    How long temporary chats should exist before
-                                    expiring
-                                </p>
-                                <Select
-                                    value={settings.temporaryChatsSettings.defaultLifespanHours.toString()}
-                                    onValueChange={(value) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            temporaryChatsSettings: {
-                                                ...prev.temporaryChatsSettings,
-                                                defaultLifespanHours:
-                                                    parseInt(value),
-                                            },
-                                        }))
-                                    }
-                                >
-                                    <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="glass border border-purple-600/30">
-                                        <SelectItem
-                                            value="1"
-                                            className="text-purple-100"
-                                        >
-                                            1 Hour
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="6"
-                                            className="text-purple-100"
-                                        >
-                                            6 Hours
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="12"
-                                            className="text-purple-100"
-                                        >
-                                            12 Hours
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="24"
-                                            className="text-purple-100"
-                                        >
-                                            24 Hours (1 Day)
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="48"
-                                            className="text-purple-100"
-                                        >
-                                            48 Hours (2 Days)
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="72"
-                                            className="text-purple-100"
-                                        >
-                                            72 Hours (3 Days)
-                                        </SelectItem>
-                                        <SelectItem
-                                            value="168"
-                                            className="text-purple-100"
-                                        >
-                                            1 Week
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="flex items-center justify-between p-4 bg-purple-600/10 rounded-lg border border-purple-600/20">
-                                <div>
-                                    <Label className="text-purple-200">
-                                        Auto-cleanup Expired Chats
-                                    </Label>
-                                    <p className="text-sm text-purple-400/80">
-                                        Automatically delete temporary chats
-                                        when they expire
-                                    </p>
-                                </div>
-                                <Switch
-                                    checked={
-                                        settings.temporaryChatsSettings
-                                            .autoCleanup
-                                    }
-                                    onCheckedChange={(checked) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            temporaryChatsSettings: {
-                                                ...prev.temporaryChatsSettings,
-                                                autoCleanup: checked,
-                                            },
-                                        }))
-                                    }
-                                />
-                            </div>
-                        </div>
-                    </TabsContent>
-
-                    <TabsContent value="notifications" className="space-y-6">
-                        <div className="flex items-center gap-3 mb-4">
-                            <Volume2 className="w-5 h-5 text-purple-400" />
-                            <h3 className="text-lg font-medium text-purple-100">
-                                Notification Settings
-                            </h3>
-                        </div>
-
-                        {/* Sound Notifications Toggle */}
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <label className="text-sm font-medium text-purple-200">
-                                    Sound Notifications
-                                </label>
-                                <p className="text-xs text-purple-400">
-                                    Play a sound when AI responds to your
-                                    messages
-                                </p>
-                            </div>
-                            <Switch
-                                checked={
-                                    settings.notificationSettings.soundEnabled
-                                }
-                                onCheckedChange={(checked) =>
-                                    setSettings((prev) => ({
-                                        ...prev,
-                                        notificationSettings: {
-                                            ...prev.notificationSettings,
-                                            soundEnabled: checked,
-                                        },
-                                    }))
-                                }
-                            />
-                        </div>
-
-                        {/* Only When Unfocused Toggle */}
-                        {settings.notificationSettings.soundEnabled && (
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <label className="text-sm font-medium text-purple-200">
-                                        Only When Tab Unfocused
-                                    </label>
-                                    <p className="text-xs text-purple-400">
-                                        Only play sounds when you're not
-                                        actively viewing the tab
-                                    </p>
-                                </div>
-                                <Switch
-                                    checked={
-                                        settings.notificationSettings
-                                            .soundOnlyWhenUnfocused
-                                    }
-                                    onCheckedChange={(checked) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            notificationSettings: {
-                                                ...prev.notificationSettings,
-                                                soundOnlyWhenUnfocused: checked,
-                                            },
-                                        }))
-                                    }
-                                />
-                            </div>
-                        )}
-
-                        {/* Sound Type Selection */}
-                        {settings.notificationSettings.soundEnabled && (
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-purple-200">
-                                    Notification Sound
-                                </label>
-                                <Select
-                                    value={
-                                        settings.notificationSettings.soundType
-                                    }
-                                    onValueChange={(value) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            notificationSettings: {
-                                                ...prev.notificationSettings,
-                                                soundType: value,
-                                            },
-                                        }))
-                                    }
-                                >
-                                    <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="glass border border-purple-600/30">
-                                        <SelectItem value="subtle">
-                                            Subtle
-                                        </SelectItem>
-                                        <SelectItem value="chime">
-                                            Chime
-                                        </SelectItem>
-                                        <SelectItem value="ping">
-                                            Ping
-                                        </SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        )}
-
-                        {/* Volume Slider */}
-                        {settings.notificationSettings.soundEnabled && (
-                            <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <label className="text-sm font-medium text-purple-200">
-                                        Volume
-                                    </label>
-                                    <span className="text-xs text-purple-400">
-                                        {Math.round(
-                                            settings.notificationSettings
-                                                .soundVolume * 100
-                                        )}
-                                        %
-                                    </span>
-                                </div>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="1"
-                                    step="0.1"
-                                    value={
-                                        settings.notificationSettings
-                                            .soundVolume
-                                    }
-                                    onChange={(e) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            notificationSettings: {
-                                                ...prev.notificationSettings,
-                                                soundVolume: parseFloat(
-                                                    e.target.value
-                                                ),
-                                            },
-                                        }))
-                                    }
-                                    className="w-full"
-                                />
-                            </div>
-                        )}
-
-                        {/* Test Sound Button */}
-                        {settings.notificationSettings.soundEnabled && (
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={async () => {
-                                    try {
-                                        await NotificationSounds.testSound(
-                                            settings.notificationSettings
-                                                .soundType,
-                                            settings.notificationSettings
-                                                .soundVolume
-                                        );
-                                    } catch (error) {
-                                        toast.error(
-                                            "Failed to play test sound"
-                                        );
-                                    }
-                                }}
-                                className="border-purple-600/30 text-purple-300 hover:bg-purple-600/20"
-                            >
-                                <Volume2 className="w-4 h-4 mr-2" />
-                                Test Sound
-                            </Button>
-                        )}
-
-                        {/* Chat Lifecycle Settings */}
-                        <div className="pt-6 border-t border-purple-600/20">
-                            <div className="flex items-center gap-3 mb-4">
-                                <Clock className="w-5 h-5 text-purple-400" />
-                                <h3 className="text-lg font-medium text-purple-100">
-                                    Chat Lifecycle
-                                </h3>
-                            </div>
-
-                            {/* Auto-Archive Settings */}
-                            <div className="space-y-4 p-4 bg-purple-600/10 rounded-lg border border-purple-600/20 mb-4">
-                                <div className="flex items-center justify-between">
+                        <TabsContent value="interface" className="space-y-6 pt-6">
+                            <div className="space-y-6">
+                                {/* Theme & Interface Section */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2">
+                                        <Palette className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold text-purple-100">
+                                            Theme & Interface
+                                        </h3>
+                                    </div>
                                     <div>
-                                        <label className="text-sm font-medium text-purple-200">
-                                            Auto-Archive Chats
-                                        </label>
-                                        <p className="text-xs text-purple-400">
-                                            Automatically archive chats after a
-                                            period of inactivity
+                                        <Label className="text-purple-200 flex items-center gap-2">
+                                            <Palette className="w-4 h-4" />
+                                            Theme Preference
+                                        </Label>
+                                        <p className="text-sm text-purple-400/80 mb-2">
+                                            Choose your visual theme
                                         </p>
+                                        <Select
+                                            value={settings.theme}
+                                            onValueChange={(
+                                                value:
+                                                    | "light"
+                                                    | "dark"
+                                                    | "system"
+                                            ) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    theme: value,
+                                                }))
+                                            }
+                                        >
+                                            <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="glass border border-purple-600/30">
+                                                <SelectItem
+                                                    value="light"
+                                                    className="text-purple-100"
+                                                >
+                                                    ☀️ Light Mode
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="dark"
+                                                    className="text-purple-100"
+                                                >
+                                                    🌙 Dark Mode
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="system"
+                                                    className="text-purple-100"
+                                                >
+                                                    ⚡ System Default
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                    <Switch
-                                        checked={
-                                            settings.chatLifecycleSettings
-                                                .autoArchiveEnabled
-                                        }
-                                        onCheckedChange={(checked) =>
-                                            setSettings((prev) => ({
-                                                ...prev,
-                                                chatLifecycleSettings: {
-                                                    ...prev.chatLifecycleSettings,
-                                                    autoArchiveEnabled: checked,
-                                                },
-                                            }))
-                                        }
-                                    />
+
+                                    <div>
+                                        <Label className="text-purple-200 flex items-center gap-2">
+                                            <MessageSquare className="w-4 h-4" />
+                                            Chat Title Generation
+                                        </Label>
+                                        <p className="text-sm text-purple-400/80 mb-2">
+                                            Choose how new chat titles are
+                                            created
+                                        </p>
+                                        <Select
+                                            value={settings.chatTitleGeneration}
+                                            onValueChange={(
+                                                value:
+                                                    | "first-message"
+                                                    | "ai-generated"
+                                            ) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    chatTitleGeneration: value,
+                                                }))
+                                            }
+                                        >
+                                            <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="glass border border-purple-600/30">
+                                                <SelectItem
+                                                    value="first-message"
+                                                    className="text-purple-100"
+                                                >
+                                                    📝 Use First Message
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="ai-generated"
+                                                    className="text-purple-100"
+                                                >
+                                                    🤖 AI Generated Title
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="mt-2 p-3 bg-blue-600/10 rounded-lg border border-blue-600/20">
+                                            <h4 className="text-sm font-medium text-blue-200 mb-1">
+                                                💡 How it works
+                                            </h4>
+                                            <ul className="text-xs text-blue-300 space-y-1">
+                                                {settings.chatTitleGeneration ===
+                                                "first-message" ? (
+                                                    <>
+                                                        <li>
+                                                            • Chat titles will
+                                                            be based on your
+                                                            first message
+                                                            content
+                                                        </li>
+                                                        <li>
+                                                            • Faster title
+                                                            generation with no
+                                                            additional AI calls
+                                                        </li>
+                                                        <li>
+                                                            • Titles are created
+                                                            immediately when you
+                                                            send your first
+                                                            message
+                                                        </li>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <li>
+                                                            • AI will create
+                                                            contextually
+                                                            appropriate titles
+                                                            for your chats
+                                                        </li>
+                                                        <li>
+                                                            • More descriptive
+                                                            and relevant titles
+                                                            based on
+                                                            conversation
+                                                            content
+                                                        </li>
+                                                        <li>
+                                                            • May take a moment
+                                                            longer as it
+                                                            requires an
+                                                            additional AI call
+                                                        </li>
+                                                    </>
+                                                )}
+                                            </ul>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                {settings.chatLifecycleSettings
-                                    .autoArchiveEnabled && (
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-purple-200">
-                                            Archive After (Days)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            max="365"
+                                {/* Voice & Audio Section */}
+                                <div className="space-y-4 pt-6 border-t border-purple-600/20">
+                                    <div className="flex items-center gap-2">
+                                        <Mic className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold text-purple-100">
+                                            Voice & Audio
+                                        </h3>
+                                    </div>
+                                    <div className="border-purple-600/30">
+                                        <Label className="text-purple-200">
+                                            Voice Recording End Word
+                                        </Label>
+                                        <p className="text-sm text-purple-400/80 mb-2">
+                                            Say this word to automatically end
+                                            recording and send your message
+                                        </p>
+                                        <Input
+                                            type="text"
                                             value={
-                                                settings.chatLifecycleSettings
-                                                    .autoArchiveDays
+                                                settings.voiceSettings.buzzWord
                                             }
                                             onChange={(e) =>
                                                 setSettings((prev) => ({
                                                     ...prev,
-                                                    chatLifecycleSettings: {
-                                                        ...prev.chatLifecycleSettings,
-                                                        autoArchiveDays:
-                                                            parseInt(
-                                                                e.target.value
-                                                            ) || 30,
+                                                    voiceSettings: {
+                                                        ...prev.voiceSettings,
+                                                        buzzWord:
+                                                            e.target.value,
                                                     },
                                                 }))
                                             }
-                                            className="w-full p-2 bg-purple-800/30 border border-purple-600/30 rounded-lg text-purple-100 focus:outline-none focus:border-purple-500"
+                                            placeholder="e.g., 'send now', 'submit', 'done'"
+                                            className="bg-gray-900/60 border-purple-600/30 text-purple-100 placeholder-purple-300/60"
                                         />
-                                        <p className="text-xs text-purple-400">
-                                            Chats inactive for{" "}
-                                            {
-                                                settings.chatLifecycleSettings
-                                                    .autoArchiveDays
-                                            }{" "}
-                                            days will be automatically archived
-                                        </p>
+                                        <div className="mt-2 p-3 bg-blue-600/10 rounded-lg border border-blue-600/20">
+                                            <h4 className="text-sm font-medium text-blue-200 mb-1">
+                                                💡 How it works
+                                            </h4>
+                                            <ul className="text-xs text-blue-300 space-y-1">
+                                                <li>
+                                                    • Choose a simple, unique
+                                                    word that you don't use
+                                                    often in conversation
+                                                </li>
+                                                <li>
+                                                    • When this word is detected
+                                                    in your speech, recording
+                                                    will stop automatically
+                                                </li>
+                                                <li>
+                                                    • Your message will be sent
+                                                    immediately after detection
+                                                </li>
+                                                <li>
+                                                    • Leave empty to manually
+                                                    control recording start/stop
+                                                </li>
+                                            </ul>
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-
-                            {/* Auto-Delete Settings */}
-                            <div className="space-y-4 p-4 bg-red-600/10 rounded-lg border border-red-600/20">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <label className="text-sm font-medium text-red-200">
-                                            Auto-Delete Archived Chats
-                                        </label>
-                                        <p className="text-xs text-red-400">
-                                            Permanently delete chats after
-                                            they've been archived for a while
+                                    <div className="border-purple-600/30">
+                                        <Label className="text-purple-200">
+                                            Voice Selection
+                                        </Label>
+                                        <p className="text-sm text-purple-400/80 mb-2">
+                                            Choose your preferred AI voice
+                                            during live chat
                                         </p>
+                                        <Select
+                                            value={settings.voiceSettings.voice}
+                                            onValueChange={(value) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    voiceSettings: {
+                                                        ...prev.voiceSettings,
+                                                        voice: value,
+                                                    },
+                                                }))
+                                            }
+                                        >
+                                            <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                                <SelectValue placeholder="Select a voice">
+                                                    {voices.find(
+                                                        (v) =>
+                                                            v.id ===
+                                                            settings
+                                                                .voiceSettings
+                                                                .voice
+                                                    )?.name ||
+                                                        "Select a voice"}
+                                                </SelectValue>
+                                            </SelectTrigger>
+                                            <SelectContent className="glass border border-purple-600/30">
+                                                {voices.map((voice) => (
+                                                    <SelectItem
+                                                        key={voice.id}
+                                                        value={voice.id}
+                                                        className="text-purple-100"
+                                                    >
+                                                        {voice.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
-                                    <Switch
-                                        checked={
-                                            settings.chatLifecycleSettings
-                                                .autoDeleteEnabled
-                                        }
-                                        onCheckedChange={(checked) =>
-                                            setSettings((prev) => ({
-                                                ...prev,
-                                                chatLifecycleSettings: {
-                                                    ...prev.chatLifecycleSettings,
-                                                    autoDeleteEnabled: checked,
-                                                },
-                                            }))
-                                        }
-                                    />
+                                    <div className="border-purple-600/30">
+                                        <Label className="text-purple-200">
+                                            Language
+                                        </Label>
+                                        <p className="text-sm text-purple-400/80 mb-2">
+                                            Choose AI's language during live
+                                            chat
+                                        </p>
+                                        <Select
+                                            value={
+                                                settings.voiceSettings.language
+                                            }
+                                            onValueChange={(value) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    voiceSettings: {
+                                                        ...prev.voiceSettings,
+                                                        language: value,
+                                                    },
+                                                }))
+                                            }
+                                        >
+                                            <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="glass border border-purple-600/30 max-h-64 overflow-y-auto">
+                                                {supportedLanguages.map(
+                                                    (lang) => (
+                                                        <SelectItem
+                                                            key={lang.code}
+                                                            value={lang.code}
+                                                            className="text-purple-100"
+                                                        >
+                                                            {lang.flag}{" "}
+                                                            {lang.name}
+                                                        </SelectItem>
+                                                    )
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
+                            </div>
+                        </TabsContent>
 
-                                {settings.chatLifecycleSettings
-                                    .autoDeleteEnabled && (
-                                    <>
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-red-200">
-                                                Delete After (Days in Archive)
+                        <TabsContent value="chats" className="space-y-6 pt-6">
+                            <div className="space-y-6">
+                                {/* Temporary Chats Section */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2">
+                                        <Clock className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold text-purple-100">
+                                            Temporary Chats
+                                        </h3>
+                                    </div>
+                                    <div className="flex items-center justify-between p-4 bg-orange-600/10 rounded-lg border border-orange-600/20">
+                                        <div>
+                                            <Label className="text-purple-200">
+                                                Default to Temporary Chats
+                                            </Label>
+                                            <p className="text-sm text-purple-400/80">
+                                                New chats will be temporary by
+                                                default and auto-expire
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={
+                                                settings.temporaryChatsSettings
+                                                    .defaultToTemporary
+                                            }
+                                            onCheckedChange={(checked) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    temporaryChatsSettings: {
+                                                        ...prev.temporaryChatsSettings,
+                                                        defaultToTemporary:
+                                                            checked,
+                                                    },
+                                                }))
+                                            }
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <Label className="text-purple-200">
+                                            Default Lifespan (Hours)
+                                        </Label>
+                                        <p className="text-sm text-purple-400/80 mb-2">
+                                            How long temporary chats should
+                                            exist before expiring
+                                        </p>
+                                        <Select
+                                            value={settings.temporaryChatsSettings.defaultLifespanHours.toString()}
+                                            onValueChange={(value) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    temporaryChatsSettings: {
+                                                        ...prev.temporaryChatsSettings,
+                                                        defaultLifespanHours:
+                                                            parseInt(value),
+                                                    },
+                                                }))
+                                            }
+                                        >
+                                            <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="glass border border-purple-600/30">
+                                                <SelectItem
+                                                    value="1"
+                                                    className="text-purple-100"
+                                                >
+                                                    1 Hour
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="6"
+                                                    className="text-purple-100"
+                                                >
+                                                    6 Hours
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="12"
+                                                    className="text-purple-100"
+                                                >
+                                                    12 Hours
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="24"
+                                                    className="text-purple-100"
+                                                >
+                                                    24 Hours (1 Day)
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="48"
+                                                    className="text-purple-100"
+                                                >
+                                                    48 Hours (2 Days)
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="72"
+                                                    className="text-purple-100"
+                                                >
+                                                    72 Hours (3 Days)
+                                                </SelectItem>
+                                                <SelectItem
+                                                    value="168"
+                                                    className="text-purple-100"
+                                                >
+                                                    1 Week
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 bg-purple-600/10 rounded-lg border border-purple-600/20">
+                                        <div>
+                                            <Label className="text-purple-200">
+                                                Auto-cleanup Expired Chats
+                                            </Label>
+                                            <p className="text-sm text-purple-400/80">
+                                                Automatically delete temporary
+                                                chats when they expire
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={
+                                                settings.temporaryChatsSettings
+                                                    .autoCleanup
+                                            }
+                                            onCheckedChange={(checked) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    temporaryChatsSettings: {
+                                                        ...prev.temporaryChatsSettings,
+                                                        autoCleanup: checked,
+                                                    },
+                                                }))
+                                            }
+                                        />
+                                    </div>
+                                </div>
+                                {/* Notifications Section */}
+                                <div className="space-y-4 pt-6 border-t border-purple-600/20">
+                                    <div className="flex items-center gap-2">
+                                        <Volume2 className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold text-purple-100">
+                                            Notifications
+                                        </h3>
+                                    </div>
+                                    {/* Sound Notifications Toggle */}
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <label className="text-sm font-medium text-purple-200">
+                                                Sound Notifications
                                             </label>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                max="365"
+                                            <p className="text-xs text-purple-400">
+                                                Play a sound when AI responds to
+                                                your messages
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={
+                                                settings.notificationSettings
+                                                    .soundEnabled
+                                            }
+                                            onCheckedChange={(checked) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    notificationSettings: {
+                                                        ...prev.notificationSettings,
+                                                        soundEnabled: checked,
+                                                    },
+                                                }))
+                                            }
+                                        />
+                                    </div>
+
+                                    {/* Only When Unfocused Toggle */}
+                                    {settings.notificationSettings
+                                        .soundEnabled && (
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="text-sm font-medium text-purple-200">
+                                                    Only When Tab Unfocused
+                                                </label>
+                                                <p className="text-xs text-purple-400">
+                                                    Only play sounds when you're
+                                                    not actively viewing the tab
+                                                </p>
+                                            </div>
+                                            <Switch
+                                                checked={
+                                                    settings
+                                                        .notificationSettings
+                                                        .soundOnlyWhenUnfocused
+                                                }
+                                                onCheckedChange={(checked) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        notificationSettings: {
+                                                            ...prev.notificationSettings,
+                                                            soundOnlyWhenUnfocused:
+                                                                checked,
+                                                        },
+                                                    }))
+                                                }
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Sound Type Selection */}
+                                    {settings.notificationSettings
+                                        .soundEnabled && (
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-purple-200">
+                                                Notification Sound
+                                            </label>
+                                            <Select
                                                 value={
                                                     settings
-                                                        .chatLifecycleSettings
-                                                        .autoDeleteDays
+                                                        .notificationSettings
+                                                        .soundType
+                                                }
+                                                onValueChange={(value) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        notificationSettings: {
+                                                            ...prev.notificationSettings,
+                                                            soundType: value,
+                                                        },
+                                                    }))
+                                                }
+                                            >
+                                                <SelectTrigger className="bg-gray-900/60 border-purple-600/30 text-purple-100">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent className="glass border border-purple-600/30">
+                                                    <SelectItem value="subtle">
+                                                        Subtle
+                                                    </SelectItem>
+                                                    <SelectItem value="chime">
+                                                        Chime
+                                                    </SelectItem>
+                                                    <SelectItem value="ping">
+                                                        Ping
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
+
+                                    {/* Volume Slider */}
+                                    {settings.notificationSettings
+                                        .soundEnabled && (
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-sm font-medium text-purple-200">
+                                                    Volume
+                                                </label>
+                                                <span className="text-xs text-purple-400">
+                                                    {Math.round(
+                                                        settings
+                                                            .notificationSettings
+                                                            .soundVolume * 100
+                                                    )}
+                                                    %
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="1"
+                                                step="0.1"
+                                                value={
+                                                    settings
+                                                        .notificationSettings
+                                                        .soundVolume
                                                 }
                                                 onChange={(e) =>
                                                     setSettings((prev) => ({
                                                         ...prev,
-                                                        chatLifecycleSettings: {
-                                                            ...prev.chatLifecycleSettings,
-                                                            autoDeleteDays:
-                                                                parseInt(
+                                                        notificationSettings: {
+                                                            ...prev.notificationSettings,
+                                                            soundVolume:
+                                                                parseFloat(
                                                                     e.target
                                                                         .value
-                                                                ) || 30,
+                                                                ),
                                                         },
                                                     }))
                                                 }
-                                                className="w-full p-2 bg-red-800/30 border border-red-600/30 rounded-lg text-red-100 focus:outline-none focus:border-red-500"
+                                                className="w-full"
                                             />
-                                            <p className="text-xs text-red-400">
-                                                Archived chats will be
-                                                permanently deleted after{" "}
-                                                {
+                                        </div>
+                                    )}
+
+                                    {/* Test Sound Button */}
+                                    {settings.notificationSettings
+                                        .soundEnabled && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={async () => {
+                                                try {
+                                                    await NotificationSounds.testSound(
+                                                        settings
+                                                            .notificationSettings
+                                                            .soundType,
+                                                        settings
+                                                            .notificationSettings
+                                                            .soundVolume
+                                                    );
+                                                } catch (error) {
+                                                    toast.error(
+                                                        "Failed to play test sound"
+                                                    );
+                                                }
+                                            }}
+                                            className="border-purple-600/30 text-purple-300 hover:bg-purple-600/20"
+                                        >
+                                            <Volume2 className="w-4 h-4 mr-2" />
+                                            Test Sound
+                                        </Button>
+                                    )}
+                                </div>
+                                {/* Chat Lifecycle Section */}
+                                <div className="space-y-4 pt-6 border-t border-purple-600/20">
+                                    <div className="flex items-center gap-2">
+                                        <Archive className="w-5 h-5 text-purple-400" />
+                                        <h3 className="text-lg font-semibold text-purple-100">
+                                            Chat Lifecycle
+                                        </h3>
+                                    </div>
+                                    {/* Auto-Archive Settings */}
+                                    <div className="space-y-4 p-4 bg-purple-600/10 rounded-lg border border-purple-600/20 mb-4">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="text-sm font-medium text-purple-200">
+                                                    Auto-Archive Chats
+                                                </label>
+                                                <p className="text-xs text-purple-400">
+                                                    Automatically archive chats
+                                                    after a period of
+                                                    inactivity
+                                                </p>
+                                            </div>
+                                            <Switch
+                                                checked={
                                                     settings
                                                         .chatLifecycleSettings
-                                                        .autoDeleteDays
-                                                }{" "}
-                                                days
-                                            </p>
+                                                        .autoArchiveEnabled
+                                                }
+                                                onCheckedChange={(checked) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        chatLifecycleSettings:
+                                                            {
+                                                                ...prev.chatLifecycleSettings,
+                                                                autoArchiveEnabled:
+                                                                    checked,
+                                                            },
+                                                    }))
+                                                }
+                                            />
                                         </div>
 
-                                        <div className="flex items-start gap-2 p-3 bg-red-600/20 border border-red-600/30 rounded-lg">
-                                            <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-                                            <div className="text-xs text-red-300">
-                                                <strong>Warning:</strong>{" "}
-                                                Auto-deleted chats cannot be
-                                                recovered. Make sure to export
-                                                important conversations before
-                                                they are deleted.
+                                        {settings.chatLifecycleSettings
+                                            .autoArchiveEnabled && (
+                                            <div className="space-y-2">
+                                                <label className="text-sm font-medium text-purple-200">
+                                                    Archive After (Days)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    max="365"
+                                                    value={
+                                                        settings
+                                                            .chatLifecycleSettings
+                                                            .autoArchiveDays
+                                                    }
+                                                    onChange={(e) =>
+                                                        setSettings(
+                                                            (prev) => ({
+                                                                ...prev,
+                                                                chatLifecycleSettings:
+                                                                    {
+                                                                        ...prev.chatLifecycleSettings,
+                                                                        autoArchiveDays:
+                                                                            parseInt(
+                                                                                e
+                                                                                    .target
+                                                                                    .value
+                                                                            ) ||
+                                                                            30,
+                                                                    },
+                                                            })
+                                                        )
+                                                    }
+                                                    className="w-full p-2 bg-purple-800/30 border border-purple-600/30 rounded-lg text-purple-100 focus:outline-none focus:border-purple-500"
+                                                />
+                                                <p className="text-xs text-purple-400">
+                                                    Chats inactive for{" "}
+                                                    {
+                                                        settings
+                                                            .chatLifecycleSettings
+                                                            .autoArchiveDays
+                                                    }{" "}
+                                                    days will be automatically
+                                                    archived
+                                                </p>
                                             </div>
+                                        )}
+                                    </div>
+
+                                    {/* Auto-Delete Settings */}
+                                    <div className="space-y-4 p-4 bg-red-600/10 rounded-lg border border-red-600/20">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="text-sm font-medium text-red-200">
+                                                    Auto-Delete Archived Chats
+                                                </label>
+                                                <p className="text-xs text-red-400">
+                                                    Permanently delete chats
+                                                    after they've been archived
+                                                    for a while
+                                                </p>
+                                            </div>
+                                            <Switch
+                                                checked={
+                                                    settings
+                                                        .chatLifecycleSettings
+                                                        .autoDeleteEnabled
+                                                }
+                                                onCheckedChange={(checked) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        chatLifecycleSettings:
+                                                            {
+                                                                ...prev.chatLifecycleSettings,
+                                                                autoDeleteEnabled:
+                                                                    checked,
+                                                            },
+                                                    }))
+                                                }
+                                            />
                                         </div>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </TabsContent>
 
-                    <TabsContent value="ai" className="space-y-6">
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold text-purple-100">
-                                    Advanced AI Settings
-                                </h3>
-                                <button
-                                    onClick={() => {
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            aiSettings: {
-                                                temperature: 0.7,
-                                                maxTokens: undefined,
-                                                systemPrompt: "",
-                                                responseMode: "balanced",
-                                                promptEnhancement: false,
-                                                contextWindow: undefined,
-                                                topP: 0.9,
-                                                frequencyPenalty: 0,
-                                                presencePenalty: 0,
-                                            },
-                                        }));
-                                    }}
-                                    className="px-3 py-1.5 text-sm bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-md border border-purple-500/30 transition-all duration-200"
-                                >
-                                    Reset to Defaults
-                                </button>
-                            </div>
+                                        {settings.chatLifecycleSettings
+                                            .autoDeleteEnabled && (
+                                            <>
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-medium text-red-200">
+                                                        Delete After (Days in
+                                                        Archive)
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        max="365"
+                                                        value={
+                                                            settings
+                                                                .chatLifecycleSettings
+                                                                .autoDeleteDays
+                                                        }
+                                                        onChange={(e) =>
+                                                            setSettings(
+                                                                (prev) => ({
+                                                                    ...prev,
+                                                                    chatLifecycleSettings:
+                                                                        {
+                                                                            ...prev.chatLifecycleSettings,
+                                                                            autoDeleteDays:
+                                                                                parseInt(
+                                                                                    e
+                                                                                        .target
+                                                                                        .value
+                                                                                ) ||
+                                                                                30,
+                                                                        },
+                                                                })
+                                                            )
+                                                        }
+                                                        className="w-full p-2 bg-red-800/30 border border-red-600/30 rounded-lg text-red-100 focus:outline-none focus:border-red-500"
+                                                    />
+                                                    <p className="text-xs text-red-400">
+                                                        Archived chats will be
+                                                        permanently deleted
+                                                        after{" "}
+                                                        {
+                                                            settings
+                                                                .chatLifecycleSettings
+                                                                .autoDeleteDays
+                                                        }{" "}
+                                                        days
+                                                    </p>
+                                                </div>
 
-                            {/* Temperature Setting */}
-                            <div className="space-y-3">
+                                                <div className="flex items-start gap-2 p-3 bg-red-600/20 border border-red-600/30 rounded-lg">
+                                                    <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+                                                    <div className="text-xs text-red-300">
+                                                        <strong>
+                                                            Warning:
+                                                        </strong>{" "}
+                                                        Auto-deleted chats
+                                                        cannot be recovered.
+                                                        Make sure to export
+                                                        important conversations
+                                                        before they are
+                                                        deleted.
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="ai" className="space-y-6 pt-6">
+                            <div className="space-y-6">
                                 <div className="flex items-center justify-between">
-                                    <label className="text-purple-200 font-medium">
-                                        Temperature
-                                    </label>
-                                    <span className="text-purple-300 text-sm">
-                                        {settings.aiSettings?.temperature ||
-                                            0.7}
-                                    </span>
+                                    <h3 className="text-lg font-semibold text-purple-100">
+                                        Advanced AI Settings
+                                    </h3>
+                                    <button
+                                        onClick={() => {
+                                            setSettings((prev) => ({
+                                                ...prev,
+                                                aiSettings: {
+                                                    temperature: 0.7,
+                                                    maxTokens: undefined,
+                                                    systemPrompt: "",
+                                                    responseMode: "balanced",
+                                                    promptEnhancement: false,
+                                                    contextWindow: undefined,
+                                                    topP: 0.9,
+                                                    frequencyPenalty: 0,
+                                                    presencePenalty: 0,
+                                                },
+                                            }));
+                                        }}
+                                        className="px-3 py-1.5 text-sm bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-md border border-purple-500/30 transition-all duration-200"
+                                    >
+                                        Reset to Defaults
+                                    </button>
                                 </div>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="2"
-                                    step="0.1"
-                                    value={
-                                        settings.aiSettings?.temperature || 0.7
-                                    }
-                                    onChange={(e) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            aiSettings: {
-                                                ...prev.aiSettings,
-                                                temperature: parseFloat(
-                                                    e.target.value
-                                                ),
-                                            },
-                                        }))
-                                    }
-                                    className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
-                                />
-                                <p className="text-xs text-purple-400">
-                                    Lower values make responses more focused and
-                                    deterministic. Higher values increase
-                                    creativity and randomness.
-                                </p>
-                            </div>
 
-                            {/* Response Mode */}
-                            <div className="space-y-3">
-                                <label className="text-purple-200 font-medium">
-                                    Response Mode
-                                </label>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                    {[
-                                        {
-                                            id: "balanced",
-                                            label: "Balanced",
-                                            desc: "Well-rounded responses",
-                                        },
-                                        {
-                                            id: "concise",
-                                            label: "Concise",
-                                            desc: "Brief and to the point",
-                                        },
-                                        {
-                                            id: "detailed",
-                                            label: "Detailed",
-                                            desc: "Comprehensive explanations",
-                                        },
-                                        {
-                                            id: "creative",
-                                            label: "Creative",
-                                            desc: "More imaginative responses",
-                                        },
-                                        {
-                                            id: "analytical",
-                                            label: "Analytical",
-                                            desc: "Data-driven approach",
-                                        },
-                                        {
-                                            id: "friendly",
-                                            label: "Friendly",
-                                            desc: "Casual and approachable",
-                                        },
-                                        {
-                                            id: "professional",
-                                            label: "Professional",
-                                            desc: "Formal business tone",
-                                        },
-                                    ].map((mode) => (
-                                        <button
-                                            key={mode.id}
-                                            onClick={() =>
-                                                setSettings((prev) => ({
-                                                    ...prev,
-                                                    aiSettings: {
-                                                        ...prev.aiSettings,
-                                                        responseMode: mode.id,
-                                                    },
-                                                }))
-                                            }
-                                            className={`p-3 rounded-lg border transition-all duration-200 text-left ${
-                                                (settings.aiSettings
-                                                    ?.responseMode ||
-                                                    "balanced") === mode.id
-                                                    ? "bg-purple-500/30 border-purple-500/50 text-purple-100"
-                                                    : "bg-purple-500/10 border-purple-500/30 text-purple-200 hover:bg-purple-500/20"
-                                            }`}
-                                            title={mode.desc}
-                                        >
-                                            <div className="font-medium text-sm">
-                                                {mode.label}
-                                            </div>
-                                            <div className="text-xs opacity-70 mt-1">
-                                                {mode.desc}
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* System Prompt */}
-                            <div className="space-y-3">
-                                <label className="text-purple-200 font-medium">
-                                    Custom System Prompt
-                                </label>
-                                <textarea
-                                    value={
-                                        settings.aiSettings?.systemPrompt || ""
-                                    }
-                                    onChange={(e) =>
-                                        setSettings((prev) => ({
-                                            ...prev,
-                                            aiSettings: {
-                                                ...prev.aiSettings,
-                                                systemPrompt: e.target.value,
-                                            },
-                                        }))
-                                    }
-                                    placeholder="Enter a custom system prompt to guide AI behavior..."
-                                    className="w-full h-24 px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-lg text-purple-100 placeholder-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-none"
-                                />
-                                <p className="text-xs text-purple-400">
-                                    This prompt will be sent with every message
-                                    to guide the AI's behavior and responses.
-                                </p>
-                            </div>
-
-                            {/* Prompt Enhancement */}
-                            <div className="flex items-center justify-between p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
-                                <div>
-                                    <h4 className="text-purple-100 font-medium">
-                                        1-Click Prompt Enhancement
-                                    </h4>
-                                    <p className="text-sm text-purple-300 mt-1">
-                                        Automatically enhance your prompts for
-                                        better AI responses
-                                    </p>
-                                </div>
-                                <label className="relative inline-flex items-center cursor-pointer">
+                                {/* Temperature Setting */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-purple-200 font-medium">
+                                            Temperature
+                                        </label>
+                                        <span className="text-purple-300 text-sm">
+                                            {settings.aiSettings?.temperature ||
+                                                0.7}
+                                        </span>
+                                    </div>
                                     <input
-                                        type="checkbox"
-                                        checked={
+                                        type="range"
+                                        min="0"
+                                        max="2"
+                                        step="0.1"
+                                        value={
                                             settings.aiSettings
-                                                ?.promptEnhancement || false
+                                                ?.temperature || 0.7
                                         }
                                         onChange={(e) =>
                                             setSettings((prev) => ({
                                                 ...prev,
                                                 aiSettings: {
                                                     ...prev.aiSettings,
-                                                    promptEnhancement:
-                                                        e.target.checked,
+                                                    temperature: parseFloat(
+                                                        e.target.value
+                                                    ),
                                                 },
                                             }))
                                         }
-                                        className="sr-only peer"
+                                        className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
                                     />
-                                    <div className="w-11 h-6 bg-purple-600/30 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
-                                </label>
-                            </div>
+                                    <p className="text-xs text-purple-400">
+                                        Lower values make responses more focused
+                                        and deterministic. Higher values
+                                        increase creativity and randomness.
+                                    </p>
+                                </div>
 
-                            {/* Advanced Parameters */}
-                            <details className="group">
-                                <summary className="flex items-center justify-between p-3 bg-purple-500/10 rounded-lg border border-purple-500/30 cursor-pointer hover:bg-purple-500/20 transition-colors">
-                                    <span className="text-purple-200 font-medium">
-                                        Advanced Parameters
-                                    </span>
-                                    <ChevronDown className="w-4 h-4 text-purple-400 group-open:rotate-180 transition-transform" />
-                                </summary>
-                                <div className="mt-4 space-y-4 p-4 bg-purple-500/5 rounded-lg border border-purple-500/20">
-                                    {/* Max Tokens */}
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-purple-200 text-sm">
-                                                Max Tokens
-                                            </label>
-                                            <span className="text-purple-300 text-sm">
-                                                {settings.aiSettings
-                                                    ?.maxTokens || "Auto"}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            max="32000"
-                                            value={
-                                                settings.aiSettings
-                                                    ?.maxTokens || ""
-                                            }
-                                            onChange={(e) =>
-                                                setSettings((prev) => ({
-                                                    ...prev,
-                                                    aiSettings: {
-                                                        ...prev.aiSettings,
-                                                        maxTokens: e.target
-                                                            .value
-                                                            ? parseInt(
-                                                                  e.target.value
-                                                              )
-                                                            : undefined,
-                                                    },
-                                                }))
-                                            }
-                                            placeholder="Auto"
-                                            className="w-full px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-md text-purple-100 placeholder-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                                        />
-                                    </div>
-
-                                    {/* Top P */}
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-purple-200 text-sm">
-                                                Top P (Nucleus Sampling)
-                                            </label>
-                                            <span className="text-purple-300 text-sm">
-                                                {settings.aiSettings?.topP ||
-                                                    0.9}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max="1"
-                                            step="0.05"
-                                            value={
-                                                settings.aiSettings?.topP || 0.9
-                                            }
-                                            onChange={(e) =>
-                                                setSettings((prev) => ({
-                                                    ...prev,
-                                                    aiSettings: {
-                                                        ...prev.aiSettings,
-                                                        topP: parseFloat(
-                                                            e.target.value
-                                                        ),
-                                                    },
-                                                }))
-                                            }
-                                            className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
-                                        />
-                                    </div>
-
-                                    {/* Frequency Penalty */}
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-purple-200 text-sm">
-                                                Frequency Penalty
-                                            </label>
-                                            <span className="text-purple-300 text-sm">
-                                                {settings.aiSettings
-                                                    ?.frequencyPenalty || 0}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max="2"
-                                            step="0.1"
-                                            value={
-                                                settings.aiSettings
-                                                    ?.frequencyPenalty || 0
-                                            }
-                                            onChange={(e) =>
-                                                setSettings((prev) => ({
-                                                    ...prev,
-                                                    aiSettings: {
-                                                        ...prev.aiSettings,
-                                                        frequencyPenalty:
-                                                            parseFloat(
-                                                                e.target.value
-                                                            ),
-                                                    },
-                                                }))
-                                            }
-                                            className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
-                                        />
-                                    </div>
-
-                                    {/* Presence Penalty */}
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-purple-200 text-sm">
-                                                Presence Penalty
-                                            </label>
-                                            <span className="text-purple-300 text-sm">
-                                                {settings.aiSettings
-                                                    ?.presencePenalty || 0}
-                                            </span>
-                                        </div>
-                                        <input
-                                            type="range"
-                                            min="0"
-                                            max="2"
-                                            step="0.1"
-                                            value={
-                                                settings.aiSettings
-                                                    ?.presencePenalty || 0
-                                            }
-                                            onChange={(e) =>
-                                                setSettings((prev) => ({
-                                                    ...prev,
-                                                    aiSettings: {
-                                                        ...prev.aiSettings,
-                                                        presencePenalty:
-                                                            parseFloat(
-                                                                e.target.value
-                                                            ),
-                                                    },
-                                                }))
-                                            }
-                                            className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
-                                        />
+                                {/* Response Mode */}
+                                <div className="space-y-3">
+                                    <label className="text-purple-200 font-medium">
+                                        Response Mode
+                                    </label>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                                        {[
+                                            {
+                                                id: "balanced",
+                                                label: "Balanced",
+                                                desc: "Well-rounded responses",
+                                            },
+                                            {
+                                                id: "concise",
+                                                label: "Concise",
+                                                desc: "Brief and to the point",
+                                            },
+                                            {
+                                                id: "detailed",
+                                                label: "Detailed",
+                                                desc: "Comprehensive explanations",
+                                            },
+                                            {
+                                                id: "creative",
+                                                label: "Creative",
+                                                desc: "More imaginative responses",
+                                            },
+                                            {
+                                                id: "analytical",
+                                                label: "Analytical",
+                                                desc: "Data-driven approach",
+                                            },
+                                            {
+                                                id: "friendly",
+                                                label: "Friendly",
+                                                desc: "Casual and approachable",
+                                            },
+                                            {
+                                                id: "professional",
+                                                label: "Professional",
+                                                desc: "Formal business tone",
+                                            },
+                                        ].map((mode) => (
+                                            <button
+                                                key={mode.id}
+                                                onClick={() =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        aiSettings: {
+                                                            ...prev.aiSettings,
+                                                            responseMode:
+                                                                mode.id,
+                                                        },
+                                                    }))
+                                                }
+                                                className={`p-3 rounded-lg border transition-all duration-200 text-left ${
+                                                    (settings.aiSettings
+                                                        ?.responseMode ||
+                                                        "balanced") === mode.id
+                                                        ? "bg-purple-500/30 border-purple-500/50 text-purple-100"
+                                                        : "bg-purple-500/10 border-purple-500/30 text-purple-200 hover:bg-purple-500/20"
+                                                }`}
+                                                title={mode.desc}
+                                            >
+                                                <div className="font-medium text-sm">
+                                                    {mode.label}
+                                                </div>
+                                                <div className="text-xs opacity-70 mt-1">
+                                                    {mode.desc}
+                                                </div>
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
-                            </details>
-                        </div>
-                    </TabsContent>
 
-                    <TabsContent value="security" className="space-y-6">
-                        <div className="space-y-4">
-                            <div className="flex items-center gap-2">
-                                <Shield className="w-5 h-5 text-green-400" />
-                                <h3 className="text-lg font-semibold text-purple-100">
-                                    Password Protection
-                                </h3>
-                            </div>
-                            <p className="text-purple-300 text-sm">
-                                Secure your chats with password protection. Set
-                                a default password or customize protection for
-                                individual chats.
-                            </p>
+                                {/* System Prompt */}
+                                <div className="space-y-3">
+                                    <label className="text-purple-200 font-medium">
+                                        Custom System Prompt
+                                    </label>
+                                    <textarea
+                                        value={
+                                            settings.aiSettings
+                                                ?.systemPrompt || ""
+                                        }
+                                        onChange={(e) =>
+                                            setSettings((prev) => ({
+                                                ...prev,
+                                                aiSettings: {
+                                                    ...prev.aiSettings,
+                                                    systemPrompt:
+                                                        e.target.value,
+                                                },
+                                            }))
+                                        }
+                                        placeholder="Enter a custom system prompt to guide AI behavior..."
+                                        className="w-full h-24 px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-lg text-purple-100 placeholder-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-none"
+                                    />
+                                    <p className="text-xs text-purple-400">
+                                        This prompt will be sent with every
+                                        message to guide the AI's behavior and
+                                        responses.
+                                    </p>
+                                </div>
 
-                            {/* Default Password Management */}
-                            <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div className="flex items-center gap-2">
-                                        <Key className="w-4 h-4 text-purple-400" />
+                                {/* Prompt Enhancement */}
+                                <div className="flex items-center justify-between p-4 bg-purple-500/10 rounded-lg border border-purple-500/30">
+                                    <div>
+                                        <h4 className="text-purple-100 font-medium">
+                                            1-Click Prompt Enhancement
+                                        </h4>
+                                        <p className="text-sm text-purple-300 mt-1">
+                                            Automatically enhance your prompts
+                                            for better AI responses
+                                        </p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={
+                                                settings.aiSettings
+                                                    ?.promptEnhancement || false
+                                            }
+                                            onChange={(e) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    aiSettings: {
+                                                        ...prev.aiSettings,
+                                                        promptEnhancement:
+                                                            e.target.checked,
+                                                    },
+                                                }))
+                                            }
+                                            className="sr-only peer"
+                                        />
+                                        <div className="w-11 h-6 bg-purple-600/30 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
+                                    </label>
+                                </div>
+
+                                {/* Advanced Parameters */}
+                                <details className="group">
+                                    <summary className="flex items-center justify-between p-3 bg-purple-500/10 rounded-lg border border-purple-500/30 cursor-pointer hover:bg-purple-500/20 transition-colors">
                                         <span className="text-purple-200 font-medium">
-                                            Default Password
+                                            Advanced Parameters
                                         </span>
-                                    </div>
-                                    <div
-                                        className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                            preferences?.passwordSettings
-                                                ?.defaultPasswordHash
-                                                ? "bg-green-500/20 text-green-300"
-                                                : "bg-gray-500/20 text-gray-300"
-                                        }`}
-                                    >
-                                        {preferences?.passwordSettings
-                                            ?.defaultPasswordHash
-                                            ? "Set"
-                                            : "Not Set"}
-                                    </div>
-                                </div>
+                                        <ChevronDown className="w-4 h-4 text-purple-400 group-open:rotate-180 transition-transform" />
+                                    </summary>
+                                    <div className="mt-4 space-y-4 p-4 bg-purple-500/5 rounded-lg border border-purple-500/20">
+                                        {/* Max Tokens */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-purple-200 text-sm">
+                                                    Max Tokens
+                                                </label>
+                                                <span className="text-purple-300 text-sm">
+                                                    {settings.aiSettings
+                                                        ?.maxTokens || "Auto"}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="32000"
+                                                value={
+                                                    settings.aiSettings
+                                                        ?.maxTokens || ""
+                                                }
+                                                onChange={(e) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        aiSettings: {
+                                                            ...prev.aiSettings,
+                                                            maxTokens: e.target
+                                                                .value
+                                                                ? parseInt(
+                                                                      e.target
+                                                                          .value
+                                                                  )
+                                                                : undefined,
+                                                        },
+                                                    }))
+                                                }
+                                                placeholder="Auto"
+                                                className="w-full px-3 py-2 bg-purple-500/10 border border-purple-500/30 rounded-md text-purple-100 placeholder-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                                            />
+                                        </div>
 
-                                <p className="text-purple-300 text-sm mb-3">
-                                    Set a default password to quickly protect
-                                    new chats without entering a password each
-                                    time.
+                                        {/* Top P */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-purple-200 text-sm">
+                                                    Top P (Nucleus Sampling)
+                                                </label>
+                                                <span className="text-purple-300 text-sm">
+                                                    {settings.aiSettings
+                                                        ?.topP || 0.9}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="1"
+                                                step="0.05"
+                                                value={
+                                                    settings.aiSettings?.topP ||
+                                                    0.9
+                                                }
+                                                onChange={(e) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        aiSettings: {
+                                                            ...prev.aiSettings,
+                                                            topP: parseFloat(
+                                                                e.target.value
+                                                            ),
+                                                        },
+                                                    }))
+                                                }
+                                                className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
+                                            />
+                                        </div>
+
+                                        {/* Frequency Penalty */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-purple-200 text-sm">
+                                                    Frequency Penalty
+                                                </label>
+                                                <span className="text-purple-300 text-sm">
+                                                    {settings.aiSettings
+                                                        ?.frequencyPenalty || 0}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="2"
+                                                step="0.1"
+                                                value={
+                                                    settings.aiSettings
+                                                        ?.frequencyPenalty || 0
+                                                }
+                                                onChange={(e) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        aiSettings: {
+                                                            ...prev.aiSettings,
+                                                            frequencyPenalty:
+                                                                parseFloat(
+                                                                    e.target
+                                                                        .value
+                                                                ),
+                                                        },
+                                                    }))
+                                                }
+                                                className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
+                                            />
+                                        </div>
+
+                                        {/* Presence Penalty */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-purple-200 text-sm">
+                                                    Presence Penalty
+                                                </label>
+                                                <span className="text-purple-300 text-sm">
+                                                    {settings.aiSettings
+                                                        ?.presencePenalty || 0}
+                                                </span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="2"
+                                                step="0.1"
+                                                value={
+                                                    settings.aiSettings
+                                                        ?.presencePenalty || 0
+                                                }
+                                                onChange={(e) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        aiSettings: {
+                                                            ...prev.aiSettings,
+                                                            presencePenalty:
+                                                                parseFloat(
+                                                                    e.target
+                                                                        .value
+                                                                ),
+                                                        },
+                                                    }))
+                                                }
+                                                className="w-full h-2 bg-purple-600/30 rounded-lg appearance-none cursor-pointer slider"
+                                            />
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="security" className="space-y-6 pt-6">
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <Shield className="w-5 h-5 text-green-400" />
+                                    <h3 className="text-lg font-semibold text-purple-100">
+                                        Password Protection
+                                    </h3>
+                                </div>
+                                <p className="text-purple-300 text-sm">
+                                    Secure your chats with password protection.
+                                    Set a default password or customize
+                                    protection for individual chats.
                                 </p>
 
-                                <Button
-                                    onClick={() =>
-                                        setShowDefaultPasswordModal(true)
-                                    }
-                                    className={
-                                        preferences?.passwordSettings
+                                {/* Default Password Management */}
+                                <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div className="flex items-center gap-2">
+                                            <Key className="w-4 h-4 text-purple-400" />
+                                            <span className="text-purple-200 font-medium">
+                                                Default Password
+                                            </span>
+                                        </div>
+                                        <div
+                                            className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                                preferences?.passwordSettings
+                                                    ?.defaultPasswordHash
+                                                    ? "bg-green-500/20 text-green-300"
+                                                    : "bg-gray-500/20 text-gray-300"
+                                            }`}
+                                        >
+                                            {preferences?.passwordSettings
+                                                ?.defaultPasswordHash
+                                                ? "Set"
+                                                : "Not Set"}
+                                        </div>
+                                    </div>
+
+                                    <p className="text-purple-300 text-sm mb-3">
+                                        Set a default password to quickly
+                                        protect new chats without entering a
+                                        password each time.
+                                    </p>
+
+                                    <Button
+                                        onClick={() =>
+                                            setShowDefaultPasswordModal(true)
+                                        }
+                                        className={
+                                            preferences?.passwordSettings
+                                                ?.defaultPasswordHash
+                                                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                                                : "bg-green-600 hover:bg-green-700 text-white"
+                                        }
+                                    >
+                                        <Shield className="w-4 h-4 mr-2" />
+                                        {preferences?.passwordSettings
                                             ?.defaultPasswordHash
-                                            ? "bg-blue-600 hover:bg-blue-700 text-white"
-                                            : "bg-green-600 hover:bg-green-700 text-white"
-                                    }
-                                >
-                                    <Shield className="w-4 h-4 mr-2" />
-                                    {preferences?.passwordSettings
-                                        ?.defaultPasswordHash
-                                        ? "Change Default Password"
-                                        : "Set Default Password"}
-                                </Button>
+                                            ? "Change Default Password"
+                                            : "Set Default Password"}
+                                    </Button>
 
-                                <div className="flex items-center justify-between mb-4">
-                                    <div>
-                                        <span className="text-purple-200 text-sm font-medium">
-                                            Lock New Chats by Default
-                                        </span>
-                                        <p className="text-purple-400 text-xs">
-                                            Automatically protect all new chats
-                                            with your default password.
-                                        </p>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <span className="text-purple-200 text-sm font-medium">
+                                                Lock New Chats by Default
+                                            </span>
+                                            <p className="text-purple-400 text-xs">
+                                                Automatically protect all new
+                                                chats with your default
+                                                password.
+                                            </p>
+                                        </div>
+                                        <TooltipProvider>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <span>
+                                                        <Switch
+                                                            checked={
+                                                                settings
+                                                                    .passwordSettings
+                                                                    .defaultLockNewChats
+                                                            }
+                                                            onCheckedChange={(
+                                                                checked
+                                                            ) =>
+                                                                setSettings(
+                                                                    (
+                                                                        prev
+                                                                    ) => ({
+                                                                        ...prev,
+                                                                        passwordSettings:
+                                                                            {
+                                                                                ...prev.passwordSettings,
+                                                                                defaultLockNewChats:
+                                                                                    checked,
+                                                                            },
+                                                                    })
+                                                                )
+                                                            }
+                                                            disabled={
+                                                                !preferences
+                                                                    ?.passwordSettings
+                                                                    ?.defaultPasswordHash
+                                                            }
+                                                        />
+                                                    </span>
+                                                </TooltipTrigger>
+                                                {!preferences
+                                                    ?.passwordSettings
+                                                    ?.defaultPasswordHash && (
+                                                    <TooltipContent
+                                                        side="left"
+                                                        className="bg-gray-900 border border-purple-500/30 text-purple-200"
+                                                    >
+                                                        Set a default password
+                                                        first to enable this
+                                                        option.
+                                                    </TooltipContent>
+                                                )}
+                                            </Tooltip>
+                                        </TooltipProvider>
                                     </div>
-                                    <TooltipProvider>
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <span>
-                                                    <Switch
-                                                        checked={
-                                                            settings
-                                                                .passwordSettings
-                                                                .defaultLockNewChats
-                                                        }
-                                                        onCheckedChange={(
-                                                            checked
-                                                        ) =>
-                                                            setSettings(
-                                                                (prev) => ({
-                                                                    ...prev,
-                                                                    passwordSettings:
-                                                                        {
-                                                                            ...prev.passwordSettings,
-                                                                            defaultLockNewChats:
-                                                                                checked,
-                                                                        },
-                                                                })
-                                                            )
-                                                        }
-                                                        disabled={
-                                                            !preferences
-                                                                ?.passwordSettings
-                                                                ?.defaultPasswordHash
-                                                        }
-                                                    />
-                                                </span>
-                                            </TooltipTrigger>
-                                            {!preferences?.passwordSettings
-                                                ?.defaultPasswordHash && (
-                                                <TooltipContent
-                                                    side="left"
-                                                    className="bg-gray-900 border border-purple-500/30 text-purple-200"
-                                                >
-                                                    Set a default password first
-                                                    to enable this option.
-                                                </TooltipContent>
-                                            )}
-                                        </Tooltip>
-                                    </TooltipProvider>
-                                </div>
-                            </div>
-
-                            {/* Session Settings */}
-                            <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <Clock className="w-4 h-4 text-purple-400" />
-                                    <span className="text-purple-200 font-medium">
-                                        Session Settings
-                                    </span>
                                 </div>
 
-                                {/* Use Default Password Toggle */}
-                                <div className="flex items-center justify-between mb-4">
-                                    <div>
-                                        <span className="text-purple-200 text-sm font-medium">
-                                            Use Default Password
+                                {/* Session Settings */}
+                                <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <Clock className="w-4 h-4 text-purple-400" />
+                                        <span className="text-purple-200 font-medium">
+                                            Session Settings
                                         </span>
-                                        <p className="text-purple-400 text-xs">
-                                            Automatically use your default
-                                            password for new protected chats
-                                        </p>
                                     </div>
-                                    <Switch
-                                        checked={
-                                            settings.passwordSettings
-                                                .useDefaultPassword
-                                        }
-                                        onCheckedChange={(checked) =>
-                                            setSettings((prev) => ({
-                                                ...prev,
-                                                passwordSettings: {
-                                                    ...prev.passwordSettings,
-                                                    useDefaultPassword: checked,
-                                                },
-                                            }))
-                                        }
-                                    />
-                                </div>
 
-                                {/* Session Timeout Toggle */}
-                                <div className="flex items-center justify-between mb-4">
-                                    <div>
-                                        <span className="text-purple-200 text-sm font-medium">
-                                            Session Timeout
-                                        </span>
-                                        <p className="text-purple-400 text-xs">
-                                            Require password re-entry after
-                                            period of inactivity
-                                        </p>
-                                    </div>
-                                    <Switch
-                                        checked={
-                                            settings.passwordSettings
-                                                .sessionTimeoutEnabled
-                                        }
-                                        onCheckedChange={(checked) =>
-                                            setSettings((prev) => ({
-                                                ...prev,
-                                                passwordSettings: {
-                                                    ...prev.passwordSettings,
-                                                    sessionTimeoutEnabled:
-                                                        checked,
-                                                },
-                                            }))
-                                        }
-                                    />
-                                </div>
-
-                                {/* Timeout Duration - Updated to 6 hours max */}
-                                {settings.passwordSettings
-                                    .sessionTimeoutEnabled && (
-                                    <div className="space-y-2">
-                                        <label className="text-purple-200 text-sm font-medium">
-                                            Auto-lock timeout:{" "}
-                                            {
+                                    {/* Use Default Password Toggle */}
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <span className="text-purple-200 text-sm font-medium">
+                                                Use Default Password
+                                            </span>
+                                            <p className="text-purple-400 text-xs">
+                                                Automatically use your default
+                                                password for new protected chats
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={
                                                 settings.passwordSettings
-                                                    .autoLockTimeout
-                                            }{" "}
-                                            minutes
-                                        </label>
-                                        <input
-                                            type="range"
-                                            min="5"
-                                            max="360"
-                                            step="5"
-                                            value={
-                                                settings.passwordSettings
-                                                    .autoLockTimeout
+                                                    .useDefaultPassword
                                             }
-                                            onChange={(e) =>
+                                            onCheckedChange={(checked) =>
                                                 setSettings((prev) => ({
                                                     ...prev,
                                                     passwordSettings: {
                                                         ...prev.passwordSettings,
-                                                        autoLockTimeout:
-                                                            parseInt(
-                                                                e.target.value
-                                                            ),
+                                                        useDefaultPassword:
+                                                            checked,
                                                     },
                                                 }))
                                             }
-                                            className="w-full h-2 bg-purple-500/20 rounded-lg appearance-none cursor-pointer slider"
                                         />
-                                        <div className="flex justify-between text-xs text-purple-400">
-                                            <span>5 min</span>
-                                            <span>1 hour</span>
-                                            <span>3 hours</span>
-                                            <span>6 hours</span>
-                                        </div>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-                    </TabsContent>
-                </Tabs>
 
-                <div className="flex justify-end gap-2 pt-4 border-t border-purple-600/20">
-                    <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                        Cancel
-                    </Button>
-                    <Button
-                        onClick={handleSave}
-                        className="px-4 py-2 space-x-2 rounded-lg bg-gradient-to-r from-pink-500/60 to-purple-500/60 text-white font-medium hover:from-pink-500/50 hover:to-purple-500/50 transition-all duration-200 shadow-lg hover:shadow-xl"
-                        title="Save settings (Ctrl + Enter)"
-                    >
-                        <Save className="w-4 h-4 mr-2" />
-                        Save Settings
-                    </Button>
-                </div>
-            </DialogContent>
+                                    {/* Session Timeout Toggle */}
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <span className="text-purple-200 text-sm font-medium">
+                                                Session Timeout
+                                            </span>
+                                            <p className="text-purple-400 text-xs">
+                                                Require password re-entry after
+                                                period of inactivity
+                                            </p>
+                                        </div>
+                                        <Switch
+                                            checked={
+                                                settings.passwordSettings
+                                                    .sessionTimeoutEnabled
+                                            }
+                                            onCheckedChange={(checked) =>
+                                                setSettings((prev) => ({
+                                                    ...prev,
+                                                    passwordSettings: {
+                                                        ...prev.passwordSettings,
+                                                        sessionTimeoutEnabled:
+                                                            checked,
+                                                    },
+                                                }))
+                                            }
+                                        />
+                                    </div>
+
+                                    {/* Timeout Duration - Updated to 6 hours max */}
+                                    {settings.passwordSettings
+                                        .sessionTimeoutEnabled && (
+                                        <div className="space-y-2">
+                                            <label className="text-purple-200 text-sm font-medium">
+                                                Auto-lock timeout:{" "}
+                                                {
+                                                    settings.passwordSettings
+                                                        .autoLockTimeout
+                                                }{" "}
+                                                minutes
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min="5"
+                                                max="360"
+                                                step="5"
+                                                value={
+                                                    settings.passwordSettings
+                                                        .autoLockTimeout
+                                                }
+                                                onChange={(e) =>
+                                                    setSettings((prev) => ({
+                                                        ...prev,
+                                                        passwordSettings: {
+                                                            ...prev.passwordSettings,
+                                                            autoLockTimeout:
+                                                                parseInt(
+                                                                    e.target
+                                                                        .value
+                                                                ),
+                                                        },
+                                                    }))
+                                                }
+                                                className="w-full h-2 bg-purple-500/20 rounded-lg appearance-none cursor-pointer slider"
+                                            />
+                                            <div className="flex justify-between text-xs text-purple-400">
+                                                <span>5 min</span>
+                                                <span>1 hour</span>
+                                                <span>3 hours</span>
+                                                <span>6 hours</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent
+                            value="analytics"
+                            className="space-y-6 pt-6"
+                        >
+                            <div className="text-center py-8">
+                                <div className="flex flex-col items-center gap-4">
+                                    <div className="p-4 bg-purple-500/20 rounded-full">
+                                        <BarChart3 className="w-8 h-8 text-purple-300" />
+                                    </div>
+                                    <h3 className="text-xl font-semibold text-purple-100">
+                                        Analytics & Insights
+                                    </h3>
+                                    <p className="text-purple-300 max-w-md">
+                                        Get detailed insights into your chat
+                                        usage, content creation, and
+                                        productivity patterns with beautiful
+                                        interactive visualizations.
+                                    </p>
+                                    <Button
+                                        onClick={handleOpenAnalytics}
+                                        className="px-6 py-3 bg-gradient-to-r from-purple-500/60 to-blue-500/60 text-white font-medium hover:from-purple-500/70 hover:to-blue-500/70 transition-all duration-200 shadow-lg hover:shadow-xl"
+                                    >
+                                        <BarChart3 className="w-5 h-5 mr-2" />
+                                        Open Analytics Dashboard
+                                    </Button>
+                                </div>
+                            </div>
+                        </TabsContent>
+                    </Tabs>
+
+                    <div className="flex justify-end gap-2 pt-4 border-t border-purple-600/20">
+                        <Button
+                            variant="ghost"
+                            onClick={() => onOpenChange(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={handleSave}
+                            className="px-4 py-2 space-x-2 rounded-lg bg-gradient-to-r from-pink-500/60 to-purple-500/60 text-white font-medium hover:from-pink-500/50 hover:to-purple-500/50 transition-all duration-200 shadow-lg hover:shadow-xl"
+                            title="Save settings (Ctrl + Enter)"
+                        >
+                            <Save className="w-4 h-4 mr-2" />
+                            Save Settings
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <DefaultPasswordModal
                 open={showDefaultPasswordModal}
                 onOpenChange={setShowDefaultPasswordModal}
             />
-        </Dialog>
+
+            {/* Analytics Dashboard as Child Modal */}
+            <AnalyticsDashboard
+                open={showAnalyticsDashboard}
+                onOpenChange={setShowAnalyticsDashboard}
+                onBackToSettings={handleBackToSettings}
+            />
+        </>
     );
 }

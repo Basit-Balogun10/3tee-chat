@@ -7,6 +7,7 @@ import { sha256 } from "@oslojs/crypto/sha2";
 import { encodeHexLowerCase } from "@oslojs/encoding";
 import { generateRandomString } from "@oslojs/crypto/random";
 import type { RandomReader } from "@oslojs/crypto/random";
+import type { Doc } from "./_generated/dataModel"; // added for strong typing
 
 // Oslo RandomReader for crypto operations
 const random: RandomReader = {
@@ -419,7 +420,6 @@ export const branchChat = mutation({
             chatId: newChatId,
             fromMessageId: undefined,
             messages: [],
-            isMain: true,
             createdAt: now,
             updatedAt: now,
             branchName: "Main",
@@ -1294,5 +1294,205 @@ export const setPasswordProtectionEnhanced = mutation({
         });
 
         return { success: true };
+    },
+});
+
+export const advancedSearch = query({
+    args: {
+        query: v.string(),
+        filters: v.object({
+            includeContent: v.boolean(),
+            includeAttachments: v.boolean(),
+            includeArchived: v.boolean(),
+            includeStarred: v.boolean(),
+            includeShared: v.boolean(),
+            includeTemporary: v.boolean(),
+            modelFilter: v.string(),
+            dateRange: v.string(),
+            minMessages: v.number(),
+            maxMessages: v.number(),
+        }),
+        tab: v.string(),
+    },
+    returns: v.array(
+        v.object({
+            _id: v.id("chats"),
+            title: v.string(),
+            model: v.string(),
+            updatedAt: v.number(),
+            isStarred: v.optional(v.boolean()),
+            isArchived: v.optional(v.boolean()),
+            isShared: v.optional(v.boolean()),
+            isTemporary: v.optional(v.boolean()),
+            messageCount: v.number(),
+            matchedContent: v.optional(v.string()),
+            matchedAttachments: v.optional(v.array(v.string())),
+            score: v.number(),
+        })
+    ),
+    handler: async (ctx, { query: searchQuery, filters, tab }) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) return [];
+        const qLower = searchQuery.trim().toLowerCase();
+        if (!qLower) return [];
+
+        // Load user chats
+        const userChats: Doc<"chats">[] = await ctx.db
+            .query("chats")
+            .withIndex("by_user", (q) => q.eq("userId", userId))
+            .order("desc")
+            .collect();
+
+        // Load shared chats if requested
+        let sharedChats: Doc<"chats">[] = [];
+        if (filters.includeShared) {
+            const userDoc = (await ctx.db.get(userId)) as Doc<"users"> | null;
+            const sharedIds = userDoc?.sharedChats || [];
+            if (sharedIds.length) {
+                const loaded = await Promise.all(sharedIds.map((id) => ctx.db.get(id)));
+                sharedChats = loaded.filter((c): c is Doc<"chats"> => !!c);
+            }
+        }
+
+        // Merge & dedupe
+        const chatMap: Record<string, Doc<"chats">> = {};
+        for (const c of [...userChats, ...sharedChats]) chatMap[c._id] = c;
+        let chats: Doc<"chats">[] = Object.values(chatMap);
+
+        // High-level tab filters
+        chats = chats.filter((c) => {
+            if (!filters.includeArchived && c.isArchived) return false;
+            if (!filters.includeStarred && c.isStarred) return false;
+            if (!filters.includeTemporary && c.isTemporary) return false;
+            if (!filters.includeShared && c.isPublic) return false;
+            switch (tab) {
+                case "starred":
+                    if (!c.isStarred) return false; break;
+                case "regular":
+                    if (c.isStarred || c.isArchived || c.isPublic || c.isTemporary) return false; break;
+                case "archived":
+                    if (!c.isArchived) return false; break;
+                case "shared":
+                    if (!c.isPublic) return false; break;
+                case "temporary":
+                    if (!c.isTemporary) return false; break;
+            }
+            return true;
+        });
+
+        // Model filter
+        if (filters.modelFilter !== "all") {
+            chats = chats.filter((c) => c.model === filters.modelFilter);
+        }
+
+        // Date range filter
+        if (filters.dateRange !== "all") {
+            const now = Date.now();
+            const day = 24 * 60 * 60 * 1000;
+            const startTs = (() => {
+                switch (filters.dateRange) {
+                    case "today":
+                        return new Date(new Date().toDateString()).getTime();
+                    case "week":
+                        return now - 7 * day;
+                    case "month":
+                        return now - 30 * day;
+                    case "year":
+                        return now - 365 * day;
+                    default:
+                        return 0;
+                }
+            })();
+            chats = chats.filter((c) => c.updatedAt >= startTs);
+        }
+
+        const results: Array<{
+            _id: Id<"chats">;
+            title: string;
+            model: string;
+            updatedAt: number;
+            isStarred?: boolean;
+            isArchived?: boolean;
+            isShared?: boolean;
+            isTemporary?: boolean;
+            messageCount: number;
+            matchedContent?: string;
+            matchedAttachments?: string[];
+            score: number;
+        }> = [];
+
+        const now = Date.now();
+        for (const chat of chats) {
+            // Collect message ids from base + active branch
+            const baseIds = (chat.baseMessages || []) as Id<"messages">[];
+            let branchIds: Id<"messages">[] = [];
+            if (chat.activeBranchId) {
+                const branch = (await ctx.db.get(chat.activeBranchId)) as Doc<"branches"> | null;
+                branchIds = (branch?.messages || []) as Id<"messages">[];
+            }
+            const allMessageIds = [...baseIds, ...branchIds];
+            const messageCount = allMessageIds.length;
+            if (messageCount < filters.minMessages || messageCount > filters.maxMessages) continue;
+
+            let matchedContent: string | undefined;
+            const matchedAttachments: string[] = [];
+            let contentHitBoost = 0;
+            let attachmentHitBoost = 0;
+
+            if (filters.includeContent || filters.includeAttachments) {
+                const messages = await Promise.all(allMessageIds.map((id) => ctx.db.get(id)));
+                for (const m of messages) {
+                    const msg = m as Doc<"messages"> | null;
+                    if (!msg) continue;
+                    if (!matchedContent && filters.includeContent) {
+                        const text = (msg.content || "").toLowerCase();
+                        const idx = text.indexOf(qLower);
+                        if (idx !== -1) {
+                            const start = Math.max(0, idx - 60);
+                            const end = Math.min(msg.content.length, idx + 100);
+                            matchedContent = msg.content.slice(start, end);
+                            contentHitBoost = 30;
+                        }
+                    }
+                    if (filters.includeAttachments && msg.attachments) {
+                        for (const att of msg.attachments) {
+                            if (att.name.toLowerCase().includes(qLower) && matchedAttachments.length < 5) {
+                                matchedAttachments.push(att.name);
+                                attachmentHitBoost += 5;
+                            }
+                        }
+                    }
+                    if (matchedContent && matchedAttachments.length >= 5) break;
+                }
+            }
+
+            const titleMatches = chat.title.toLowerCase().includes(qLower);
+            const includeByContent = !!matchedContent || matchedAttachments.length > 0;
+            if (!titleMatches && !includeByContent) continue;
+
+            const titleBoost = titleMatches ? 50 : 0;
+            const recencyDays = (now - chat.updatedAt) / (24 * 60 * 60 * 1000);
+            const recencyBoost = Math.max(0, 20 - recencyDays);
+            const sizePenalty = messageCount > 0 ? Math.min(10, Math.log10(messageCount + 1)) : 0;
+            const score = titleBoost + contentHitBoost + attachmentHitBoost + recencyBoost - sizePenalty;
+
+            results.push({
+                _id: chat._id,
+                title: chat.title,
+                model: chat.model,
+                updatedAt: chat.updatedAt,
+                isStarred: chat.isStarred,
+                isArchived: chat.isArchived,
+                isShared: !!chat.isPublic,
+                isTemporary: chat.isTemporary || false,
+                messageCount,
+                matchedContent,
+                matchedAttachments: matchedAttachments.length ? matchedAttachments : undefined,
+                score: Number(score.toFixed(2)),
+            });
+        }
+
+        results.sort((a, b) => (b.score !== a.score ? b.score - a.score : b.updatedAt - a.updatedAt));
+        return results;
     },
 });

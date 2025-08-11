@@ -145,6 +145,18 @@ const applicationTables = {
             v.literal("system")
         ),
         content: v.string(),
+
+        // Streaming & incremental updates for AI SDK
+        streamingSnapshots: v.optional(
+            v.array(
+                v.object({
+                    idx: v.number(), // Snapshot sequential index
+                    ts: v.number(), // Timestamp when snapshot captured
+                    content: v.string(), // Full content at snapshot time
+                    charCount: v.number(), // Convenience length (content.length)
+                })
+            )
+        ),
         timestamp: v.number(),
         model: v.optional(v.string()),
         isStreaming: v.optional(v.boolean()),
@@ -168,18 +180,22 @@ const applicationTables = {
                     isActive: v.boolean(),
                     metadata: v.optional(v.any()),
                     // Add response metadata to versions as well
-                    responseMetadata: v.optional(v.object({
-                        usage: v.optional(v.object({
-                            promptTokens: v.optional(v.number()),
-                            completionTokens: v.optional(v.number()),
-                            totalTokens: v.optional(v.number()),
-                        })),
-                        finishReason: v.optional(v.string()),
-                        responseTime: v.optional(v.number()), // in milliseconds
-                        model: v.optional(v.string()),
-                        provider: v.optional(v.string()),
-                        requestId: v.optional(v.string()),
-                    })),
+                    responseMetadata: v.optional(
+                        v.object({
+                            usage: v.optional(
+                                v.object({
+                                    promptTokens: v.optional(v.number()),
+                                    completionTokens: v.optional(v.number()),
+                                    totalTokens: v.optional(v.number()),
+                                })
+                            ),
+                            finishReason: v.optional(v.string()),
+                            responseTime: v.optional(v.number()), // in milliseconds
+                            model: v.optional(v.string()),
+                            provider: v.optional(v.string()),
+                            requestId: v.optional(v.string()),
+                        })
+                    ),
                 })
             )
         ),
@@ -272,36 +288,50 @@ const applicationTables = {
                                 isDeleted: v.optional(v.boolean()), // Whether user deleted this response
                                 metadata: v.optional(v.any()), // Model-specific metadata
                                 // Add response metadata to multi-AI responses
-                                responseMetadata: v.optional(v.object({
-                                    usage: v.optional(v.object({
-                                        promptTokens: v.optional(v.number()),
-                                        completionTokens: v.optional(v.number()),
-                                        totalTokens: v.optional(v.number()),
-                                    })),
-                                    finishReason: v.optional(v.string()),
-                                    responseTime: v.optional(v.number()), // in milliseconds
-                                    model: v.optional(v.string()),
-                                    provider: v.optional(v.string()),
-                                    requestId: v.optional(v.string()),
-                                })),
+                                responseMetadata: v.optional(
+                                    v.object({
+                                        usage: v.optional(
+                                            v.object({
+                                                promptTokens: v.optional(
+                                                    v.number()
+                                                ),
+                                                completionTokens: v.optional(
+                                                    v.number()
+                                                ),
+                                                totalTokens: v.optional(
+                                                    v.number()
+                                                ),
+                                            })
+                                        ),
+                                        finishReason: v.optional(v.string()),
+                                        responseTime: v.optional(v.number()), // in milliseconds
+                                        model: v.optional(v.string()),
+                                        provider: v.optional(v.string()),
+                                        requestId: v.optional(v.string()),
+                                    })
+                                ),
                             })
                         ),
                         primaryResponseId: v.optional(v.string()), // ID of the currently selected primary response
                     })
                 ),
                 // Add response metadata tracking at the message level
-                responseMetadata: v.optional(v.object({
-                    usage: v.optional(v.object({
-                        promptTokens: v.optional(v.number()),
-                        completionTokens: v.optional(v.number()),
-                        totalTokens: v.optional(v.number()),
-                    })),
-                    finishReason: v.optional(v.string()),
-                    responseTime: v.optional(v.number()), // in milliseconds
-                    model: v.optional(v.string()),
-                    provider: v.optional(v.string()),
-                    requestId: v.optional(v.string()),
-                })),
+                responseMetadata: v.optional(
+                    v.object({
+                        usage: v.optional(
+                            v.object({
+                                promptTokens: v.optional(v.number()),
+                                completionTokens: v.optional(v.number()),
+                                totalTokens: v.optional(v.number()),
+                            })
+                        ),
+                        finishReason: v.optional(v.string()),
+                        responseTime: v.optional(v.number()), // in milliseconds
+                        model: v.optional(v.string()),
+                        provider: v.optional(v.string()),
+                        requestId: v.optional(v.string()),
+                    })
+                ),
             })
         ),
         // Simple collaboration tracking - just track who contributed
@@ -976,6 +1006,63 @@ const applicationTables = {
         .index("by_source_message", ["sourceMessageId"])
         .index("by_source_chat", ["sourceChatId"])
         .index("by_reference_count", ["referenceCount"]),
+
+    // NEW: Analytics Sharing table
+    analytics_shares: defineTable({
+        id: v.string(), // Share ID (UUID)
+        userId: v.id("users"),
+        title: v.string(),
+        description: v.optional(v.string()),
+        contentType: v.union(
+            v.literal("overview"),
+            v.literal("chart"),
+            v.literal("dataset"),
+            v.literal("dashboard")
+        ),
+        data: v.any(), // Flexible data structure for analytics content
+        permissions: v.object({
+            viewerAccess: v.union(
+                v.literal("public"),
+                v.literal("restricted"),
+                v.literal("private")
+            ),
+            allowDownload: v.boolean(),
+            allowPrint: v.boolean(),
+            allowCopy: v.boolean(),
+            requiredPassword: v.optional(v.string()),
+            expirationDate: v.optional(v.number()),
+            viewLimit: v.optional(v.number()),
+            allowedDomains: v.optional(v.array(v.string())),
+            watermark: v.boolean(),
+        }),
+        metadata: v.object({
+            timeRange: v.string(),
+            totalItems: v.number(),
+            lastUpdated: v.number(),
+            version: v.string(),
+            tags: v.array(v.string()),
+        }),
+        analytics: v.object({
+            views: v.number(),
+            uniqueViewers: v.number(),
+            downloadsCount: v.number(),
+            lastViewed: v.optional(v.number()),
+        }),
+        status: v.union(
+            v.literal("active"),
+            v.literal("expired"),
+            v.literal("disabled"),
+            v.literal("password-protected")
+        ),
+        createdAt: v.number(),
+        expiresAt: v.optional(v.number()),
+    })
+        .index("by_share_id", ["id"])
+        .index("by_user", ["userId"])
+        .index("by_user_created", ["userId", "createdAt"])
+        .index("by_status", ["status"])
+        .index("by_content_type", ["contentType"])
+        .index("by_expires_at", ["expiresAt"]),
 };
 
 export default defineSchema({

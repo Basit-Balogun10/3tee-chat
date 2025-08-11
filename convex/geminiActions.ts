@@ -1,7 +1,11 @@
 import { v } from "convex/values";
-import { internalQuery } from "./_generated/server";
+import { internalQuery, httpAction } from "./_generated/server";
 import { GoogleGenAI, Modality } from "@google/genai";
 import { internal } from "./_generated/api";
+import { ai } from "./ai/config";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
+import { streamText } from "ai";
 
 export const generateGeminiLiveKey = internalQuery({
     args: {
@@ -83,3 +87,160 @@ export const generateGeminiLiveKey = internalQuery({
         }
     },
 }) as any;
+
+export const generateGeminiResponse = httpAction(async (ctx, request) => {
+    try {
+        const { chatId, userMessage } = await request.json();
+
+        if (!chatId || !userMessage) {
+            return new Response("Missing required parameters", { status: 400 });
+        }
+
+        console.log("🔮 GEMINI ACTION: Starting generation", {
+            chatId,
+            userMessage: userMessage.substring(0, 100) + "...",
+            timestamp: new Date().toISOString(),
+        });
+
+        // Add user message first
+        const userMessageId = await ctx.runMutation(
+            internal.messages.addMessage,
+            {
+                chatId,
+                role: "user" as const,
+                content: userMessage,
+            }
+        );
+
+        // Create placeholder assistant message
+        const assistantMessageId = await ctx.runMutation(
+            internal.messages.addMessage,
+            {
+                chatId,
+                role: "assistant" as const,
+                content: "",
+                isStreaming: true,
+            }
+        );
+
+        // Get chat history for context
+        const history: Array<{ role: "user" | "assistant"; content: string }> =
+            await ctx.runQuery(internal.aiHelpers.getChatHistory, {
+                chatId,
+                excludeMessageId: assistantMessageId,
+            });
+
+        // Stream the response
+        const result = await streamText({
+            model: ai.languageModel,
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a helpful AI assistant.",
+                },
+                ...history,
+                {
+                    role: "user",
+                    content: userMessage,
+                },
+            ],
+            onFinish: async (result) => {
+                // Update the message with final content
+                await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                    messageId: assistantMessageId,
+                    content: result.text,
+                    isStreaming: false,
+                });
+            },
+        });
+
+        return result.toTextStreamResponse();
+    } catch (error) {
+        console.error("❌ GEMINI ACTION ERROR:", error);
+        return new Response("Internal server error", { status: 500 });
+    }
+});
+
+export const generateStreamingResponse = httpAction(async (ctx, request) => {
+    try {
+        const { chatId, messageId, userMessage, modelSettings } =
+            await request.json();
+
+        console.log("🌊 STREAMING ACTION: Starting generation", {
+            chatId,
+            messageId,
+            userMessage: userMessage?.substring(0, 100) + "...",
+            modelSettings,
+            timestamp: new Date().toISOString(),
+        });
+
+        // Get message if provided
+        let targetMessageId = messageId;
+        if (!targetMessageId) {
+            // Create new assistant message
+            targetMessageId = await ctx.runMutation(
+                internal.messages.addMessage,
+                {
+                    chatId,
+                    role: "assistant" as const,
+                    content: "",
+                    isStreaming: true,
+                }
+            );
+        }
+
+        // Get chat history
+        const history: Array<{ role: "user" | "assistant"; content: string }> =
+            await ctx.runQuery(internal.aiHelpers.getChatHistory, {
+                chatId,
+                excludeMessageId: targetMessageId,
+            });
+
+        // Determine the model to use
+        let model;
+        if (modelSettings?.provider === "anthropic") {
+            const anthropic = createAnthropic({
+                apiKey: process.env.ANTHROPIC_API_KEY,
+            });
+            model = anthropic(
+                modelSettings.model || "claude-3-5-sonnet-20241022"
+            );
+        } else if (modelSettings?.provider === "openai") {
+            const openai = createOpenAI({
+                apiKey: process.env.OPENAI_API_KEY,
+            });
+            model = openai(modelSettings.model || "gpt-4o");
+        } else {
+            // Default to AI config
+            model = ai.languageModel;
+        }
+
+        const messages = [...history];
+        if (userMessage) {
+            messages.push({ role: "user", content: userMessage });
+        }
+
+        const result = await streamText({
+            model,
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a helpful AI assistant.",
+                },
+                ...messages,
+            ],
+            onFinish: async (result) => {
+                await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
+                    messageId: targetMessageId,
+                    content: result.text,
+                    isStreaming: false,
+                });
+            },
+        });
+
+        return result.toTextStreamResponse();
+    } catch (error) {
+        console.error("❌ STREAMING ACTION ERROR:", error);
+        return new Response("Internal server error", { status: 500 });
+    }
+});

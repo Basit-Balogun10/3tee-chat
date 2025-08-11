@@ -110,7 +110,7 @@ export async function processAttachmentForAISDK(
     attachment: any,
     ctx: any
 ): Promise<{ type: "image" | "file"; content: any }> {
-    // FIXED: Handle both library-based and legacy attachments
+    // FIXED: Handle library-based and direct attachments
     let fileBlob;
     let attachmentData;
 
@@ -131,7 +131,7 @@ export async function processAttachmentForAISDK(
             type: libraryItem.type,
         };
     } else if (attachment.storageId) {
-        // LEGACY: Direct storage attachment (backwards compatibility)
+        // Direct storage attachment
         fileBlob = await ctx.storage.get(attachment.storageId);
         attachmentData = {
             name: attachment.name,
@@ -189,7 +189,7 @@ export async function processAttachmentForAISDK(
                 // For other file types, provide metadata
                 text = `[File: ${attachmentData.name}, Type: ${mimeType}, Size: ${Math.round(attachmentData.size / 1024)}KB]`;
             }
-        } catch (error) {
+        } catch {
             text = `[File: ${attachmentData.name} - Unable to process content]`;
         }
 
@@ -204,54 +204,230 @@ export async function processAttachmentForAISDK(
     }
 }
 
-// Helper to format messages for AI SDK with attachments
-export function formatMessagesForAISDK(
-    messages: any[],
-    processedAttachments: any[] = []
-): any[] {
-    const formattedMessages = messages.map((message) => {
-        if (typeof message.content === "string") {
-            return {
-                role: message.role,
-                content: message.content,
-            };
+// PHASE 2: Structured message formatting utilities
+// -------------------------------------------------
+// These utilities supersede `formatMessagesForAISDK` by producing a canonical
+// structured parts representation aligned with the new `rawParts` schema fields.
+// They will be gradually adopted across streaming, multi-AI, and structured output paths.
+
+// Canonical structured part types
+export type TextPartCanonical = { type: "text"; text: string };
+export type ImagePartCanonical = { type: "image"; image: { url?: string; base64?: string; mimeType?: string; alt?: string } };
+export type FilePartCanonical = { type: "file"; file: { name: string; mimeType?: string; data?: string; size?: number } };
+export type ArtifactRefPartCanonical = { type: "artifact-ref"; artifactId: string; filename?: string };
+export type ReferencePartCanonical = { type: "reference"; refType: string; id: string; name?: string; meta?: any };
+export type ModelVariantPartCanonical = { type: "model-variant"; model: string; primary?: boolean };
+
+export type CanonicalPart =
+    | TextPartCanonical
+    | ImagePartCanonical
+    | FilePartCanonical
+    | ArtifactRefPartCanonical
+    | ReferencePartCanonical
+    | ModelVariantPartCanonical;
+
+export interface StoredMessageDocLike {
+    _id: string;
+    role: "user" | "assistant" | "system";
+    content: string;
+    rawParts?: CanonicalPart[];
+    renderedText?: string;
+    metadata?: any;
+    model?: string;
+    timestamp?: number;
+}
+
+export interface BuildModelMessagesOptions {
+    includeSystem?: boolean; // include system messages (default true)
+    mergeConsecutiveText?: boolean; // collapse adjacent text parts
+    attachArtifactsAsRefs?: boolean; // map metadata.artifacts to artifact-ref parts
+    userAttachmentParts?: CanonicalPart[]; // preprocessed attachment parts to append to last user message
+}
+
+export interface UIMessageShape {
+    id: string;
+    role: "user" | "assistant" | "system";
+    content: string; // flattened for simple rendering / search
+    parts: CanonicalPart[]; // structured parts
+    model?: string;
+    timestamp?: number;
+    metadata?: any;
+}
+
+// Normalize existing message (string `content` or new `rawParts`) into parts
+export function normalizeMessageToParts(msg: StoredMessageDocLike): CanonicalPart[] {
+    if (msg.rawParts && Array.isArray(msg.rawParts) && msg.rawParts.length > 0) {
+        return msg.rawParts;
+    }
+    // Fallback: single text part from string content
+    return [{ type: "text", text: msg.content }];
+}
+
+// Merge consecutive text parts for cleanliness
+function mergeConsecutiveTextParts(parts: CanonicalPart[]): CanonicalPart[] {
+    const merged: CanonicalPart[] = [];
+    for (const part of parts) {
+        if (part.type === "text" && merged.length > 0) {
+            const last = merged[merged.length - 1];
+            if (last.type === "text") {
+                merged[merged.length - 1] = { type: "text", text: last.text + part.text };
+                continue;
+            }
         }
-        return message;
-    });
+        merged.push(part);
+    }
+    return merged;
+}
 
-    // Add attachments to the last user message if any
-    if (processedAttachments.length > 0 && formattedMessages.length > 0) {
-        const lastUserMessageIndex = formattedMessages
-            .map((m, i) => ({ ...m, index: i }))
-            .filter((m) => m.role === "user")
-            .pop()?.index;
+// Build model-ready messages for AI SDK (array of {role, content})
+export function buildModelMessages(
+    messages: StoredMessageDocLike[],
+    options: BuildModelMessagesOptions = {}
+): any[] {
+    const {
+        includeSystem = true,
+        mergeConsecutiveText = true,
+        attachArtifactsAsRefs = true,
+        userAttachmentParts = [],
+    } = options;
 
-        if (lastUserMessageIndex !== undefined) {
-            const lastMessage = formattedMessages[lastUserMessageIndex];
-            const imageAttachments = processedAttachments.filter(
-                (a) => a.type === "image"
+    const modelMessages: any[] = [];
+
+    for (const msg of messages) {
+        if (!includeSystem && msg.role === "system") continue;
+        let parts = normalizeMessageToParts(msg);
+
+        // Optionally append artifact refs based on metadata
+        if (
+            attachArtifactsAsRefs &&
+            msg.metadata?.artifacts &&
+            Array.isArray(msg.metadata.artifacts)
+        ) {
+            const artifactParts: ArtifactRefPartCanonical[] = msg.metadata.artifacts.map(
+                (artifactId: string) => ({ type: "artifact-ref", artifactId })
             );
+            parts = [...parts, ...artifactParts];
+        }
 
-            if (imageAttachments.length > 0) {
-                // Create multimodal content with text and images
-                formattedMessages[lastUserMessageIndex] = {
-                    ...lastMessage,
-                    content: [
-                        { type: "text", text: lastMessage.content },
-                        ...imageAttachments.map((img) => ({
-                            type: "image",
-                            image: img.content,
-                        })),
-                    ],
+        if (mergeConsecutiveText) parts = mergeConsecutiveTextParts(parts);
+
+        // Transform canonical parts into AI SDK part format
+        const aiParts = parts.map((p) => {
+            switch (p.type) {
+                case "text":
+                    return { type: "text", text: p.text };
+                case "image":
+                    return { type: "image", image: p.image.base64 || p.image.url, mimeType: p.image.mimeType };
+                case "file":
+                    return { type: "text", text: p.file.data ?? `[File: ${p.file.name}]` }; // fallback textual representation
+                case "artifact-ref":
+                    return { type: "text", text: `[Artifact ${p.artifactId}]` };
+                case "reference":
+                    return { type: "text", text: `[Ref ${p.refType}:${p.id}${p.name ? ` ${p.name}` : ""}]` };
+                case "model-variant":
+                    return { type: "text", text: `[Model Variant: ${p.model}${p.primary ? " (primary)" : ""}]` };
+                default:
+                    return { type: "text", text: "" };
+            }
+        });
+
+        // Collapsing to string if only single text part
+        if (aiParts.length === 1 && aiParts[0].type === "text") {
+            modelMessages.push({ role: msg.role, content: aiParts[0].text });
+        } else {
+            modelMessages.push({ role: msg.role, content: aiParts });
+        }
+    }
+
+    // Attach any prepared attachment parts to the last user message
+    if (userAttachmentParts.length > 0) {
+        for (let i = modelMessages.length - 1; i >= 0; i--) {
+            if (modelMessages[i].role === "user") {
+                const current = modelMessages[i];
+                const baseParts: any[] = Array.isArray(current.content)
+                    ? current.content
+                    : [{ type: "text", text: current.content }];
+                const attachmentTextParts = userAttachmentParts.map((p) => {
+                    if (p.type === "image") {
+                        return { type: "image", image: p.image.base64 || p.image.url, mimeType: p.image.mimeType };
+                    }
+                    if (p.type === "file") {
+                        return { type: "text", text: p.file.data ?? `[File: ${p.file.name}]` };
+                    }
+                    if (p.type === "artifact-ref") {
+                        return { type: "text", text: `[Artifact ${p.artifactId}]` };
+                    }
+                    if (p.type === "reference") {
+                        return { type: "text", text: `[Ref ${p.refType}:${p.id}]` };
+                    }
+                    if (p.type === "text") return { type: "text", text: p.text };
+                    return { type: "text", text: "" };
+                });
+                modelMessages[i] = {
+                    role: current.role,
+                    content: [...baseParts, ...attachmentTextParts],
                 };
+                break;
             }
         }
     }
 
-    return formattedMessages;
+    return modelMessages;
 }
 
-// Helper to validate AI SDK model compatibility
+// Convert stored docs into UI messages (flatten parts + keep structure)
+export function convertStoredMessagesToUI(
+    messages: StoredMessageDocLike[],
+    opts: { mergeConsecutiveText?: boolean } = {}
+): UIMessageShape[] {
+    const { mergeConsecutiveText = true } = opts;
+    return messages.map((m) => {
+        let parts = normalizeMessageToParts(m);
+        if (mergeConsecutiveText) parts = mergeConsecutiveTextParts(parts);
+        const flattened = parts
+            .filter((p) => p.type === "text")
+            .map((p: any) => p.text)
+            .join("");
+        return {
+            id: m._id,
+            role: m.role,
+            content: m.renderedText || flattened || m.content,
+            parts,
+            model: m.model,
+            timestamp: m.timestamp,
+            metadata: m.metadata,
+        };
+    });
+}
+
+// Utility to create attachment parts from processed attachment objects
+export function attachmentObjectsToCanonicalParts(processed: any[]): CanonicalPart[] {
+    return processed.map((item) => {
+        if (item.type === "image") {
+            return {
+                type: "image",
+                image: {
+                    base64: item.content?.image?.startsWith("data:") ? item.content.image : undefined,
+                    url: item.content?.image?.startsWith("data:") ? undefined : item.content?.image,
+                    mimeType: item.content?.mimeType,
+                },
+            } as ImagePartCanonical;
+        }
+        if (item.type === "file") {
+            return {
+                type: "file",
+                file: {
+                    name: item.content?.name || "attachment",
+                    mimeType: item.content?.mimeType,
+                    data: item.content?.data,
+                },
+            } as FilePartCanonical;
+        }
+        return { type: "text", text: "" } as TextPartCanonical; // fallback
+    });
+}
+
+// Helper to format messages for AI SDK with attachments
 export function validateModelForProvider(
     provider: string,
     model: string

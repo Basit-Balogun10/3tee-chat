@@ -4,15 +4,28 @@ import { internal } from "./_generated/api";
 
 // Get combined AI settings (per-chat + global preferences)
 export const getCombinedAISettings = internalQuery({
-    args: { 
+    args: {
         chatId: v.id("chats"),
-        userId: v.id("users")
+        userId: v.id("users"),
     },
+    returns: v.object({
+        temperature: v.number(),
+        maxTokens: v.optional(v.number()),
+        topP: v.number(),
+        frequencyPenalty: v.number(),
+        presencePenalty: v.number(),
+        systemPrompt: v.string(),
+        responseMode: v.string(),
+        promptEnhancement: v.boolean(),
+    }),
     handler: async (ctx, args) => {
         const chat = await ctx.db.get(args.chatId);
-        const preferences = await ctx.runQuery(internal.preferences.getUserPreferencesInternal, {
-            userId: args.userId
-        });
+        const preferences = await ctx.runQuery(
+            internal.preferences.getUserPreferencesInternal,
+            {
+                userId: args.userId,
+            }
+        );
 
         // Default AI settings
         const defaultSettings = {
@@ -57,7 +70,7 @@ export const getCombinedAISettings = internalQuery({
 });
 
 export const getChatHistory = internalQuery({
-    args: { 
+    args: {
         chatId: v.id("chats"),
         excludeMessageId: v.optional(v.id("messages")), // Add this parameter
     },
@@ -87,7 +100,9 @@ export const getChatHistory = internalQuery({
         // If excludeMessageId is provided, slice the array to exclude that message and everything after
         let filteredMessages = validMessages;
         if (args.excludeMessageId) {
-            const excludeIndex = validMessages.findIndex(m => m._id === args.excludeMessageId);
+            const excludeIndex = validMessages.findIndex(
+                (m) => m._id === args.excludeMessageId
+            );
             if (excludeIndex !== -1) {
                 filteredMessages = validMessages.slice(0, excludeIndex);
             }
@@ -103,11 +118,16 @@ export const getChatHistory = internalQuery({
             excludeMessageId: args.excludeMessageId,
             totalMessages: validMessages.length,
             filteredCount: filteredMessages.length,
-            lastMessage: filteredMessages[filteredMessages.length - 1] ? {
-                role: filteredMessages[filteredMessages.length - 1].role,
-                content: filteredMessages[filteredMessages.length - 1].content.substring(0, 50) + "...",
-            } : null,
-            timestamp: new Date().toISOString()
+            lastMessage: filteredMessages[filteredMessages.length - 1]
+                ? {
+                      role: filteredMessages[filteredMessages.length - 1].role,
+                      content:
+                          filteredMessages[
+                              filteredMessages.length - 1
+                          ].content.substring(0, 50) + "...",
+                  }
+                : null,
+            timestamp: new Date().toISOString(),
         });
 
         return filteredMessages;
@@ -121,18 +141,16 @@ export const updateMessageContent = internalMutation({
         metadata: v.optional(v.any()),
         isStreaming: v.optional(v.boolean()),
         // Add response metadata tracking
-        responseMetadata: v.optional(v.object({
-            usage: v.optional(v.object({
-                promptTokens: v.optional(v.number()),
-                completionTokens: v.optional(v.number()),
-                totalTokens: v.optional(v.number()),
-            })),
-            finishReason: v.optional(v.string()),
-            responseTime: v.optional(v.number()), // in milliseconds
-            model: v.optional(v.string()),
-            provider: v.optional(v.string()),
-            requestId: v.optional(v.string()),
-        })),
+        responseMetadata: v.optional(
+            v.object({
+                usage: v.optional(v.any()), // Allow any usage object format
+                finishReason: v.optional(v.string()),
+                responseTime: v.optional(v.number()), // in milliseconds
+                model: v.optional(v.string()),
+                provider: v.optional(v.string()),
+                requestId: v.optional(v.string()),
+            })
+        ),
     },
     handler: async (ctx, args) => {
         const message = await ctx.db.get(args.messageId);
@@ -141,10 +159,14 @@ export const updateMessageContent = internalMutation({
         const updates: any = {};
 
         if (args.content !== undefined) updates.content = args.content;
-        if (args.isStreaming !== undefined) updates.isStreaming = args.isStreaming;
-        
-        // Enhanced metadata handling with response tracking
-        if (args.metadata !== undefined || args.responseMetadata !== undefined) {
+        if (args.isStreaming !== undefined)
+            updates.isStreaming = args.isStreaming;
+
+        // Enhanced metadata handling with response tracking and canvas artifacts
+        if (
+            args.metadata !== undefined ||
+            args.responseMetadata !== undefined
+        ) {
             const existingMetadata = message.metadata || {};
             const newMetadata = {
                 ...existingMetadata,
@@ -154,7 +176,7 @@ export const updateMessageContent = internalMutation({
             // Add response metadata if provided
             if (args.responseMetadata) {
                 newMetadata.responseMetadata = args.responseMetadata;
-                
+
                 console.log("📊 RESPONSE METADATA TRACKED:", {
                     messageId: args.messageId,
                     usage: args.responseMetadata.usage,
@@ -162,6 +184,18 @@ export const updateMessageContent = internalMutation({
                     model: args.responseMetadata.model,
                     provider: args.responseMetadata.provider,
                     finishReason: args.responseMetadata.finishReason,
+                    timestamp: new Date().toISOString(),
+                });
+            }
+
+            // Special handling for canvas artifacts
+            if (newMetadata.structuredOutput && newMetadata.artifacts) {
+                console.log("🎨 CANVAS ARTIFACTS METADATA UPDATED:", {
+                    messageId: args.messageId,
+                    artifactCount: newMetadata.artifactCount || 0,
+                    artifactIds: newMetadata.artifacts,
+                    hasIntro: !!newMetadata.canvasIntro,
+                    hasSummary: !!newMetadata.canvasSummary,
                     timestamp: new Date().toISOString(),
                 });
             }
@@ -181,6 +215,9 @@ export const updateMessageContent = internalMutation({
                 versionsCount: message.messageVersions.length,
                 activeVersionId: message.messageVersions.find((v) => v.isActive)
                     ?.versionId,
+                isCanvasArtifact: !!(
+                    args.metadata?.structuredOutput && args.metadata?.artifacts
+                ),
                 timestamp: new Date().toISOString(),
             });
 
@@ -190,11 +227,23 @@ export const updateMessageContent = internalMutation({
                         ...v,
                         content: args.content, // Update the active version's content
                         // Update metadata if provided
-                        ...(args.responseMetadata && { 
+                        ...(args.responseMetadata && {
                             metadata: {
                                 ...v.metadata,
-                                responseMetadata: args.responseMetadata 
-                            }
+                                responseMetadata: args.responseMetadata,
+                            },
+                        }),
+                        // Add canvas-specific metadata to version
+                        ...(args.metadata?.structuredOutput && {
+                            metadata: {
+                                ...v.metadata,
+                                structuredOutput:
+                                    args.metadata.structuredOutput,
+                                artifactCount: args.metadata.artifactCount,
+                                canvasIntro: args.metadata.canvasIntro,
+                                canvasSummary: args.metadata.canvasSummary,
+                                artifacts: args.metadata.artifacts,
+                            },
                         }),
                     };
                 }

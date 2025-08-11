@@ -895,3 +895,590 @@ export const cleanupSharedContent = mutation({
         };
     },
 });
+
+// ===========================================
+// ANALYTICS SHARING BACKEND - Phase 1
+// ===========================================
+
+// Create Analytics Share Link
+export const createAnalyticsShare = mutation({
+    args: {
+        title: v.string(),
+        description: v.optional(v.string()),
+        contentType: v.union(v.literal("overview"), v.literal("chart"), v.literal("dataset"), v.literal("dashboard")),
+        data: v.any(),
+        permissions: v.object({
+            viewerAccess: v.union(v.literal("public"), v.literal("restricted"), v.literal("private")),
+            allowDownload: v.boolean(),
+            allowPrint: v.boolean(),
+            allowCopy: v.boolean(),
+            requiredPassword: v.optional(v.string()),
+            expirationDate: v.optional(v.number()),
+            viewLimit: v.optional(v.number()),
+            allowedDomains: v.optional(v.array(v.string())),
+            watermark: v.boolean(),
+        }),
+        metadata: v.object({
+            timeRange: v.string(),
+            totalItems: v.number(),
+            version: v.string(),
+            tags: v.array(v.string()),
+        }),
+    },
+    returns: v.object({
+        shareId: v.string(),
+        shortUrl: v.string(),
+        fullUrl: v.string(),
+    }),
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const shareId = crypto.randomUUID();
+        const now = Date.now();
+        
+        // Determine status based on permissions
+        let status: "active" | "password-protected" = "active";
+        if (args.permissions.viewerAccess === "private" && args.permissions.requiredPassword) {
+            status = "password-protected";
+        }
+
+        const analyticsShare = {
+            id: shareId,
+            userId,
+            title: args.title,
+            description: args.description,
+            contentType: args.contentType,
+            data: args.data,
+            permissions: args.permissions,
+            metadata: {
+                ...args.metadata,
+                lastUpdated: now,
+            },
+            analytics: {
+                views: 0,
+                uniqueViewers: 0,
+                downloadsCount: 0,
+            },
+            status,
+            createdAt: now,
+            expiresAt: args.permissions.expirationDate,
+        };
+
+        // Store in analytics_shares table
+        await ctx.db.insert("analytics_shares", analyticsShare);
+
+        const baseUrl = process.env.SITE_URL || `${process.env.CONVEX_SITE_URL}` || "http://localhost:3000";
+        return {
+            shareId,
+            shortUrl: `${baseUrl}/shared/${shareId}`,
+            fullUrl: `${baseUrl}/shared/${shareId}?v=${args.metadata.version}`,
+        };
+    },
+});
+
+// Get Analytics Share by ID (Public Query)
+export const getAnalyticsShare = query({
+    args: { shareId: v.string() },
+    returns: v.union(
+        v.object({
+            id: v.string(),
+            userId: v.id("users"),
+            title: v.string(),
+            description: v.optional(v.string()),
+            contentType: v.union(v.literal("overview"), v.literal("chart"), v.literal("dataset"), v.literal("dashboard")),
+            data: v.any(),
+            permissions: v.object({
+                viewerAccess: v.union(v.literal("public"), v.literal("restricted"), v.literal("private")),
+                allowDownload: v.boolean(),
+                allowPrint: v.boolean(),
+                allowCopy: v.boolean(),
+                requiredPassword: v.optional(v.string()),
+                expirationDate: v.optional(v.number()),
+                viewLimit: v.optional(v.number()),
+                allowedDomains: v.optional(v.array(v.string())),
+                watermark: v.boolean(),
+            }),
+            metadata: v.object({
+                timeRange: v.string(),
+                totalItems: v.number(),
+                lastUpdated: v.number(),
+                version: v.string(),
+                tags: v.array(v.string()),
+            }),
+            analytics: v.object({
+                views: v.number(),
+                uniqueViewers: v.number(),
+                downloadsCount: v.number(),
+                lastViewed: v.optional(v.number()),
+            }),
+            status: v.union(v.literal("active"), v.literal("expired"), v.literal("disabled"), v.literal("password-protected")),
+            createdAt: v.number(),
+            expiresAt: v.optional(v.number()),
+        }), 
+        v.null()
+    ),
+    handler: async (ctx, args) => {
+        const share = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_share_id", (q) => q.eq("id", args.shareId))
+            .first();
+
+        if (!share) return null;
+
+        // Check if expired
+        if (share.expiresAt && Date.now() > share.expiresAt) {
+            // Update status to expired
+            await ctx.db.patch(share._id, { status: "expired" });
+            return { ...share, status: "expired" as const };
+        }
+
+        return share;
+    },
+});
+
+// Validate Access to Analytics Share
+export const validateAnalyticsShareAccess = query({
+    args: { 
+        shareId: v.string(),
+        password: v.optional(v.string()),
+        domain: v.optional(v.string()),
+    },
+    returns: v.object({
+        hasAccess: v.boolean(),
+        reason: v.optional(v.string()),
+        share: v.optional(v.object({
+            id: v.string(),
+            userId: v.id("users"),
+            title: v.string(),
+            description: v.optional(v.string()),
+            contentType: v.union(v.literal("overview"), v.literal("chart"), v.literal("dataset"), v.literal("dashboard")),
+            data: v.any(),
+            permissions: v.object({
+                viewerAccess: v.union(v.literal("public"), v.literal("restricted"), v.literal("private")),
+                allowDownload: v.boolean(),
+                allowPrint: v.boolean(),
+                allowCopy: v.boolean(),
+                requiredPassword: v.optional(v.string()),
+                expirationDate: v.optional(v.number()),
+                viewLimit: v.optional(v.number()),
+                allowedDomains: v.optional(v.array(v.string())),
+                watermark: v.boolean(),
+            }),
+            metadata: v.object({
+                timeRange: v.string(),
+                totalItems: v.number(),
+                lastUpdated: v.number(),
+                version: v.string(),
+                tags: v.array(v.string()),
+            }),
+            analytics: v.object({
+                views: v.number(),
+                uniqueViewers: v.number(),
+                downloadsCount: v.number(),
+                lastViewed: v.optional(v.number()),
+            }),
+            status: v.union(v.literal("active"), v.literal("expired"), v.literal("disabled"), v.literal("password-protected")),
+            createdAt: v.number(),
+            expiresAt: v.optional(v.number()),
+        })),
+    }),
+    handler: async (ctx, args) => {
+        const share = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_share_id", (q) => q.eq("id", args.shareId))
+            .first();
+
+        if (!share) {
+            return { hasAccess: false, reason: "not_found" };
+        }
+
+        // Check if expired
+        if (share.expiresAt && Date.now() > share.expiresAt) {
+            await ctx.db.patch(share._id, { status: "expired" });
+            return { hasAccess: false, reason: "expired" };
+        }
+
+        // Check if disabled
+        if (share.status === "disabled") {
+            return { hasAccess: false, reason: "disabled" };
+        }
+
+        // Check view limit
+        if (share.permissions.viewLimit && share.analytics.views >= share.permissions.viewLimit) {
+            return { hasAccess: false, reason: "view_limit_exceeded" };
+        }
+
+        // Check domain restrictions
+        if (share.permissions.viewerAccess === "restricted" && share.permissions.allowedDomains) {
+            const currentDomain = args.domain || "";
+            const isAllowedDomain = share.permissions.allowedDomains.some(domain => 
+                currentDomain.endsWith(domain)
+            );
+            
+            if (!isAllowedDomain) {
+                return { hasAccess: false, reason: "domain_restricted" };
+            }
+        }
+
+        // Check password protection
+        if (share.permissions.viewerAccess === "private" && share.permissions.requiredPassword) {
+            if (!args.password || args.password !== share.permissions.requiredPassword) {
+                return { hasAccess: false, reason: "password_required" };
+            }
+        }
+
+        return { hasAccess: true, share };
+    },
+});
+
+// Track Analytics Share View
+export const trackAnalyticsShareView = mutation({
+    args: { 
+        shareId: v.string(),
+        viewerInfo: v.object({
+            userAgent: v.optional(v.string()),
+            referrer: v.optional(v.string()),
+            ipAddress: v.optional(v.string()),
+        }),
+    },
+    returns: v.null(),
+    handler: async (ctx, args) => {
+        const share = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_share_id", (q) => q.eq("id", args.shareId))
+            .first();
+
+        if (!share) return null;
+
+        // Update analytics
+        await ctx.db.patch(share._id, {
+            analytics: {
+                ...share.analytics,
+                views: share.analytics.views + 1,
+                lastViewed: Date.now(),
+                // TODO: Implement unique viewer tracking with IP/fingerprinting
+                uniqueViewers: share.analytics.uniqueViewers + 1,
+            },
+        });
+
+        return null;
+    },
+});
+
+// Track Analytics Share Download
+export const trackAnalyticsShareDownload = mutation({
+    args: { shareId: v.string() },
+    returns: v.null(),
+    handler: async (ctx, args) => {
+        const share = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_share_id", (q) => q.eq("id", args.shareId))
+            .first();
+
+        if (!share) return null;
+
+        await ctx.db.patch(share._id, {
+            analytics: {
+                ...share.analytics,
+                downloadsCount: share.analytics.downloadsCount + 1,
+            },
+        });
+
+        return null;
+    },
+});
+
+// Get User's Analytics Shares
+export const getUserAnalyticsShares = query({
+    args: {},
+    returns: v.array(v.object({
+        id: v.string(),
+        userId: v.id("users"),
+        title: v.string(),
+        description: v.optional(v.string()),
+        contentType: v.union(v.literal("overview"), v.literal("chart"), v.literal("dataset"), v.literal("dashboard")),
+        data: v.any(),
+        permissions: v.object({
+            viewerAccess: v.union(v.literal("public"), v.literal("restricted"), v.literal("private")),
+            allowDownload: v.boolean(),
+            allowPrint: v.boolean(),
+            allowCopy: v.boolean(),
+            requiredPassword: v.optional(v.string()),
+            expirationDate: v.optional(v.number()),
+            viewLimit: v.optional(v.number()),
+            allowedDomains: v.optional(v.array(v.string())),
+            watermark: v.boolean(),
+        }),
+        metadata: v.object({
+            timeRange: v.string(),
+            totalItems: v.number(),
+            lastUpdated: v.number(),
+            version: v.string(),
+            tags: v.array(v.string()),
+        }),
+        analytics: v.object({
+            views: v.number(),
+            uniqueViewers: v.number(),
+            downloadsCount: v.number(),
+            lastViewed: v.optional(v.number()),
+        }),
+        status: v.union(v.literal("active"), v.literal("expired"), v.literal("disabled"), v.literal("password-protected")),
+        createdAt: v.number(),
+        expiresAt: v.optional(v.number()),
+    })),
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) return [];
+
+        const shares = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_user", (q) => q.eq("userId", userId))
+            .order("desc")
+            .collect();
+
+        return shares;
+    },
+});
+
+// Update Analytics Share
+export const updateAnalyticsShare = mutation({
+    args: {
+        shareId: v.string(),
+        updates: v.object({
+            title: v.optional(v.string()),
+            description: v.optional(v.string()),
+            permissions: v.optional(v.object({
+                viewerAccess: v.union(v.literal("public"), v.literal("restricted"), v.literal("private")),
+                allowDownload: v.boolean(),
+                allowPrint: v.boolean(),
+                allowCopy: v.boolean(),
+                requiredPassword: v.optional(v.string()),
+                expirationDate: v.optional(v.number()),
+                viewLimit: v.optional(v.number()),
+                allowedDomains: v.optional(v.array(v.string())),
+                watermark: v.boolean(),
+            })),
+            status: v.optional(v.union(v.literal("active"), v.literal("disabled"))),
+        }),
+    },
+    returns: v.null(),
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const share = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_share_id", (q) => q.eq("id", args.shareId))
+            .first();
+
+        if (!share || share.userId !== userId) {
+            throw new Error("Share not found or access denied");
+        }
+
+        const updates: any = { ...args.updates };
+        
+        // Update status based on permissions if provided
+        if (args.updates.permissions?.viewerAccess === "private" && args.updates.permissions.requiredPassword) {
+            updates.status = "password-protected";
+        } else if (args.updates.status) {
+            updates.status = args.updates.status;
+        }
+
+        await ctx.db.patch(share._id, updates);
+        return null;
+    },
+});
+
+// Delete Analytics Share
+export const deleteAnalyticsShare = mutation({
+    args: { shareId: v.string() },
+    returns: v.null(),
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const share = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_share_id", (q) => q.eq("id", args.shareId))
+            .first();
+
+        if (!share || share.userId !== userId) {
+            throw new Error("Share not found or access denied");
+        }
+
+        await ctx.db.delete(share._id);
+        return null;
+    },
+});
+
+// Cleanup Expired Analytics Shares (Cron Job)
+export const cleanupExpiredAnalyticsShares = mutation({
+    args: {},
+    returns: v.object({
+        deletedCount: v.number(),
+    }),
+    handler: async (ctx) => {
+        const now = Date.now();
+        const expiredShares = await ctx.db
+            .query("analytics_shares")
+            .withIndex("by_expires_at", (q) => q.lt("expiresAt", now))
+            .collect();
+
+        let deletedCount = 0;
+        for (const share of expiredShares) {
+            if (share.expiresAt && share.expiresAt < now) {
+                await ctx.db.delete(share._id);
+                deletedCount++;
+            }
+        }
+
+        return { deletedCount };
+    },
+});
+
+// Get Analytics Data for Sharing (Real Implementation)
+export const getAnalyticsDataForSharing = query({
+    args: {
+        timeRange: v.string(), // "7d", "30d", "90d", "1y"
+        contentType: v.union(v.literal("overview"), v.literal("chart"), v.literal("dataset"), v.literal("dashboard")),
+        includeChartImages: v.optional(v.boolean()),
+    },
+    returns: v.any(),
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const now = Date.now();
+        let timeRangeMs: number;
+        
+        switch (args.timeRange) {
+            case "7d": timeRangeMs = 7 * 24 * 60 * 60 * 1000; break;
+            case "30d": timeRangeMs = 30 * 24 * 60 * 60 * 1000; break;
+            case "90d": timeRangeMs = 90 * 24 * 60 * 60 * 1000; break;
+            case "1y": timeRangeMs = 365 * 24 * 60 * 60 * 1000; break;
+            default: timeRangeMs = 7 * 24 * 60 * 60 * 1000;
+        }
+        
+        const startTime = now - timeRangeMs;
+
+        try {
+            // Get user's chats in time range
+            const chats = await ctx.db
+                .query("chats")
+                .withIndex("by_user", (q) => q.eq("userId", userId))
+                .filter((q) => q.gte(q.field("createdAt"), startTime))
+                .collect();
+
+            // Get user's projects
+            const projects = await ctx.db
+                .query("projects")
+                .withIndex("by_user", (q) => q.eq("userId", userId))
+                .collect();
+
+            // Get messages in time range
+            const allMessages = [];
+            for (const chat of chats) {
+                if (chat.activeBranchId) {
+                    const activeBranch = await ctx.db.get(chat.activeBranchId);
+                    if (activeBranch) {
+                        const messages = await Promise.all(
+                            activeBranch.messages.map((msgId) => ctx.db.get(msgId))
+                        );
+                        allMessages.push(...messages.filter(msg => 
+                            msg && msg.timestamp >= startTime
+                        ));
+                    }
+                }
+            }
+
+            // Process data based on content type
+            switch (args.contentType) {
+                case "overview":
+                    return {
+                        overview: {
+                            totalChats: chats.length,
+                            totalMessages: allMessages.length,
+                            totalProjects: projects.length,
+                            averageMessagesPerChat: chats.length > 0 ? Math.round(allMessages.length / chats.length) : 0,
+                        },
+                        timeRange: args.timeRange,
+                        generatedAt: now,
+                    };
+
+                case "chart":
+                    // Group messages by date for chart data
+                    const messagesByDate = allMessages.reduce((acc, msg) => {
+                        const date = new Date(msg.timestamp).toISOString().split('T')[0];
+                        acc[date] = (acc[date] || 0) + 1;
+                        return acc;
+                    }, {} as Record<string, number>);
+
+                    return {
+                        chartData: {
+                            labels: Object.keys(messagesByDate).sort(),
+                            datasets: [{
+                                label: "Messages per Day",
+                                data: Object.keys(messagesByDate).sort().map(date => messagesByDate[date]),
+                            }]
+                        },
+                        chartType: "line",
+                        timeRange: args.timeRange,
+                        generatedAt: now,
+                    };
+
+                case "dataset":
+                    return {
+                        data: chats.map(chat => ({
+                            id: chat._id,
+                            title: chat.title,
+                            model: chat.model,
+                            createdAt: new Date(chat.createdAt).toISOString(),
+                            messageCount: allMessages.filter(msg => 
+                                msg.branchId && chat.activeBranchId === msg.branchId
+                            ).length,
+                            isStarred: chat.isStarred || false,
+                            projectName: projects.find(p => p._id === chat.projectId)?.name || "No Project",
+                        })),
+                        totalRows: chats.length,
+                        timeRange: args.timeRange,
+                        generatedAt: now,
+                    };
+
+                case "dashboard":
+                    return {
+                        overview: {
+                            totalChats: chats.length,
+                            totalMessages: allMessages.length,
+                            totalProjects: projects.length,
+                        },
+                        charts: [
+                            {
+                                id: "messages-over-time",
+                                title: "Messages Over Time",
+                                type: "line",
+                                data: messagesByDate,
+                            },
+                            {
+                                id: "chats-by-model",
+                                title: "Chats by Model",
+                                type: "pie",
+                                data: chats.reduce((acc, chat) => {
+                                    acc[chat.model] = (acc[chat.model] || 0) + 1;
+                                    return acc;
+                                }, {} as Record<string, number>),
+                            }
+                        ],
+                        timeRange: args.timeRange,
+                        generatedAt: now,
+                    };
+
+                default:
+                    throw new Error(`Unsupported content type: ${args.contentType}`);
+            }
+        } catch (error) {
+            console.error("Error generating analytics data:", error);
+            throw new Error("Failed to generate analytics data");
+        }
+    },
+});
