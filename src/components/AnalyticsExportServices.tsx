@@ -728,7 +728,8 @@ export class AnalyticsPNGExporter {
 // Granular Sharing Service
 export class GranularSharingService {
     private static readonly SHARE_BASE_URL =
-        process.env.VITE_SHARE_BASE_URL || `${window.location.origin}/shared`;
+        import.meta.env.VITE_SHARE_BASE_URL ||
+        `${window.location.origin}/shared`;
 
     // Create shareable content with granular controls
     static async createShareableContent(

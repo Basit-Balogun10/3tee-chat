@@ -101,8 +101,9 @@ export function ShareModal({
                 // Enable sharing
                 let shareId: string;
                 shareId = await createChatShare({
-                    chatId: chatId,
+                    chatId: chatId, // Fixed: Ensure chatId is properly passed
                     shareMode,
+                    ...(expiresAt && { expiresAt: new Date(expiresAt).getTime() }),
                 });
 
                 // Fix: Generate correct share URL with shareId

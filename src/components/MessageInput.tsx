@@ -141,6 +141,9 @@ export function MessageInput({
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const defaultPlaceholder = "Type your message here...";
 
+    // Use custom shortcuts hook - MOVED BEFORE useEffect that uses it
+    const { checkShortcutMatch } = useCustomShortcuts();
+
     // Get chat artifacts for @ referencing
     const chatArtifacts =
         useQuery(
@@ -533,9 +536,6 @@ export function MessageInput({
         editMode,
     ]);
 
-    // Use custom shortcuts hook
-    const { checkShortcutMatch } = useCustomShortcuts();
-
     // Listen for custom events from keyboard shortcuts and library modal
     useEffect(() => {
         const handleFocusMessageInput = () => {
@@ -663,9 +663,9 @@ export function MessageInput({
 
     const highlightedText = useMemo(() => {
         let escapedText = message
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;");
+            ?.replace(/&/g, "&amp;")
+            ?.replace(/</g, "&lt;")
+            ?.replace(/>/g, "&gt;");
 
         // Highlight commands
         const availableCommands = commands.filter(
@@ -676,7 +676,7 @@ export function MessageInput({
                 `(\\b(${availableCommands.map((c) => c.command.replace("/", "\\/")).join("|")})\\b)`,
                 "g"
             );
-            escapedText = escapedText.replace(
+            escapedText = escapedText?.replace(
                 commandRegex,
                 (match) =>
                     `<span class="bg-purple-600/30 rounded-sm px-0.5 font-mono">${match}</span>`
@@ -696,7 +696,7 @@ export function MessageInput({
             );
         }
 
-        return escapedText.replace(/\n/g, "<br />");
+        return escapedText?.replace(/\n/g, "<br />");
     }, [message, activeCommands, commands, chatArtifacts]);
 
     const getCommandQuery = (text: string, cursor: number): string | null => {
@@ -1631,7 +1631,7 @@ export function MessageInput({
                                             onClick={() => handleSubmit()}
                                             disabled={
                                                 isLoading ||
-                                                (!message.trim() &&
+                                                (!message?.trim() &&
                                                     attachments.length === 0 &&
                                                     activeCommands.length ===
                                                         0 &&

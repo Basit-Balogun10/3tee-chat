@@ -12,11 +12,6 @@ import { streamText } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { google } from "@ai-sdk/google";
 import { anthropic } from "@ai-sdk/anthropic";
-import {
-    buildModelMessages,
-    getChatMessagesForAI,
-    convertUIMessageToRawParts,
-} from "./aiSdkHelpers";
 
 const http = router;
 
@@ -403,7 +398,7 @@ http.route({
             }
 
             // Add user message first
-            await ctx.runMutation(internal.messages.addMessage, {
+            await ctx.runMutation(internal.messages.addMessageInternal, {
                 chatId,
                 role: "user",
                 content: lastMessage.content,
@@ -442,7 +437,7 @@ http.route({
 http.route({
     path: "/api/multi-chat",
     method: "POST",
-    handler: httpAction(async (ctx, req) => {
+    handler: httpAction(async (ctx, req): Promise<Response> => {
         try {
             const body = await req.json();
             const {
@@ -461,28 +456,64 @@ http.route({
             }
 
             // Add user message first
-            await ctx.runMutation(internal.messages.addMessage, {
-                chatId,
-                role: "user",
-                content: lastMessage.content,
-                attachments,
-                commands,
-                referencedLibraryItems,
-            });
-
-            // Generate multi-AI responses using existing workflow
-            const result = await ctx.runAction(
-                internal.ai.generateMultiAIResponse,
+            const userMessageId = await ctx.runMutation(
+                internal.messages.addMessageInternal,
                 {
                     chatId,
-                    models,
+                    role: "user",
+                    content: lastMessage.content,
                     attachments,
                     commands,
                     referencedLibraryItems,
                 }
             );
 
-            return result;
+            // Create assistant message placeholder
+            const assistantMessageId = await ctx.runMutation(
+                internal.messages.addMessageInternal,
+                {
+                    chatId,
+                    role: "assistant",
+                    content:
+                        "🧠 Generating responses from multiple AI models...",
+                    model: models[0],
+                    isStreaming: true,
+                }
+            );
+
+            // Generate response IDs for multi-AI tracking
+            const responseIds = models.map(
+                (model: string) =>
+                    `${model}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+            );
+
+            // Generate multi-AI responses using existing workflow
+            const result = await ctx.runAction(
+                internal.ai.generateMultiAIResponses,
+                {
+                    chatId,
+                    messageId: assistantMessageId,
+                    models,
+                    responseIds,
+                    attachments,
+                    commands,
+                    referencedLibraryItems,
+                }
+            );
+
+            return new Response(
+                JSON.stringify({
+                    success: true,
+                    userMessageId,
+                    assistantMessageId,
+                    models,
+                    responseIds,
+                }),
+                {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                }
+            );
         } catch (error) {
             console.error("Error in multi-chat endpoint:", error);
             return new Response(

@@ -2,6 +2,18 @@ import { v } from "convex/values";
 import { internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 
+// Define types for AI settings
+interface AISettings {
+    temperature: number;
+    maxTokens?: number;
+    topP: number;
+    frequencyPenalty: number;
+    presencePenalty: number;
+    systemPrompt: string;
+    responseMode: string;
+    promptEnhancement: boolean;
+}
+
 // Get combined AI settings (per-chat + global preferences)
 export const getCombinedAISettings = internalQuery({
     args: {
@@ -18,9 +30,9 @@ export const getCombinedAISettings = internalQuery({
         responseMode: v.string(),
         promptEnhancement: v.boolean(),
     }),
-    handler: async (ctx, args) => {
+    handler: async (ctx, args): Promise<AISettings> => {
         const chat = await ctx.db.get(args.chatId);
-        const preferences = await ctx.runQuery(
+        const preferences: any = await ctx.runQuery(
             internal.preferences.getUserPreferencesInternal,
             {
                 userId: args.userId,
@@ -28,7 +40,7 @@ export const getCombinedAISettings = internalQuery({
         );
 
         // Default AI settings
-        const defaultSettings = {
+        const defaultSettings: AISettings = {
             temperature: 0.7,
             maxTokens: undefined,
             topP: 0.9,
@@ -40,13 +52,13 @@ export const getCombinedAISettings = internalQuery({
         };
 
         // Merge global preferences with defaults
-        const globalSettings = {
+        const globalSettings: AISettings = {
             ...defaultSettings,
             ...(preferences?.aiSettings || {}),
         };
 
         // Per-chat settings override global settings
-        const finalSettings = {
+        const finalSettings: AISettings = {
             ...globalSettings,
             ...(chat?.aiSettings || {}),
         };

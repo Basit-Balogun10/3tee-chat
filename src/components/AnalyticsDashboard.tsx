@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "convex/react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../../convex/_generated/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
@@ -272,6 +273,7 @@ export function AnalyticsDashboard({
     });
     const [comparisonRange, setComparisonRange] = useState<DateRange>();
     const dashboardRef = useRef<HTMLDivElement>(null);
+    const navigate = useNavigate();
 
     // Calculate time range based on date picker selection
     const timeRange = useMemo(() => {
@@ -341,9 +343,7 @@ export function AnalyticsDashboard({
         onOpenChange(false);
         
         // Navigate to the specific chat
-        // This would typically use router navigation or state management
-        console.log("Navigating to chat:", chatId);
-        // TODO: Implement actual navigation logic
+        navigate(`/chats/${chatId}`);
     };
 
     const handleNavigateToProject = (projectId: string) => {
@@ -352,8 +352,7 @@ export function AnalyticsDashboard({
         onOpenChange(false);
         
         // Navigate to the specific project
-        console.log("Navigating to project:", projectId);
-        // TODO: Implement actual navigation logic
+        navigate(`/projects/${projectId}`);
     };
 
     // Prepare export data

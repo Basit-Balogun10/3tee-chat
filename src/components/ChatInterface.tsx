@@ -156,52 +156,6 @@ export function ChatInterface() {
         [setRightSidebarMode]
     );
 
-    const handleNewChat = useCallback(
-        async (projectId?: Id<"projects">) => {
-            const defaultModel =
-                preferences?.defaultModel || "gemini-2.0-flash";
-
-            // Phase 2: Check if temporary chats should be default
-            const shouldCreateTemporary =
-                preferences?.temporaryChatsSettings?.defaultToTemporary ||
-                false;
-
-            if (shouldCreateTemporary) {
-                // Use temporary chat as default
-                return await handleNewTemporaryChat(projectId);
-            }
-
-            const chatId = await createChat({
-                title: "New Chat",
-                model: defaultModel,
-                ...(projectId
-                    ? {
-                          projectId,
-                      }
-                    : {}),
-            });
-            setSelectedChatId(chatId);
-            setLastSelectedChatId(chatId);
-
-            if (projectId) {
-                toast.success("New chat created in project");
-            } else {
-                toast.success("New chat created");
-            }
-            // Navigate to the new chat URL
-            void navigate(`/chat/${chatId}`);
-            return chatId;
-        },
-        [
-            preferences?.defaultModel,
-            preferences?.temporaryChatsSettings?.defaultToTemporary,
-            createChat,
-            handleNewTemporaryChat,
-            setLastSelectedChatId,
-            navigate,
-        ]
-    );
-
     // Phase 2: Temporary Chat Handlers
     const handleNewTemporaryChat = useCallback(
         async (projectId?: Id<"projects">) => {
@@ -246,6 +200,52 @@ export function ChatInterface() {
             preferences?.defaultModel,
             preferences?.temporaryChatsSettings?.defaultLifespanHours,
             createTemporaryChat,
+            setLastSelectedChatId,
+            navigate,
+        ]
+    );
+
+    const handleNewChat = useCallback(
+        async (projectId?: Id<"projects">) => {
+            const defaultModel =
+                preferences?.defaultModel || "gemini-2.0-flash";
+
+            // Phase 2: Check if temporary chats should be default
+            const shouldCreateTemporary =
+                preferences?.temporaryChatsSettings?.defaultToTemporary ||
+                false;
+
+            if (shouldCreateTemporary) {
+                // Use temporary chat as default
+                return await handleNewTemporaryChat(projectId);
+            }
+
+            const chatId = await createChat({
+                title: "New Chat",
+                model: defaultModel,
+                ...(projectId
+                    ? {
+                          projectId,
+                      }
+                    : {}),
+            });
+            setSelectedChatId(chatId);
+            setLastSelectedChatId(chatId);
+
+            if (projectId) {
+                toast.success("New chat created in project");
+            } else {
+                toast.success("New chat created");
+            }
+            // Navigate to the new chat URL
+            void navigate(`/chat/${chatId}`);
+            return chatId;
+        },
+        [
+            preferences?.defaultModel,
+            preferences?.temporaryChatsSettings?.defaultToTemporary,
+            createChat,
+            handleNewTemporaryChat,
             setLastSelectedChatId,
             navigate,
         ]

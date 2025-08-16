@@ -219,13 +219,13 @@ export const getAnalytics = query({
             .collect();
 
         // Get messages for analytics
-        const allMessages = [];
+        const allMessages: any[] = [];
         for (const chat of allChats) {
             if (chat.activeBranchId) {
                 const branchMessages = await ctx.db
                     .query("messages")
                     .withIndex("by_branch_and_timestamp", (q) =>
-                        q.eq("branchId", chat.activeBranchId)
+                        q.eq("branchId", chat.activeBranchId!)
                     )
                     .collect();
                 allMessages.push(...branchMessages);
@@ -370,7 +370,7 @@ export const getAnalyticsOverview = query({
                 const branchMessages = await ctx.db
                     .query("messages")
                     .withIndex("by_branch_and_timestamp", (q) =>
-                        q.eq("branchId", chat.activeBranchId)
+                        q.eq("branchId", chat.activeBranchId!)
                     )
                     .collect();
                 allMessages.push(...branchMessages);
@@ -688,7 +688,9 @@ export const getFilteredAnalytics = query({
         }
 
         if (filters.showDeleted === false) {
-            chats = chats.filter((chat) => !chat.isDeleted);
+            // Note: isDeleted property may not exist on all chat objects
+            // Filter out chats that have isDeleted: true, but keep chats without this property
+            chats = chats.filter((chat) => !(chat as any).isDeleted);
         }
 
         if (filters.minMessages && filters.minMessages > 0) {
@@ -699,7 +701,7 @@ export const getFilteredAnalytics = query({
                     const messageCount = await ctx.db
                         .query("messages")
                         .withIndex("by_branch_and_timestamp", (q) =>
-                            q.eq("branchId", chat.activeBranchId)
+                            q.eq("branchId", chat.activeBranchId!)
                         )
                         .collect()
                         .then((messages) => messages.length);
@@ -743,7 +745,7 @@ export const getFilteredAnalytics = query({
                 const branchMessages = await ctx.db
                     .query("messages")
                     .withIndex("by_branch_and_timestamp", (q) =>
-                        q.eq("branchId", chat.activeBranchId)
+                        q.eq("branchId", chat.activeBranchId!)
                     )
                     .collect();
                 allMessages.push(...branchMessages);
@@ -908,7 +910,7 @@ export const getAnalyticsDrilldown = query({
                 const branchMessages = await ctx.db
                     .query("messages")
                     .withIndex("by_branch_and_timestamp", (q) =>
-                        q.eq("branchId", chat.activeBranchId)
+                        q.eq("branchId", chat.activeBranchId!)
                     )
                     .collect();
                 allMessages.push(...branchMessages);
@@ -1047,8 +1049,8 @@ function getMostActiveHour(messages: any[]): number {
 
 function calculateChatAnalytics(chats: any[], allChats: any[], timeRange: any) {
     const chatsByModel = new Map<string, number>();
-    const chatCreationTrend = [];
-    const chatActivityHeatmap = [];
+    const chatCreationTrend: Array<{ period: string; count: number; timestamp: number }> = [];
+    const chatActivityHeatmap: Array<{ hour: number; day: number; activity: number }> = [];
 
     // Calculate model distribution
     allChats.forEach((chat) => {
@@ -1112,7 +1114,7 @@ function calculateChatAnalytics(chats: any[], allChats: any[], timeRange: any) {
 function calculateMessageAnalytics(messages: any[], allMessages: any[]) {
     const commandUsage = new Map<string, number>();
     const modelUsage = new Map<string, number>();
-    const responseTimes = [];
+    const responseTimes: number[] = [];
 
     // Process all messages for statistics
     allMessages.forEach((msg, index) => {

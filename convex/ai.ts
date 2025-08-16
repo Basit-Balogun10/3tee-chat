@@ -27,6 +27,9 @@ import {
 export const generateStreamingResponse = internalAction({
     args: {
         chatId: v.id("chats"),
+        retryMessageId:v.optional(
+            v.id("messages") // Optional messageId for existing messages
+        ),
         model: v.string(),
         attachments: v.optional(
             v.array(
@@ -83,8 +86,8 @@ export const generateStreamingResponse = internalAction({
             if (!chat) throw new Error("Chat not found");
 
             // Create assistant message for streaming
-            const messageId: any = await ctx.runMutation(
-                internal.messages.addMessage,
+            const messageId: any = args.retryMessageId || await ctx.runMutation(
+                internal.messages.addMessageInternal,
                 {
                     chatId: args.chatId,
                     role: "assistant",
@@ -95,7 +98,7 @@ export const generateStreamingResponse = internalAction({
 
             // Get combined AI settings (per-chat + global preferences)
             const aiSettings: any = await ctx.runQuery(
-                internal.preferences.getCombinedAISettings,
+                internal.aiHelpers.getCombinedAISettings,
                 {
                     chatId: args.chatId,
                     userId: chat.userId,
@@ -105,7 +108,7 @@ export const generateStreamingResponse = internalAction({
             // Get user API keys and chat history
             const userApiKeys = await getUserApiKeys(ctx);
             const messages = await ctx.runQuery(
-                internal.messages.getChatHistory,
+                internal.aiHelpers.getChatHistory,
                 {
                     chatId: args.chatId,
                     excludeMessageId: messageId,
@@ -192,7 +195,7 @@ export const generateStreamingResponse = internalAction({
             if (isMediaGeneration) {
                 try {
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content: "🎨 Generating image...",
@@ -219,7 +222,7 @@ export const generateStreamingResponse = internalAction({
                     const imageResponseTime = Date.now() - startTime;
 
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content: response,
@@ -247,7 +250,7 @@ export const generateStreamingResponse = internalAction({
                     response =
                         "Sorry, I couldn't generate the image. Please try again.";
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content: response,
@@ -265,7 +268,7 @@ export const generateStreamingResponse = internalAction({
             if (isVideoGeneration) {
                 try {
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content:
@@ -299,7 +302,7 @@ export const generateStreamingResponse = internalAction({
                     const videoResponseTime = Date.now() - startTime;
 
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content: response,
@@ -326,7 +329,7 @@ export const generateStreamingResponse = internalAction({
                     response =
                         "Sorry, I couldn't generate the video. Please try again.";
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content: response,
@@ -405,7 +408,7 @@ export const generateStreamingResponse = internalAction({
                     response =
                         "Sorry, I couldn't generate the canvas artifacts. Please try again.";
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content: response,
@@ -470,7 +473,7 @@ export const generateStreamingResponse = internalAction({
                     // Finalize the response with metadata tracking
                     const responseTime = Date.now() - startTime;
                     await ctx.runMutation(
-                        internal.messages.updateMessageContent,
+                        internal.aiHelpers.updateMessageContent,
                         {
                             messageId: messageId,
                             content: result.text,
@@ -510,7 +513,7 @@ export const generateStreamingResponse = internalAction({
                 fullResponse += delta;
 
                 // Update message content with partial response
-                await ctx.runMutation(internal.messages.updateMessageContent, {
+                await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
                     messageId: messageId,
                     content: fullResponse,
                     isStreaming: true,
@@ -683,11 +686,18 @@ export const generateStructuredOutput = internalAction({
                 // Create artifacts in the database
                 const createdArtifactIds = [];
                 for (const artifact of artifacts) {
+                    // Get chat to access userId
+                    const chat = await ctx.runQuery(internal.chats.getChatInternal, {
+                        chatId: args.chatId,
+                    });
+                    
                     const artifactId = await ctx.runMutation(
-                        internal.artifacts.createArtifact,
+                        internal.artifacts.createArtifactInternal,
                         {
                             chatId: args.chatId,
                             messageId: args.messageId,
+                            userId: chat.userId,
+                            artifactId: artifact.id, // Use the AI-generated ID
                             content: artifact.content,
                             filename: artifact.filename,
                             language: artifact.language,
@@ -1079,11 +1089,17 @@ export const generateMultiAIResponses = internalAction({
                         const createdArtifacts = [];
 
                         for (const artifact of parsedOutput.artifacts) {
+                            // Get chat to access userId
+                            const chat = await ctx.runQuery(internal.chats.getChatInternal, {
+                                chatId: args.chatId,
+                            });
+                            
                             const artifactId = await ctx.runMutation(
-                                api.artifacts.createArtifact,
+                                internal.artifacts.createArtifactInternal,
                                 {
                                     messageId: args.messageId,
                                     chatId: args.chatId,
+                                    userId: chat.userId,
                                     artifactId: artifact.id,
                                     filename: artifact.filename,
                                     language: artifact.language,

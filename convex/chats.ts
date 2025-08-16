@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -47,6 +47,14 @@ async function verifyPassword(password: string, chat: any): Promise<boolean> {
     const hashedInput = hashPassword(password, chat.passwordSalt);
     return hashedInput === chat.passwordHash;
 }
+
+// Internal version for use in other functions
+export const getChatInternal = internalQuery({
+    args: { chatId: v.id("chats") },
+    handler: async (ctx: any, args: any) => {
+        return await ctx.db.get(args.chatId);
+    },
+});
 
 export const listChats = query({
     args: {},
@@ -112,10 +120,10 @@ export const searchChats = query({
 });
 
 export const getChat = query({
-    args: { chatId: v.id("chats") },
+    args: { chatId: v.optional(v.id("chats")) },
     handler: async (ctx, args) => {
         const userId = await getAuthUserId(ctx);
-        if (!userId) return null;
+        if (!userId || !args.chatId) return null;
 
         const chat = await ctx.db.get(args.chatId);
         if (!chat || (chat.userId !== userId && !chat.isPublic)) return null;
@@ -155,35 +163,6 @@ export const getChatMessages = query({
         const validMessages = messages
             .filter((msg) => msg !== null)
             .sort((a, b) => a.timestamp - b.timestamp);
-
-        // // Auto-populate artifacts for messages that reference them in metadata
-        // const messagesWithArtifacts = await Promise.all(
-        //     validMessages.map(async (message) => {
-        //         if (
-        //             message.metadata?.artifacts &&
-        //             message.metadata.artifacts.length > 0
-        //         ) {
-        //             // Get full artifact objects for the artifact IDs stored in metadata
-        //             const artifacts = await Promise.all(
-        //                 message.metadata.artifacts.map(async (artifactId) => {
-        //                     // Get artifact by _id since metadata.artifacts contains artifact _ids
-        //                     const artifact = await ctx.db.get(artifactId);
-        //                     return artifact;
-        //                 })
-        //             );
-
-        //             // Filter out any null artifacts (in case of cleanup/deletion)
-        //             const validArtifacts = artifacts.filter(Boolean);
-
-        //             return {
-        //                 ...message,
-        //                 // Add populated artifacts field for frontend convenience
-        //                 artifacts: validArtifacts,
-        //             };
-        //         }
-        //         return message;
-        //     })
-        // );
 
         return validMessages;
     },
@@ -418,6 +397,7 @@ export const branchChat = mutation({
         // PHASE 1: Create main branch for new chat
         const mainBranchId = await ctx.db.insert("branches", {
             chatId: newChatId,
+            isMain: true,
             fromMessageId: undefined,
             messages: [],
             createdAt: now,
@@ -1346,10 +1326,12 @@ export const advancedSearch = query({
         // Load shared chats if requested
         let sharedChats: Doc<"chats">[] = [];
         if (filters.includeShared) {
-            const userDoc = (await ctx.db.get(userId)) as Doc<"users"> | null;
+            const userDoc = await ctx.db.get(userId);
             const sharedIds = userDoc?.sharedChats || [];
             if (sharedIds.length) {
-                const loaded = await Promise.all(sharedIds.map((id) => ctx.db.get(id)));
+                const loaded = await Promise.all(
+                    sharedIds.map((id) => ctx.db.get(id))
+                );
                 sharedChats = loaded.filter((c): c is Doc<"chats"> => !!c);
             }
         }
@@ -1367,15 +1349,26 @@ export const advancedSearch = query({
             if (!filters.includeShared && c.isPublic) return false;
             switch (tab) {
                 case "starred":
-                    if (!c.isStarred) return false; break;
+                    if (!c.isStarred) return false;
+                    break;
                 case "regular":
-                    if (c.isStarred || c.isArchived || c.isPublic || c.isTemporary) return false; break;
+                    if (
+                        c.isStarred ||
+                        c.isArchived ||
+                        c.isPublic ||
+                        c.isTemporary
+                    )
+                        return false;
+                    break;
                 case "archived":
-                    if (!c.isArchived) return false; break;
+                    if (!c.isArchived) return false;
+                    break;
                 case "shared":
-                    if (!c.isPublic) return false; break;
+                    if (!c.isPublic) return false;
+                    break;
                 case "temporary":
-                    if (!c.isTemporary) return false; break;
+                    if (!c.isTemporary) return false;
+                    break;
             }
             return true;
         });
@@ -1427,12 +1420,16 @@ export const advancedSearch = query({
             const baseIds = (chat.baseMessages || []) as Id<"messages">[];
             let branchIds: Id<"messages">[] = [];
             if (chat.activeBranchId) {
-                const branch = (await ctx.db.get(chat.activeBranchId)) as Doc<"branches"> | null;
+                const branch = await ctx.db.get(chat.activeBranchId);
                 branchIds = (branch?.messages || []) as Id<"messages">[];
             }
             const allMessageIds = [...baseIds, ...branchIds];
             const messageCount = allMessageIds.length;
-            if (messageCount < filters.minMessages || messageCount > filters.maxMessages) continue;
+            if (
+                messageCount < filters.minMessages ||
+                messageCount > filters.maxMessages
+            )
+                continue;
 
             let matchedContent: string | undefined;
             const matchedAttachments: string[] = [];
@@ -1440,9 +1437,11 @@ export const advancedSearch = query({
             let attachmentHitBoost = 0;
 
             if (filters.includeContent || filters.includeAttachments) {
-                const messages = await Promise.all(allMessageIds.map((id) => ctx.db.get(id)));
+                const messages = await Promise.all(
+                    allMessageIds.map((id) => ctx.db.get(id))
+                );
                 for (const m of messages) {
-                    const msg = m as Doc<"messages"> | null;
+                    const msg = m;
                     if (!msg) continue;
                     if (!matchedContent && filters.includeContent) {
                         const text = (msg.content || "").toLowerCase();
@@ -1456,7 +1455,10 @@ export const advancedSearch = query({
                     }
                     if (filters.includeAttachments && msg.attachments) {
                         for (const att of msg.attachments) {
-                            if (att.name.toLowerCase().includes(qLower) && matchedAttachments.length < 5) {
+                            if (
+                                att.name.toLowerCase().includes(qLower) &&
+                                matchedAttachments.length < 5
+                            ) {
                                 matchedAttachments.push(att.name);
                                 attachmentHitBoost += 5;
                             }
@@ -1467,14 +1469,23 @@ export const advancedSearch = query({
             }
 
             const titleMatches = chat.title.toLowerCase().includes(qLower);
-            const includeByContent = !!matchedContent || matchedAttachments.length > 0;
+            const includeByContent =
+                !!matchedContent || matchedAttachments.length > 0;
             if (!titleMatches && !includeByContent) continue;
 
             const titleBoost = titleMatches ? 50 : 0;
             const recencyDays = (now - chat.updatedAt) / (24 * 60 * 60 * 1000);
             const recencyBoost = Math.max(0, 20 - recencyDays);
-            const sizePenalty = messageCount > 0 ? Math.min(10, Math.log10(messageCount + 1)) : 0;
-            const score = titleBoost + contentHitBoost + attachmentHitBoost + recencyBoost - sizePenalty;
+            const sizePenalty =
+                messageCount > 0
+                    ? Math.min(10, Math.log10(messageCount + 1))
+                    : 0;
+            const score =
+                titleBoost +
+                contentHitBoost +
+                attachmentHitBoost +
+                recencyBoost -
+                sizePenalty;
 
             results.push({
                 _id: chat._id,
@@ -1487,12 +1498,16 @@ export const advancedSearch = query({
                 isTemporary: chat.isTemporary || false,
                 messageCount,
                 matchedContent,
-                matchedAttachments: matchedAttachments.length ? matchedAttachments : undefined,
+                matchedAttachments: matchedAttachments.length
+                    ? matchedAttachments
+                    : undefined,
                 score: Number(score.toFixed(2)),
             });
         }
 
-        results.sort((a, b) => (b.score !== a.score ? b.score - a.score : b.updatedAt - a.updatedAt));
+        results.sort((a, b) =>
+            b.score !== a.score ? b.score - a.score : b.updatedAt - a.updatedAt
+        );
         return results;
     },
 });

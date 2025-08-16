@@ -5,6 +5,7 @@ import {
     query,
     internalAction,
     internalMutation,
+    internalQuery
 } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { api, internal } from "./_generated/api";
@@ -15,6 +16,148 @@ import { ConvexError } from "convex/values";
 async function getUserId(ctx: any) {
     return await getAuthUserId(ctx);
 }
+
+export const getMessageInternal = internalQuery({
+    args: { messageId: v.id("messages") },
+    handler: async (ctx, args) => {
+        return await ctx.db.get(args.messageId);
+    },
+});
+
+// Internal version of addMessage for use by other backend functions
+export const addMessageInternal = internalMutation({
+    args: {
+        chatId: v.id("chats"),
+        role: v.union(
+            v.literal("user"),
+            v.literal("assistant"),
+            v.literal("system")
+        ),
+        content: v.string(),
+        model: v.optional(v.string()),
+        isStreaming: v.optional(v.boolean()),
+        parentMessageId: v.optional(v.id("messages")),
+        attachments: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("image"),
+                        v.literal("pdf"),
+                        v.literal("file"),
+                        v.literal("audio"),
+                        v.literal("video")
+                    ),
+                    storageId: v.id("_storage"),
+                    name: v.string(),
+                    size: v.number(),
+                })
+            )
+        ),
+        referencedLibraryItems: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("attachment"),
+                        v.literal("artifact"),
+                        v.literal("media")
+                    ),
+                    id: v.string(), // Library ID or artifact ID
+                    name: v.string(),
+                    size: v.optional(v.number()),
+                    mimeType: v.optional(v.string()),
+                })
+            )
+        ),
+        commands: v.optional(v.array(v.string())),
+        userId: v.optional(v.id("users")), // Allow passing userId for internal calls
+    },
+    handler: async (ctx, args) => {
+        // For internal calls, userId can be passed directly, otherwise get from auth
+        const userId = args.userId || await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const chat = await ctx.db.get(args.chatId);
+        if (!chat || (chat.userId !== userId && !chat.isPublic)) {
+            throw new Error("Chat not found or access denied");
+        }
+
+        // ...existing code... (copy the entire handler logic from the original addMessage)
+        const activeBranchId = chat.activeBranchId;
+        if (!activeBranchId) {
+            throw new Error("No active branch found for chat");
+        }
+
+        const activeBranch = await ctx.db.get(activeBranchId);
+        if (!activeBranch) {
+            throw new Error("Active branch not found");
+        }
+
+        // Create the message - now belongs to a branch, not directly to chat
+        const messageId = await ctx.db.insert("messages", {
+            branchId: activeBranchId,
+            role: args.role,
+            content: args.content,
+            timestamp: Date.now(),
+            model: args.model,
+            isStreaming: args.isStreaming,
+            parentMessageId: args.parentMessageId,
+            attachments: args.attachments,
+            referencedLibraryItems: args.referencedLibraryItems,
+            commands: args.commands,
+            branches: [activeBranchId],
+            activeBranchId: activeBranchId,
+        });
+
+        // Add message to the active branch's messages array
+        const updatedMessages = [...(activeBranch.messages || []), messageId];
+        await ctx.db.patch(activeBranchId, {
+            messages: updatedMessages,
+            updatedAt: Date.now(),
+        });
+
+        // Update chat's activeMessages array and updatedAt timestamp
+        const baseMessages = chat.baseMessages || [];
+        const newActiveMessages = [...baseMessages, ...updatedMessages];
+
+        const updates: any = {
+            updatedAt: Date.now(),
+            activeMessages: newActiveMessages,
+        };
+
+        // Generate title for first user message if chat is still "New Chat"
+        if (
+            chat.title === "New Chat" &&
+            args.role === "user" &&
+            args.content.trim()
+        ) {
+            // Get user preferences to determine title generation method
+            const preferences = await ctx.runQuery(
+                internal.preferences.getUserPreferencesInternal,
+                {
+                    userId,
+                }
+            );
+
+            if (preferences?.chatTitleGeneration === "ai-generated") {
+                // Schedule AI title generation (async, doesn't block message creation)
+                ctx.scheduler.runAfter(0, internal.messages.generateChatTitle, {
+                    chatId: args.chatId,
+                    userMessage: args.content,
+                    model: args.model || "gemini-2.0-flash",
+                });
+            } else {
+                // Use first message approach (default/fallback)
+                const title = args.content.slice(0, 50).trim();
+                updates.title =
+                    title.length < args.content.length ? title + "..." : title;
+            }
+        }
+
+        await ctx.db.patch(args.chatId, updates);
+
+        return messageId;
+    },
+});
 
 export const addMessage = mutation({
     args: {
@@ -352,7 +495,7 @@ export const retryMessage = action({
         // Generate new AI response using streaming
         await ctx.runAction(internal.ai.generateStreamingResponse, {
             chatId: branch.chatId, // Get chatId from branch
-            messageId: args.messageId,
+            retryMessageId: args.messageId,
             model: args.model || message.model || "gemini-2.0-flash",
             referencedLibraryItems: message.referencedLibraryItems || [],
         });
@@ -431,7 +574,6 @@ export const sendMessage = action({
         // Pass unified library items to AI generation
         await ctx.runAction(internal.ai.generateStreamingResponse, {
             chatId: args.chatId,
-            messageId: assistantMessageId,
             model: args.model,
             commands: args.commands,
             attachments: args.attachments,
@@ -599,55 +741,6 @@ export const deleteMessage = mutation({
         });
 
         return null;
-    },
-});
-
-// Generate AI response to an existing message (for message editing)
-export const generateResponseToMessage = action({
-    args: {
-        chatId: v.id("chats"),
-        userMessageId: v.id("messages"),
-        model: v.string(),
-        commands: v.optional(v.array(v.string())),
-        referencedLibraryItems: v.optional(
-            v.array(
-                v.object({
-                    type: v.union(
-                        v.literal("attachment"),
-                        v.literal("artifact"),
-                        v.literal("media")
-                    ),
-                    id: v.string(),
-                    name: v.string(),
-                    size: v.optional(v.number()),
-                    mimeType: v.optional(v.string()),
-                })
-            )
-        ),
-    },
-    handler: async (ctx, args): Promise<any> => {
-        // Create assistant message placeholder
-        const assistantMessageId: any = await ctx.runMutation(
-            api.messages.addMessage,
-            {
-                chatId: args.chatId,
-                role: "assistant",
-                content: "",
-                model: args.model,
-                isStreaming: true,
-            }
-        );
-
-        // Generate AI response using the passed commands/attachments (from original message)
-        await ctx.runAction(internal.ai.generateStreamingResponse, {
-            chatId: args.chatId,
-            messageId: assistantMessageId,
-            model: args.model,
-            commands: args.commands || [],
-            referencedLibraryItems: args.referencedLibraryItems || [],
-        });
-
-        return assistantMessageId;
     },
 });
 

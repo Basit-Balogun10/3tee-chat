@@ -19,6 +19,7 @@ import type * as ai_helpers from "../ai/helpers.js";
 import type * as ai_providers from "../ai/providers.js";
 import type * as ai from "../ai.js";
 import type * as aiHelpers from "../aiHelpers.js";
+import type * as aiSdkHelpers from "../aiSdkHelpers.js";
 import type * as analytics from "../analytics.js";
 import type * as artifacts from "../artifacts.js";
 import type * as auth from "../auth.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   "ai/providers": typeof ai_providers;
   ai: typeof ai;
   aiHelpers: typeof aiHelpers;
+  aiSdkHelpers: typeof aiSdkHelpers;
   analytics: typeof analytics;
   artifacts: typeof artifacts;
   auth: typeof auth;

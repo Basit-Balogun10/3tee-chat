@@ -1,4 +1,4 @@
-import { useChat } from "ai/react";
+import { useChat } from "@ai-sdk/react";
 import { useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";

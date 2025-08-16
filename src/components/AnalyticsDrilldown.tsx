@@ -163,17 +163,20 @@ export function AnalyticsDrilldown({
     const handleChatNavigation = (chatId: string, event: React.MouseEvent) => {
         if (event.ctrlKey || event.metaKey) {
             // Open in new tab
-            window.open(`/chat/${chatId}`, '_blank');
+            window.open(`/chat/${chatId}`, "_blank");
         } else {
             // Navigate in current tab
             onNavigateToChat(chatId);
         }
     };
 
-    const handleProjectNavigation = (projectId: string, event: React.MouseEvent) => {
+    const handleProjectNavigation = (
+        projectId: string,
+        event: React.MouseEvent
+    ) => {
         if (event.ctrlKey || event.metaKey) {
             // Open in new tab
-            window.open(`/project/${projectId}`, '_blank');
+            window.open(`/project/${projectId}`, "_blank");
         } else {
             // Navigate in current tab
             onNavigateToProject(projectId);
@@ -382,7 +385,9 @@ export function AnalyticsDrilldown({
                                     <Button
                                         size="sm"
                                         variant="ghost"
-                                        onClick={(e) => handleChatNavigation(chat.id, e)}
+                                        onClick={(e) =>
+                                            handleChatNavigation(chat.id, e)
+                                        }
                                         className="text-purple-300 hover:text-purple-100"
                                         title="Click to open • Ctrl+Click to open in new tab"
                                     >
@@ -1068,25 +1073,39 @@ export function AnalyticsDrilldown({
                                                                 <div className="flex items-center gap-2 mb-1">
                                                                     <MessageSquare className="w-4 h-4 text-purple-400" />
                                                                     <h4 className="text-purple-200 font-medium truncate">
-                                                                        {chat.title}
+                                                                        {
+                                                                            chat.title
+                                                                        }
                                                                     </h4>
                                                                 </div>
                                                                 <div className="flex items-center gap-4 text-sm text-purple-400">
                                                                     <span>
-                                                                        {chat.messageCount} messages
+                                                                        {
+                                                                            chat.messageCount
+                                                                        }{" "}
+                                                                        messages
                                                                     </span>
                                                                     <span>
                                                                         •
                                                                     </span>
                                                                     <span>
-                                                                        Last active: {chat.lastActivity}
+                                                                        Last
+                                                                        active:{" "}
+                                                                        {
+                                                                            chat.lastActivity
+                                                                        }
                                                                     </span>
                                                                 </div>
                                                             </div>
                                                             <Button
                                                                 size="sm"
                                                                 variant="ghost"
-                                                                onClick={(e) => handleChatNavigation(chat.id, e)}
+                                                                onClick={(e) =>
+                                                                    handleChatNavigation(
+                                                                        chat.id,
+                                                                        e
+                                                                    )
+                                                                }
                                                                 className="text-purple-300 hover:text-purple-100"
                                                                 title="Click to open • Ctrl+Click to open in new tab"
                                                             >
@@ -1128,18 +1147,29 @@ export function AnalyticsDrilldown({
                                                             </div>
                                                             <div className="flex items-center gap-4 text-sm text-purple-400">
                                                                 <span>
-                                                                    {chat.messageCount} messages
+                                                                    {
+                                                                        chat.messageCount
+                                                                    }{" "}
+                                                                    messages
                                                                 </span>
                                                                 <span>•</span>
                                                                 <span>
-                                                                    Last active: {chat.lastActivity}
+                                                                    Last active:{" "}
+                                                                    {
+                                                                        chat.lastActivity
+                                                                    }
                                                                 </span>
                                                             </div>
                                                         </div>
                                                         <Button
                                                             size="sm"
                                                             variant="ghost"
-                                                            onClick={(e) => handleChatNavigation(chat.chatId, e)}
+                                                            onClick={(e) =>
+                                                                handleChatNavigation(
+                                                                    chat.chatId,
+                                                                    e
+                                                                )
+                                                            }
                                                             className="text-purple-300 hover:text-purple-100"
                                                             title="Click to open • Ctrl+Click to open in new tab"
                                                         >
@@ -1574,16 +1604,28 @@ export function AnalyticsDrilldown({
                                                                 className="flex items-center justify-between p-3 bg-purple-600/5 border border-purple-600/20 rounded hover:bg-purple-600/10 transition-colors"
                                                             >
                                                                 <span className="text-purple-200">
-                                                                    {project.name}
+                                                                    {
+                                                                        project.name
+                                                                    }
                                                                 </span>
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-purple-100 font-medium">
-                                                                        {formatNumber(project.usage)} uses
+                                                                        {formatNumber(
+                                                                            project.usage
+                                                                        )}{" "}
+                                                                        uses
                                                                     </span>
                                                                     <Button
                                                                         size="sm"
                                                                         variant="ghost"
-                                                                        onClick={(e) => handleProjectNavigation(project.name, e)}
+                                                                        onClick={(
+                                                                            e
+                                                                        ) =>
+                                                                            handleProjectNavigation(
+                                                                                project.name,
+                                                                                e
+                                                                            )
+                                                                        }
                                                                         className="text-purple-300 hover:text-purple-100"
                                                                         title="Click to open project • Ctrl+Click to open in new tab"
                                                                     >

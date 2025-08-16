@@ -585,3 +585,73 @@ export const deleteUserAccount = mutation({
         };
     },
 });
+
+// Add missing getAllUserChats function for SettingsModal export functionality
+export const getAllUserChats = query({
+    args: {},
+    handler: async (ctx) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        // Get all user chats ordered by most recently updated
+        const chats = await ctx.db
+            .query("chats")
+            .withIndex("by_user", (q) => q.eq("userId", userId))
+            .order("desc")
+            .collect();
+
+        return chats.map(chat => ({
+            _id: chat._id,
+            title: chat.title,
+            model: chat.model,
+            createdAt: chat._creationTime,
+            updatedAt: chat.updatedAt,
+            isStarred: chat.isStarred || false,
+            isTemporary: chat.isTemporary || false,
+            projectId: chat.projectId,
+        }));
+    },
+});
+
+// Add getSelectedChatsData function for export functionality
+export const getSelectedChatsData = query({
+    args: { chatIds: v.array(v.id("chats")) },
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) throw new Error("Not authenticated");
+
+        const chatsData = [];
+        
+        for (const chatId of args.chatIds) {
+            const chat = await ctx.db.get(chatId);
+            
+            // Verify user owns this chat
+            if (!chat || chat.userId !== userId) {
+                continue; // Skip chats the user doesn't own
+            }
+
+            // Get all messages for this chat through the active branch
+            let messages: any[] = [];
+            
+            if (chat.activeBranchId) {
+                const activeBranch = await ctx.db.get(chat.activeBranchId);
+                if (activeBranch) {
+                    messages = await Promise.all(
+                        activeBranch.messages.map(messageId => ctx.db.get(messageId))
+                    );
+                    // Filter out any null messages and sort by timestamp
+                    messages = messages
+                        .filter(msg => msg !== null)
+                        .sort((a, b) => a.timestamp - b.timestamp);
+                }
+            }
+
+            chatsData.push({
+                chat,
+                messages,
+            });
+        }
+
+        return chatsData;
+    },
+});

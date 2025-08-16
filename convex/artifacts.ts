@@ -86,7 +86,7 @@ export const createArtifactInternal = internalMutation({
 });
 
 // Public version for creating artifacts
-export const createArtifact = mutation({
+export const createArtifactPublic = mutation({
     args: {
         messageId: v.id("messages"),
         chatId: v.id("chats"),
