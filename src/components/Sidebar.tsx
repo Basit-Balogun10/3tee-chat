@@ -17,7 +17,7 @@ import {
     MessageSquare,
     FolderTree,
     Archive,
-    Search,
+    SearchX,
     Clock, // Add Clock icon for temporary chats
     BookOpen, // Add Library icon
 } from "lucide-react";
@@ -473,6 +473,27 @@ export function Sidebar({
                             </svg>
                         </button>
                         <button
+                            onClick={(e) => handleToggleArchive(chat._id, e)}
+                            className="p-1 rounded hover:bg-purple-500/20 transition-colors"
+                            title={
+                                chat.isArchived ? "Unarchive chat" : "Archive chat"
+                            }
+                        >
+                            <svg
+                                className="w-4 h-4 text-purple-400"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M15 17h5l-1.403 4.809a1 1 0 01-1.894-.309L17 17zm-6 0H4l1.403 4.809a1 1 0 001.894-.309L11 17zm0-6H4l1.403 4.809a1 1 0 001.894-.309L11 11zm10-7H3a1 1 0 00-1 1v2h18V5a1 1 0 00-1-1z"
+                                />
+                            </svg>
+                        </button>
+                        <button
                             onClick={(e) => handleDeleteChat(chat._id, e)}
                             className="p-1 rounded hover:bg-red-500/20 transition-colors"
                             title="Delete chat"
@@ -488,27 +509,6 @@ export function Sidebar({
                                     strokeLinejoin="round"
                                     strokeWidth={2}
                                     d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                />
-                            </svg>
-                        </button>
-                        <button
-                            onClick={(e) => handleToggleArchive(chat._id, e)}
-                            className="p-1 rounded hover:bg-blue-500/20 transition-colors"
-                            title={
-                                chat.isArchived ? "Unarchive chat" : "Archive chat"
-                            }
-                        >
-                            <svg
-                                className="w-4 h-4 text-blue-400"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M15 17h5l-1.403 4.809a1 1 0 01-1.894-.309L17 17zm-6 0H4l1.403 4.809a1 1 0 001.894-.309L11 17zm0-6H4l1.403 4.809a1 1 0 001.894-.309L11 11zm10-7H3a1 1 0 00-1 1v2h18V5a1 1 0 00-1-1z"
                                 />
                             </svg>
                         </button>
@@ -571,30 +571,38 @@ export function Sidebar({
                     </div>
                 )}
 
-                <div className="flex gap-2">
-                <SearchInput
-                    ref={searchInputRef}
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    placeholder={
-                        isProjectView ? "Search projects..." : "Search chats..."
-                    }
-                    autoFocus={true}
-                />
-                    <button
-                        onClick={() => setShowAdvancedSearch(true)}
-                        className="p-2 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 transition-all duration-200"
-                        title="Advanced Search"
-                    >
-                        <Search className="w-5 h-5 text-white" />
-                    </button>
-                    <button
-                        onClick={() => setShowLibrary(true)}
-                        className="p-2 rounded-lg bg-gradient-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 transition-all duration-200"
-                        title="Library (Ctrl+L)"
-                    >
-                        <BookOpen className="w-5 h-5 text-white" />
-                    </button>
+                <div className="space-y-3">
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <SearchInput
+                                ref={searchInputRef}
+                                value={searchQuery}
+                                onChange={setSearchQuery}
+                                placeholder={
+                                    isProjectView ? "Search projects..." : "Search chats..."
+                                }
+                                autoFocus={true}
+                            />
+                        </div>
+                        
+                        {/* Grouped Advanced Search and Library Icons */}
+                        <div className="flex bg-purple-500/10 rounded-lg p-1">
+                            <button
+                                onClick={() => setShowAdvancedSearch(true)}
+                                className="p-2 rounded-md transition-all duration-200 text-purple-300 hover:text-purple-200 hover:bg-purple-500/20"
+                                title="Advanced Search (Ctrl+Shift+F)"
+                            >
+                                <SearchX className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => setShowLibrary(true)}
+                                className="p-2 rounded-md transition-all duration-200 text-purple-300 hover:text-purple-200 hover:bg-purple-500/20"
+                                title="Library (Ctrl+L)"
+                            >
+                                <BookOpen className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 

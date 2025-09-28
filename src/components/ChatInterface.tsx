@@ -298,18 +298,21 @@ export function ChatInterface() {
 
     const handleSaveEditTitle = useCallback(async () => {
         if (selectedChat && editTitle.trim()) {
-            try {
-                await updateChatTitle({
-                    chatId: selectedChat._id,
-                    title: editTitle.trim(),
-                });
-                setIsEditingTitle(false);
-                setEditTitle("");
-                toast.success("Chat title updated");
-            } catch (error) {
-                console.error("Failed to update chat title:", error);
-                toast.error("Failed to update chat title");
+            // Only save if the title actually changed
+            if (editTitle.trim() !== selectedChat.title) {
+                try {
+                    await updateChatTitle({
+                        chatId: selectedChat._id,
+                        title: editTitle.trim(),
+                    });
+                    toast.success("Chat title updated");
+                } catch (error) {
+                    console.error("Failed to update chat title:", error);
+                    toast.error("Failed to update chat title");
+                }
             }
+            setIsEditingTitle(false);
+            setEditTitle("");
         }
     }, [selectedChat, editTitle, updateChatTitle]);
 
@@ -1370,16 +1373,6 @@ export function ChatInterface() {
                                         </svg>
                                     </div>
                                 </div>
-                                <h2 className="text-2xl font-semibold text-purple-200 mb-2">
-                                    {isCreatingInitialChat
-                                        ? "Creating your first chat..."
-                                        : "Loading..."}
-                                </h2>
-                                <p className="text-purple-300">
-                                    {isCreatingInitialChat
-                                        ? "Setting up your workspace"
-                                        : "Please wait a moment"}
-                                </p>{" "}
                             </div>
                         </div>
                     ) : selectedChatId ? (

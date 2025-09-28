@@ -483,33 +483,33 @@ export function LibraryModal({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-6xl w-full h-[80vh] flex flex-col p-0">
-                <DialogHeader className="flex flex-row items-center justify-between p-6 pb-4 border-b border-gray-200 dark:border-gray-700">
+            <DialogContent className="bg-transparent backdrop-blur-md border border-purple-600/30 text-purple-100 max-w-6xl w-full h-[80vh] flex flex-col p-0">
+                <DialogHeader className="flex flex-row items-center justify-between p-6 pb-4 border-b border-purple-600/20">
                     <div>
-                        <DialogTitle className="text-lg font-semibold">
+                        <DialogTitle className="text-lg font-semibold text-purple-100">
                             Library
                         </DialogTitle>
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        <p className="text-sm text-purple-300 mt-1">
                             Manage your attachments, artifacts, and media
                         </p>
                     </div>
 
                     {libraryStats && (
-                        <div className="flex items-center space-x-6 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="flex items-center space-x-6 text-sm text-purple-300">
                             <div className="text-center">
-                                <div className="font-medium text-gray-900 dark:text-gray-100">
+                                <div className="font-medium text-purple-100 text-lg">
                                     {libraryStats.attachments.total}
                                 </div>
                                 <div>Attachments</div>
                             </div>
                             <div className="text-center">
-                                <div className="font-medium text-gray-900 dark:text-gray-100">
+                                <div className="font-medium text-purple-100 text-lg">
                                     {libraryStats.artifacts.total}
                                 </div>
                                 <div>Artifacts</div>
                             </div>
                             <div className="text-center">
-                                <div className="font-medium text-gray-900 dark:text-gray-100">
+                                <div className="font-medium text-purple-100 text-lg">
                                     {libraryStats.media.total}
                                 </div>
                                 <div>Media</div>
@@ -587,20 +587,17 @@ export function LibraryModal({
                                     />
                                 </div>
 
-                                <div className="flex items-center space-x-1 border rounded-lg p-1">
+                                <div className="flex items-center space-x-1 bg-purple-600/20 rounded-lg p-1">
                                     <Button
-                                        variant={
-                                            showFavoritesOnly
-                                                ? "default"
-                                                : "ghost"
-                                        }
+                                        variant="ghost"
                                         size="sm"
                                         onClick={() =>
                                             setShowFavoritesOnly(
                                                 !showFavoritesOnly
                                             )
                                         }
-                                        className="p-2"
+                                        className={`p-2 ${showFavoritesOnly ? "bg-purple-500/30 text-purple-200" : "text-purple-400 hover:bg-purple-500/20"}`}
+                                        title="Show favorites only"
                                     >
                                         <Heart className="w-4 h-4" />
                                     </Button>
@@ -611,35 +608,29 @@ export function LibraryModal({
                                     onChange={(e) =>
                                         setSortBy(e.target.value as any)
                                     }
-                                    className="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-1 text-sm bg-white dark:bg-gray-800"
+                                    className="border border-purple-600/30 rounded-md px-3 py-1 text-sm bg-gray-800/50 text-purple-200"
                                 >
                                     <option value="recent">Recent</option>
                                     <option value="name">Name</option>
                                     <option value="usage">Usage</option>
                                 </select>
 
-                                <div className="flex items-center space-x-1 border rounded-lg p-1">
+                                <div className="flex items-center space-x-1 bg-purple-600/20 rounded-lg p-1">
                                     <Button
-                                        variant={
-                                            viewMode === "grid"
-                                                ? "default"
-                                                : "ghost"
-                                        }
+                                        variant="ghost"
                                         size="sm"
                                         onClick={() => setViewMode("grid")}
-                                        className="p-2"
+                                        className={`p-2 ${viewMode === "grid" ? "bg-purple-500/30 text-purple-200" : "text-purple-400 hover:bg-purple-500/20"}`}
+                                        title="Grid view"
                                     >
                                         <Grid className="w-4 h-4" />
                                     </Button>
                                     <Button
-                                        variant={
-                                            viewMode === "list"
-                                                ? "default"
-                                                : "ghost"
-                                        }
+                                        variant="ghost"
                                         size="sm"
                                         onClick={() => setViewMode("list")}
-                                        className="p-2"
+                                        className={`p-2 ${viewMode === "list" ? "bg-purple-500/30 text-purple-200" : "text-purple-400 hover:bg-purple-500/20"}`}
+                                        title="List view"
                                     >
                                         <List className="w-4 h-4" />
                                     </Button>

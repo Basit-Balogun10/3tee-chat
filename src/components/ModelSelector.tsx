@@ -3,7 +3,6 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { SettingsModal } from "./SettingsModal";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import {
     ChevronDown,
     CheckCircle,
@@ -18,6 +17,7 @@ import {
     Video,
     Image,
     Zap,
+    Filter,
 } from "lucide-react";
 import {
     PROVIDER_CONFIGS,
@@ -60,6 +60,7 @@ export function ModelSelector({
     const [selectedProvider, setSelectedProvider] = useState<string>("all");
     const [contextWindowFilter, setContextWindowFilter] =
         useState<string>("all");
+    const [showFilters, setShowFilters] = useState(false);
 
     // Context window filter options
     const contextWindowOptions = [
@@ -374,17 +375,9 @@ export function ModelSelector({
                                     <h2 className="text-lg font-semibold text-purple-100">
                                         {title}
                                     </h2>
-                                    <p className="text-sm text-purple-400">
-                                        {subtitle}
-                                    </p>
-                                    {multiSelect && (
-                                        <p className="text-xs text-orange-300 mt-1">
-                                            Selected: {selectedModels.length}/
-                                            {maxSelections}
-                                            {selectedModels.length >= 2 &&
-                                                selectedModels.length <=
-                                                    maxSelections &&
-                                                " ✓"}
+                                    {!multiSelect && (
+                                        <p className="text-sm text-purple-400">
+                                            {subtitle}
                                         </p>
                                     )}
                                 </div>
@@ -395,7 +388,7 @@ export function ModelSelector({
                                                 onClick={() =>
                                                     setShowModal(false)
                                                 }
-                                                className="px-3 py-1.5 bg-green-500/20 text-green-300 rounded-lg text-sm hover:bg-green-500/30 transition-colors"
+                                                className="px-3 py-1.5 bg-purple-500/20 text-purple-300 rounded-lg text-sm hover:bg-purple-500/30 transition-colors border border-purple-500/30"
                                             >
                                                 Done ({selectedModels.length})
                                             </button>
@@ -410,91 +403,132 @@ export function ModelSelector({
                             </DialogTitle>
                         </DialogHeader>
 
-                        {/* NEW: Provider Filter Tabs */}
-                        <Tabs
-                            value={selectedProvider}
-                            onValueChange={setSelectedProvider}
-                            className="w-full mb-4"
-                        >
-                            <TabsList className="grid w-full grid-cols-6 bg-purple-600/20 p-1 h-auto space-x-2">
-                                <TabsTrigger
-                                    value="all"
-                                    className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                                >
-                                    All
-                                </TabsTrigger>
-                                {availableProviders.map((provider) => (
-                                    <TabsTrigger
-                                        key={provider.id}
-                                        value={provider.id}
-                                        className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
-                                    >
-                                        {provider.displayName}
-                                    </TabsTrigger>
-                                ))}
-                            </TabsList>
-                        </Tabs>
-
-                        <div className="relative mb-4">
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-purple-400" />
-                            <input
-                                type="text"
-                                placeholder="Search models..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-gray-800/50 border border-purple-600/30 rounded-lg text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500/50 text-sm"
-                                autoFocus
-                            />
-                            {searchQuery && (
-                                <button
-                                    onClick={() => setSearchQuery("")}
-                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-400 hover:text-purple-300"
-                                >
-                                    <X className="w-4 h-4" />
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="mb-2">
-                            <div className="flex flex-wrap gap-2 justify-center">
-                                {capabilityTabs.map((tab) => (
+                        {/* Search Input with Filter Button */}
+                        <div className="flex gap-2 mb-4">
+                            <div className="flex-1 relative">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-purple-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Search models..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 bg-gray-800/50 border border-purple-600/30 rounded-lg text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500/50 text-sm"
+                                    autoFocus
+                                />
+                                {searchQuery && (
                                     <button
-                                        key={tab.id}
-                                        onClick={() =>
-                                            setSelectedCapability(tab.id)
-                                        }
-                                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${selectedCapability === tab.id ? "bg-purple-500/20 text-purple-100 border border-purple-500/40" : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"}`}
+                                        onClick={() => setSearchQuery("")}
+                                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-400 hover:text-purple-300"
                                     >
-                                        {tab.icon}
-                                        <span>{tab.label}</span>
+                                        <X className="w-4 h-4" />
                                     </button>
-                                ))}
+                                )}
                             </div>
+                            <button
+                                onClick={() => setShowFilters(!showFilters)}
+                                className={`px-3 py-2 rounded-lg border transition-colors flex items-center gap-2 ${
+                                    showFilters || selectedProvider !== "all" || selectedCapability !== "all" || contextWindowFilter !== "all"
+                                        ? "bg-purple-500/20 border-purple-500/40 text-purple-200"
+                                        : "bg-gray-800/50 border-purple-600/30 text-purple-400 hover:border-purple-500/50"
+                                }`}
+                                title="Filter models"
+                            >
+                                <Filter className="w-4 h-4" />
+                                <span className="text-sm">Filter</span>
+                            </button>
                         </div>
 
-                        {/* NEW: Context Window Filter */}
-                        <div className="mb-4">
-                            <label className="block text-sm text-purple-400 mb-2">
-                                Context Window
-                            </label>
-                            <Tabs
-                                value={contextWindowFilter}
-                                onValueChange={setContextWindowFilter}
-                                className="w-full"
-                            >
-                                <TabsList className="grid w-full grid-cols-5 bg-purple-600/20 p-1 h-auto space-x-2">
-                                    {contextWindowOptions.map((option) => (
-                                        <TabsTrigger
-                                            key={option.id}
-                                            value={option.id}
-                                            className="text-purple-200 data-[state=active]:bg-purple-500/30 hover:bg-purple-500/20 transition-colors"
+                        {/* Collapsible Filter Panel */}
+                        {showFilters && (
+                            <div className="mb-4 p-4 bg-gray-800/30 rounded-lg border border-purple-600/20 space-y-4">
+                                {/* Provider Filter */}
+                                <div>
+                                    <label className="block text-sm text-purple-400 mb-2">Provider</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        <button
+                                            onClick={() => setSelectedProvider("all")}
+                                            className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                                selectedProvider === "all"
+                                                    ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
+                                                    : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"
+                                            }`}
                                         >
-                                            {option.label}
-                                        </TabsTrigger>
-                                    ))}
-                                </TabsList>
-                            </Tabs>
-                        </div>
+                                            All Providers
+                                        </button>
+                                        {availableProviders.map((provider) => (
+                                            <button
+                                                key={provider.id}
+                                                onClick={() => setSelectedProvider(provider.id)}
+                                                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                                    selectedProvider === provider.id
+                                                        ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
+                                                        : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"
+                                                }`}
+                                            >
+                                                {provider.displayName}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Capability Filter */}
+                                <div>
+                                    <label className="block text-sm text-purple-400 mb-2">Capabilities</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {capabilityTabs.map((tab) => (
+                                            <button
+                                                key={tab.id}
+                                                onClick={() => setSelectedCapability(tab.id)}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                                    selectedCapability === tab.id
+                                                        ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
+                                                        : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"
+                                                }`}
+                                            >
+                                                {tab.icon}
+                                                <span>{tab.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Context Window Filter */}
+                                <div>
+                                    <label className="block text-sm text-purple-400 mb-2">Context Window</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {contextWindowOptions.map((option) => (
+                                            <button
+                                                key={option.id}
+                                                onClick={() => setContextWindowFilter(option.id)}
+                                                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                                    contextWindowFilter === option.id
+                                                        ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
+                                                        : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"
+                                                }`}
+                                            >
+                                                {option.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Clear Filters */}
+                                {(selectedProvider !== "all" || selectedCapability !== "all" || contextWindowFilter !== "all") && (
+                                    <div className="flex justify-end">
+                                        <button
+                                            onClick={() => {
+                                                setSelectedProvider("all");
+                                                setSelectedCapability("all");
+                                                setContextWindowFilter("all");
+                                            }}
+                                            className="text-sm text-purple-400 hover:text-purple-300 transition-colors"
+                                        >
+                                            Clear all filters
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         <div className="overflow-y-auto px-2">
                             {filteredModels.length === 0 ? (

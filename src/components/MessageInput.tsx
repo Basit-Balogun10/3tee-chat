@@ -75,6 +75,10 @@ interface MessageInputProps {
         ) => Promise<void> | void;
         onCancel: () => void;
     };
+    // Add Multi-AI props
+    isMultiAIMode?: boolean;
+    selectedModels?: string[];
+    onSelectedModelsChange?: (models: string[]) => void;
 }
 
 export function MessageInput({
@@ -94,6 +98,9 @@ export function MessageInput({
     chatId,
     onSendMultiAIMessage,
     editMode,
+    isMultiAIMode,
+    selectedModels,
+    onSelectedModelsChange,
 }: MessageInputProps) {
     const [attachments, setAttachments] = useState<
         Array<{
@@ -130,10 +137,6 @@ export function MessageInput({
     // Voice chat state
     const [showVoiceChat, setShowVoiceChat] = useState(false);
     const [voiceChatIsConnected, setVoiceChatIsConnected] = useState(false);
-
-    // Multi-AI support
-    const [isMultiAIMode, setIsMultiAIMode] = useState(false);
-    const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
     // Chat AI Settings Modal state
     const [showChatAISettings, setShowChatAISettings] = useState(false);
@@ -247,14 +250,9 @@ export function MessageInput({
             if (allCommands.length > 2) return false;
 
             // If we have 2 commands, they must be /search and /canvas
-            if (allCommands.length === 2) {
-                const hasSearch = allCommands.includes("/search");
-                const hasCanvas = allCommands.includes("/canvas");
-                return hasSearch && hasCanvas;
-            }
-
-            // Single commands are always valid
-            return true;
+            const hasSearch = allCommands.includes("/search");
+            const hasCanvas = allCommands.includes("/canvas");
+            return hasSearch && hasCanvas;
         },
         []
     );
@@ -335,10 +333,44 @@ export function MessageInput({
 
     const handleSubmit = useCallback(
         (transcription?: string) => {
+            console.log("🚀 SEND BUTTON: handleSubmit triggered", {
+                timestamp: new Date().toISOString(),
+                source: transcription ? "voice_transcription" : "manual_click",
+                messageLength: message?.length || 0,
+                hasTranscription: !!transcription,
+                transcriptionLength: transcription?.length || 0,
+                attachmentsCount: attachments.length,
+                referencedItemsCount: referencedLibraryItems.length,
+                activeCommandsCount: activeCommands.length,
+                isEditMode: !!editMode?.isEditing,
+                isMultiAIMode: isMultiAIMode,
+                selectedModelsCount: selectedModels?.length || 0,
+                isLoading: isLoading,
+                isStreaming: isStreaming,
+            });
+
             const content = message || transcription;
+
+            // Early exit guards to prevent unnecessary execution
+            if (isLoading || isStreaming) {
+                console.log("⚠️ SEND BUTTON: Blocked due to loading/streaming state", {
+                    timestamp: new Date().toISOString(),
+                    isLoading,
+                    isStreaming,
+                });
+                return;
+            }
 
             // Handle edit mode
             if (editMode?.isEditing) {
+                console.log("✏️ SEND BUTTON: Edit mode detected", {
+                    timestamp: new Date().toISOString(),
+                    messageId: editMode.messageId,
+                    originalContent: editMode.originalContent?.substring(0, 50) + "...",
+                    newContent: content?.substring(0, 50) + "...",
+                    hasContent: !!content?.trim(),
+                });
+
                 if (content?.trim()) {
                     // UNIFIED: Merge attachments and referencedLibraryItems for edit
                     const allReferencedItems = [
@@ -355,20 +387,50 @@ export function MessageInput({
                         ...referencedLibraryItems,
                     ];
 
+                    console.log("💾 SEND BUTTON: Saving edit", {
+                        timestamp: new Date().toISOString(),
+                        allReferencedItemsCount: allReferencedItems.length,
+                        contentTrimmed: content.trim().substring(0, 100) + "...",
+                    });
+
                     void editMode.onSave(content, allReferencedItems);
+                } else {
+                    console.log("⚠️ SEND BUTTON: Edit mode - no content to save", {
+                        timestamp: new Date().toISOString(),
+                    });
                 }
                 return;
             }
 
-            // Normal send message logic
-            if (
-                content?.trim() ||
+            // Check if there's content to send
+            const hasContent = content?.trim() ||
                 attachments.length > 0 ||
-                referencedLibraryItems.length > 0
-            ) {
-                if (textareaRef.current?.value) {
-                    textareaRef.current.value = "";
-                }
+                referencedLibraryItems.length > 0 ||
+                activeCommands.length > 0;
+
+            console.log("🔍 SEND BUTTON: Content validation", {
+                timestamp: new Date().toISOString(),
+                hasContent,
+                contentTrim: content?.trim()?.substring(0, 50) + "...",
+                attachmentsCount: attachments.length,
+                referencedItemsCount: referencedLibraryItems.length,
+                activeCommandsCount: activeCommands.length,
+            });
+
+            // Normal send message logic - only proceed if there's actual content
+            if (hasContent) {
+                console.log("📝 SEND BUTTON: Preparing to send message", {
+                    timestamp: new Date().toISOString(),
+                    messageHistoryLength: messageHistory.length,
+                    willAddToHistory: !!message,
+                });
+
+                // FIXED: Remove direct DOM manipulation that was causing flicker
+                // The message state will be cleared by the parent component after successful send
+                // if (textareaRef.current?.value) {
+                //     textareaRef.current.value = "";
+                // }
+                
                 // Add to message history (avoid duplicates)
                 const newHistory = [
                     message,
@@ -376,6 +438,12 @@ export function MessageInput({
                 ].slice(0, 50);
                 setMessageHistory(newHistory);
                 setHistoryIndex(-1);
+
+                console.log("📚 SEND BUTTON: Message history updated", {
+                    timestamp: new Date().toISOString(),
+                    newHistoryLength: newHistory.length,
+                    addedMessage: message?.substring(0, 30) + "...",
+                });
 
                 // UNIFIED: Merge attachments and referencedLibraryItems into single array
                 const allReferencedItems = [
@@ -392,6 +460,14 @@ export function MessageInput({
                     ...referencedLibraryItems,
                 ];
 
+                console.log("🔗 SEND BUTTON: Referenced items prepared", {
+                    timestamp: new Date().toISOString(),
+                    totalReferencedItems: allReferencedItems.length,
+                    attachmentItems: attachments.length,
+                    libraryItems: referencedLibraryItems.length,
+                    referencedItemTypes: allReferencedItems.map(item => item.type),
+                });
+
                 // Handle multi-AI or regular submission
                 if (
                     isMultiAIMode &&
@@ -399,17 +475,52 @@ export function MessageInput({
                     selectedModels.length >= 2 &&
                     onSendMultiAIMessage
                 ) {
+                    console.log("🤖 SEND BUTTON: Multi-AI mode submission", {
+                        timestamp: new Date().toISOString(),
+                        selectedModelsCount: selectedModels.length,
+                        selectedModels: selectedModels,
+                        hasMultiAIHandler: !!onSendMultiAIMessage,
+                    });
+
                     void onSendMultiAIMessage(
                         content || "",
                         selectedModels,
                         allReferencedItems
                     );
                 } else {
+                    console.log("🤖 SEND BUTTON: Single AI mode submission", {
+                        timestamp: new Date().toISOString(),
+                        isMultiAIModeButInsufficientModels: isMultiAIMode && (!selectedModels || selectedModels.length < 2),
+                        hasRegularHandler: !!onSendMessage,
+                        selectedModel: selectedModel,
+                    });
+
                     void onSendMessage(content || "", allReferencedItems);
                 }
 
+                console.log("🧹 SEND BUTTON: Cleaning up UI state", {
+                    timestamp: new Date().toISOString(),
+                    attachmentsToRemove: attachments.length,
+                    referencedItemsToRemove: referencedLibraryItems.length,
+                });
+
+                // Clean up UI state - use React state management instead of DOM manipulation
                 setAttachments([]);
                 setReferencedLibraryItems([]);
+
+                console.log("✅ SEND BUTTON: Message submission complete", {
+                    timestamp: new Date().toISOString(),
+                    finalContentLength: (content || "").length,
+                    mode: isMultiAIMode && selectedModels && selectedModels.length >= 2 ? "multi-ai" : "single-ai",
+                });
+            } else {
+                console.log("❌ SEND BUTTON: No content to send", {
+                    timestamp: new Date().toISOString(),
+                    contentEmpty: !content?.trim(),
+                    noAttachments: attachments.length === 0,
+                    noReferencedItems: referencedLibraryItems.length === 0,
+                    noActiveCommands: activeCommands.length === 0,
+                });
             }
         },
         [
@@ -422,8 +533,61 @@ export function MessageInput({
             isMultiAIMode,
             selectedModels,
             editMode,
+            activeCommands,
+            isLoading,
+            isStreaming,
+            selectedModel,
         ]
     );
+
+    // Add logging for send button state tracking
+    const sendButtonDisabled = useMemo(() => {
+        const disabled = isLoading ||
+            (
+                !message?.trim() &&
+                attachments.length === 0 &&
+                activeCommands.length === 0 &&
+                referencedLibraryItems.length === 0
+            );
+        
+        console.log("🔘 SEND BUTTON STATE: disabled calculation", {
+            timestamp: new Date().toISOString(),
+            disabled,
+            isLoading,
+            message,
+            messageLength: message?.length || 0,
+            messageTrimmed: message?.trim() || "",
+            attachmentsCount: attachments.length,
+            activeCommandsCount: activeCommands.length,
+            referencedItemsCount: referencedLibraryItems.length,
+            hasContent: !!(message?.trim() || attachments.length > 0 || activeCommands.length > 0 || referencedLibraryItems.length > 0),
+        });
+        
+        return disabled;
+    }, [isLoading, message, attachments.length, activeCommands.length, referencedLibraryItems.length]);
+
+    // Track send button state changes
+    const previousSendButtonState = useRef<boolean | null>(null);
+    useEffect(() => {
+        if (previousSendButtonState.current !== null && previousSendButtonState.current !== sendButtonDisabled) {
+            console.log("🔄 SEND BUTTON STATE CHANGE:", {
+                timestamp: new Date().toISOString(),
+                from: previousSendButtonState.current ? "disabled" : "enabled",
+                to: sendButtonDisabled ? "disabled" : "enabled",
+                trigger: {
+                    isLoading,
+                    message,
+                    messageLength: message?.length || 0,
+                    messageTrimmed: message?.trim() || "",
+                    attachmentsCount: attachments.length,
+                    activeCommandsCount: activeCommands.length,
+                    referencedItemsCount: referencedLibraryItems.length,
+                },
+                stackTrace: new Error().stack?.split('\n').slice(1, 4).join('\n'),
+            });
+        }
+        previousSendButtonState.current = sendButtonDisabled;
+    }, [sendButtonDisabled, isLoading, message, attachments.length, activeCommands.length, referencedLibraryItems.length]);
 
     // Message input keyboard shortcuts
     useEffect(() => {
@@ -1039,18 +1203,6 @@ export function MessageInput({
                 filteredCommands.length > 0 && (
                     <div className="absolute bottom-full mb-2 left-4 right-4 bg-gray-900/95 backdrop-blur-md border border-purple-600/30 rounded-lg p-3 shadow-xl z-[60]">
                         <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-sm font-medium text-purple-100">
-                                Available Commands
-                            </h4>
-                            <button
-                                onClick={() => setShowCommandsPopup(false)}
-                                className="p-1 rounded hover:bg-purple-600/20 transition-colors text-purple-400 hover:text-purple-300"
-                                title="Close"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-                        </div>
-                        <div className="space-y-1">
                             {filteredCommands.map((cmd, index) => {
                                 const isDisabled =
                                     !cmd.isValid || cmd.isAlreadyActive;
@@ -1201,11 +1353,11 @@ export function MessageInput({
                         <div className="text-xs text-orange-300/80">
                             💡 Editing this message will create a new
                             conversation branch. Press{" "}
-                            <kbd className="px-1 py-0.5 bg-orange-600/20 rounded text-xs">
+                            <kbd className="px-1.5 py-0.5 bg-orange-600/20 rounded text-xs">
                                 Ctrl+Enter
                             </kbd>{" "}
                             to save or{" "}
-                            <kbd className="px-1 py-0.5 bg-orange-600/20 rounded text-xs">
+                            <kbd className="px-1.5 py-0.5 bg-orange-600/20 rounded text-xs">
                                 Esc
                             </kbd>{" "}
                             to cancel.
@@ -1259,7 +1411,7 @@ export function MessageInput({
                                         context="multi-ai"
                                         multiSelect={true}
                                         selectedModels={selectedModels || []}
-                                        onModelsChange={setSelectedModels}
+                                        onModelsChange={onSelectedModelsChange}
                                         maxSelections={8}
                                     />
                                 ) : (
@@ -1577,7 +1729,7 @@ export function MessageInput({
                                             onClick={() =>
                                                 setShowChatAISettings(true)
                                             }
-                                            className="h-8 w-8 p-0 text-indigo-400 bg-indigo-600/20 hover:bg-indigo-600/30 transition-colors duration-200 ease-in-out"
+                                            className="h-8 w-8 p-0 text-purple-400 bg-purple-600/20 hover:bg-purple-600/30 transition-colors duration-200 ease-in-out"
                                             title="Chat AI Settings (Ctrl+Shift+A)"
                                         >
                                             <Settings className="w-4 h-4" />
@@ -1629,19 +1781,11 @@ export function MessageInput({
                                     ) : (
                                         <Button
                                             onClick={() => handleSubmit()}
-                                            disabled={
-                                                isLoading ||
-                                                (!message?.trim() &&
-                                                    attachments.length === 0 &&
-                                                    activeCommands.length ===
-                                                        0 &&
-                                                    referencedLibraryItems.length ===
-                                                        0)
-                                            }
+                                            disabled={sendButtonDisabled}
                                             size="sm"
-                                            className="h-8 w-8 p-0 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 transition-all"
+                                            className="h-8 w-8 p-0 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Send message"
-                                        >
+                                        >   
                                             {isLoading ? (
                                                 <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
                                             ) : (

@@ -80,6 +80,9 @@ export function ChatArea({
             mimeType?: string;
         }>;
     } | null>(null);
+    // Add Multi-AI mode state
+    const [isMultiAIMode, setIsMultiAIMode] = useState(false);
+    const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
     // Queries and mutations (only needed for non-messaging operations)
     const chat = useQuery(api.chats.getChat, { chatId });
@@ -101,13 +104,6 @@ export function ChatArea({
     const hoveredMessage = hoveredMessageId
         ? messages.find((m) => m._id === hoveredMessageId)
         : null;
-
-    // Sync AI SDK input with local state
-    useEffect(() => {
-        if (messageInput !== aiInput) {
-            setMessageInput(aiInput);
-        }
-    }, [aiInput, messageInput]);
 
     // Initialize selectedModel from chat's model field when chat loads
     useEffect(() => {
@@ -167,11 +163,13 @@ export function ChatArea({
                     referencedLibraryItems: referencedLibraryItems || [],
                 });
 
+                // FIXED: Only clear the UI state AFTER successful send
                 setMessageInput("");
                 setActiveCommands([]);
             } catch (error) {
                 console.error("Failed to send message:", error);
                 toast.error("Failed to send message");
+                // Don't clear the input on error so user can retry
             }
         },
         [selectedModel, activeCommands, sendAiMessage, aiIsLoading]
@@ -555,6 +553,54 @@ export function ChatArea({
         handleBranchNavigation,
     ]);
 
+    // Add Multi-AI toggle event handler
+    useEffect(() => {
+        const handleToggleMultiAI = () => {
+            const newMultiAIMode = !isMultiAIMode;
+            setIsMultiAIMode(newMultiAIMode);
+            
+            if (newMultiAIMode) {
+                // When enabling Multi-AI, restore last selected models from localStorage
+                const savedModels = localStorage.getItem('lastSelectedMultiAIModels');
+                if (savedModels) {
+                    try {
+                        const parsedModels = JSON.parse(savedModels);
+                        if (Array.isArray(parsedModels) && parsedModels.length >= 2) {
+                            setSelectedModels(parsedModels);
+                        } else {
+                            // Fallback to default models if saved data is invalid
+                            setSelectedModels(['gemini-2.0-flash', 'gpt-4o']);
+                        }
+                    } catch {
+                        setSelectedModels(['gemini-2.0-flash', 'gpt-4o']);
+                    }
+                } else {
+                    // First time enabling Multi-AI, set default models
+                    setSelectedModels(['gemini-2.0-flash', 'gpt-4o']);
+                }
+            } else {
+                // When disabling Multi-AI, save current selected models to localStorage
+                if (selectedModels && selectedModels.length > 0) {
+                    localStorage.setItem('lastSelectedMultiAIModels', JSON.stringify(selectedModels));
+                }
+            }
+            
+            toast.success(
+                newMultiAIMode ? "Switched to Multi-AI mode" : "Switched to Single AI mode"
+            );
+        };
+
+        document.addEventListener("toggleMultiAI", handleToggleMultiAI);
+        return () => document.removeEventListener("toggleMultiAI", handleToggleMultiAI);
+    }, [isMultiAIMode, selectedModels]);
+
+    // Save selected models to localStorage whenever they change in Multi-AI mode
+    useEffect(() => {
+        if (isMultiAIMode && selectedModels && selectedModels.length > 0) {
+            localStorage.setItem('lastSelectedMultiAIModels', JSON.stringify(selectedModels));
+        }
+    }, [isMultiAIMode, selectedModels]);
+
     // Edit handlers
     const handleStartEdit = useCallback(
         (
@@ -635,15 +681,15 @@ export function ChatArea({
                         onCommandsChange={setActiveCommands}
                         onSendMessage={(
                             content,
-                            attachments,
                             referencedLibraryItems,
                         ) =>
                             void handleSendMessage(
                                 content,
-                                attachments,
+                                undefined, // attachments
                                 referencedLibraryItems
                             )
                         }
+                        isLoading={aiIsLoading}
                         isStreaming={aiIsLoading}
                         onStopStreaming={handleStopStreaming}
                         selectedModel={selectedModel}
@@ -654,13 +700,12 @@ export function ChatArea({
                         onSendMultiAIMessage={(
                             content,
                             models,
-                            attachments,
                             referencedLibraryItems,
                         ) =>
                             void handleSendMultiAIMessage(
                                 content,
                                 models,
-                                attachments,
+                                undefined, // attachments
                                 referencedLibraryItems
                             )
                         }
@@ -676,6 +721,10 @@ export function ChatArea({
                                   }
                                 : undefined
                         }
+                        // Add Multi-AI props
+                        isMultiAIMode={isMultiAIMode}
+                        selectedModels={selectedModels}
+                        onSelectedModelsChange={setSelectedModels}
                     />
                 )}
             </div>
