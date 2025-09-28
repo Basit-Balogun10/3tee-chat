@@ -17,13 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
-import {
-    Document,
-    Packer,
-    Paragraph,
-    TextRun,
-    HeadingLevel,
-} from "docx";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 
 interface ShareMenuProps {
     chatId: Id<"chats">;
@@ -357,20 +351,22 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
         doc.addSection({
             children: [
                 new Table({
-                    rows: metadataTable.map((row) =>
-                        new TableRow({
-                            children: row.map(
-                                (cell) =>
-                                    new TableCell({
-                                        children: [
-                                            new Paragraph({
-                                                text: cell,
-                                                heading: HeadingLevel.HEADING_3,
-                                            }),
-                                        ],
-                                    })
-                            ),
-                        })
+                    rows: metadataTable.map(
+                        (row) =>
+                            new TableRow({
+                                children: row.map(
+                                    (cell) =>
+                                        new TableCell({
+                                            children: [
+                                                new Paragraph({
+                                                    text: cell,
+                                                    heading:
+                                                        HeadingLevel.HEADING_3,
+                                                }),
+                                            ],
+                                        })
+                                ),
+                            })
                     ),
                 }),
             ],
@@ -403,7 +399,9 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
         return blob;
     };
 
-    const handleExport = async (format: "json" | "markdown" | "pdf" | "docx") => {
+    const handleExport = async (
+        format: "json" | "markdown" | "pdf" | "docx"
+    ) => {
         if (!chat || messages.length === 0) {
             toast.error("No content to export.");
             return;
@@ -439,7 +437,8 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
                 case "docx":
                     content = await generateEnhancedDOCXExport(exportData);
                     filename = `${baseFilename}.docx`;
-                    mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                    mimeType =
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
                     break;
             }
 
@@ -579,4 +578,3 @@ export function ShareMenu({ chatId }: ShareMenuProps) {
         </div>
     );
 }
-

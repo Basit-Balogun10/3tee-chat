@@ -44,18 +44,12 @@ export function ChatArea({
     // AI SDK MIGRATION - New hooks replacing all manual streaming
     const {
         messages: aiMessages,
-        input: aiInput,
-        handleInputChange: handleAiInputChange,
-        handleSubmit: handleAiSubmit,
         sendMessage: sendAiMessage,
         isLoading: aiIsLoading,
-        error: aiError,
         stop: stopAiStreaming,
-        existingMessages,
     } = useConvexChat(chatId);
 
     const {
-        messages: multiAiMessages,
         sendMultiAIMessage: sendMultiAiMessage,
         isLoading: multiAiIsLoading,
     } = useMultiAIChat(chatId);
@@ -97,7 +91,7 @@ export function ChatArea({
     const navigateToBranch = useMutation(api.branches.navigateToBranch);
 
     // Use AI SDK messages
-    const messages = existingMessages || [];
+    const messages = aiMessages;
 
     // Computed values
     const streamingMessage = messages.find((message) => message.isStreaming);
@@ -149,7 +143,8 @@ export function ChatArea({
             if (
                 !content.trim() &&
                 (!attachments || attachments.length === 0) &&
-                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
+                (!referencedLibraryItems ||
+                    referencedLibraryItems.length === 0) &&
                 activeCommands.length === 0
             )
                 return;
@@ -200,7 +195,8 @@ export function ChatArea({
             if (
                 !content.trim() &&
                 (!attachments || attachments.length === 0) &&
-                (!referencedLibraryItems || referencedLibraryItems.length === 0) &&
+                (!referencedLibraryItems ||
+                    referencedLibraryItems.length === 0) &&
                 activeCommands.length === 0
             )
                 return;
@@ -292,7 +288,9 @@ export function ChatArea({
             try {
                 // For AI SDK, trigger regeneration by finding the user message before this one
                 // and resending with the same content
-                const messageIndex = messages.findIndex(m => m._id === messageId);
+                const messageIndex = messages.findIndex(
+                    (m) => m._id === messageId
+                );
                 if (messageIndex > 0) {
                     const previousMessage = messages[messageIndex - 1];
                     if (previousMessage.role === "user") {
@@ -558,46 +556,60 @@ export function ChatArea({
         const handleToggleMultiAI = () => {
             const newMultiAIMode = !isMultiAIMode;
             setIsMultiAIMode(newMultiAIMode);
-            
+
             if (newMultiAIMode) {
                 // When enabling Multi-AI, restore last selected models from localStorage
-                const savedModels = localStorage.getItem('lastSelectedMultiAIModels');
+                const savedModels = localStorage.getItem(
+                    "lastSelectedMultiAIModels"
+                );
                 if (savedModels) {
                     try {
                         const parsedModels = JSON.parse(savedModels);
-                        if (Array.isArray(parsedModels) && parsedModels.length >= 2) {
+                        if (
+                            Array.isArray(parsedModels) &&
+                            parsedModels.length >= 2
+                        ) {
                             setSelectedModels(parsedModels);
                         } else {
                             // Fallback to default models if saved data is invalid
-                            setSelectedModels(['gemini-2.0-flash', 'gpt-4o']);
+                            setSelectedModels(["gemini-2.0-flash", "gpt-4o"]);
                         }
                     } catch {
-                        setSelectedModels(['gemini-2.0-flash', 'gpt-4o']);
+                        setSelectedModels(["gemini-2.0-flash", "gpt-4o"]);
                     }
                 } else {
                     // First time enabling Multi-AI, set default models
-                    setSelectedModels(['gemini-2.0-flash', 'gpt-4o']);
+                    setSelectedModels(["gemini-2.0-flash", "gpt-4o"]);
                 }
             } else {
                 // When disabling Multi-AI, save current selected models to localStorage
                 if (selectedModels && selectedModels.length > 0) {
-                    localStorage.setItem('lastSelectedMultiAIModels', JSON.stringify(selectedModels));
+                    localStorage.setItem(
+                        "lastSelectedMultiAIModels",
+                        JSON.stringify(selectedModels)
+                    );
                 }
             }
-            
+
             toast.success(
-                newMultiAIMode ? "Switched to Multi-AI mode" : "Switched to Single AI mode"
+                newMultiAIMode
+                    ? "Switched to Multi-AI mode"
+                    : "Switched to Single AI mode"
             );
         };
 
         document.addEventListener("toggleMultiAI", handleToggleMultiAI);
-        return () => document.removeEventListener("toggleMultiAI", handleToggleMultiAI);
+        return () =>
+            document.removeEventListener("toggleMultiAI", handleToggleMultiAI);
     }, [isMultiAIMode, selectedModels]);
 
     // Save selected models to localStorage whenever they change in Multi-AI mode
     useEffect(() => {
         if (isMultiAIMode && selectedModels && selectedModels.length > 0) {
-            localStorage.setItem('lastSelectedMultiAIModels', JSON.stringify(selectedModels));
+            localStorage.setItem(
+                "lastSelectedMultiAIModels",
+                JSON.stringify(selectedModels)
+            );
         }
     }, [isMultiAIMode, selectedModels]);
 
@@ -679,10 +691,7 @@ export function ChatArea({
                         onMessageChange={setMessageInput}
                         activeCommands={activeCommands}
                         onCommandsChange={setActiveCommands}
-                        onSendMessage={(
-                            content,
-                            referencedLibraryItems,
-                        ) =>
+                        onSendMessage={(content, referencedLibraryItems) =>
                             void handleSendMessage(
                                 content,
                                 undefined, // attachments
@@ -700,7 +709,7 @@ export function ChatArea({
                         onSendMultiAIMessage={(
                             content,
                             models,
-                            referencedLibraryItems,
+                            referencedLibraryItems
                         ) =>
                             void handleSendMultiAIMessage(
                                 content,
@@ -729,5 +738,5 @@ export function ChatArea({
                 )}
             </div>
         </PasswordGateway>
-    )
+    );
 }

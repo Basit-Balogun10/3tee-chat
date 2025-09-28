@@ -9,7 +9,8 @@
     "dev:backend": "convex dev",
     "build": "vite build",
     "tauri": "tauri",
-    "lint": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false && convex dev --once && vite build"
+    "lint": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false && convex dev --once",
+    "lint-and-build": "tsc -p convex -noEmit --pretty false && tsc -p . -noEmit --pretty false && convex dev --once && vite build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "2.0.0-beta.8",

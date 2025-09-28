@@ -411,7 +411,9 @@ export function ModelSelector({
                                     type="text"
                                     placeholder="Search models..."
                                     value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onChange={(e) =>
+                                        setSearchQuery(e.target.value)
+                                    }
                                     className="w-full pl-10 pr-4 py-2 bg-gray-800/50 border border-purple-600/30 rounded-lg text-purple-100 placeholder-purple-400 focus:outline-none focus:border-purple-500/50 text-sm"
                                     autoFocus
                                 />
@@ -427,7 +429,10 @@ export function ModelSelector({
                             <button
                                 onClick={() => setShowFilters(!showFilters)}
                                 className={`px-3 py-2 rounded-lg border transition-colors flex items-center gap-2 ${
-                                    showFilters || selectedProvider !== "all" || selectedCapability !== "all" || contextWindowFilter !== "all"
+                                    showFilters ||
+                                    selectedProvider !== "all" ||
+                                    selectedCapability !== "all" ||
+                                    contextWindowFilter !== "all"
                                         ? "bg-purple-500/20 border-purple-500/40 text-purple-200"
                                         : "bg-gray-800/50 border-purple-600/30 text-purple-400 hover:border-purple-500/50"
                                 }`}
@@ -443,10 +448,14 @@ export function ModelSelector({
                             <div className="mb-4 p-4 bg-gray-800/30 rounded-lg border border-purple-600/20 space-y-4">
                                 {/* Provider Filter */}
                                 <div>
-                                    <label className="block text-sm text-purple-400 mb-2">Provider</label>
+                                    <label className="block text-sm text-purple-400 mb-2">
+                                        Provider
+                                    </label>
                                     <div className="flex flex-wrap gap-2">
                                         <button
-                                            onClick={() => setSelectedProvider("all")}
+                                            onClick={() =>
+                                                setSelectedProvider("all")
+                                            }
                                             className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
                                                 selectedProvider === "all"
                                                     ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
@@ -458,9 +467,14 @@ export function ModelSelector({
                                         {availableProviders.map((provider) => (
                                             <button
                                                 key={provider.id}
-                                                onClick={() => setSelectedProvider(provider.id)}
+                                                onClick={() =>
+                                                    setSelectedProvider(
+                                                        provider.id
+                                                    )
+                                                }
                                                 className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                                                    selectedProvider === provider.id
+                                                    selectedProvider ===
+                                                    provider.id
                                                         ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
                                                         : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"
                                                 }`}
@@ -473,14 +487,21 @@ export function ModelSelector({
 
                                 {/* Capability Filter */}
                                 <div>
-                                    <label className="block text-sm text-purple-400 mb-2">Capabilities</label>
+                                    <label className="block text-sm text-purple-400 mb-2">
+                                        Capabilities
+                                    </label>
                                     <div className="flex flex-wrap gap-2">
                                         {capabilityTabs.map((tab) => (
                                             <button
                                                 key={tab.id}
-                                                onClick={() => setSelectedCapability(tab.id)}
+                                                onClick={() =>
+                                                    setSelectedCapability(
+                                                        tab.id
+                                                    )
+                                                }
                                                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                                                    selectedCapability === tab.id
+                                                    selectedCapability ===
+                                                    tab.id
                                                         ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
                                                         : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"
                                                 }`}
@@ -494,14 +515,21 @@ export function ModelSelector({
 
                                 {/* Context Window Filter */}
                                 <div>
-                                    <label className="block text-sm text-purple-400 mb-2">Context Window</label>
+                                    <label className="block text-sm text-purple-400 mb-2">
+                                        Context Window
+                                    </label>
                                     <div className="flex flex-wrap gap-2">
                                         {contextWindowOptions.map((option) => (
                                             <button
                                                 key={option.id}
-                                                onClick={() => setContextWindowFilter(option.id)}
+                                                onClick={() =>
+                                                    setContextWindowFilter(
+                                                        option.id
+                                                    )
+                                                }
                                                 className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                                                    contextWindowFilter === option.id
+                                                    contextWindowFilter ===
+                                                    option.id
                                                         ? "bg-purple-500/20 text-purple-100 border border-purple-500/40"
                                                         : "bg-gray-800/30 text-purple-300 hover:bg-purple-500/10 border border-transparent"
                                                 }`}
@@ -513,7 +541,9 @@ export function ModelSelector({
                                 </div>
 
                                 {/* Clear Filters */}
-                                {(selectedProvider !== "all" || selectedCapability !== "all" || contextWindowFilter !== "all") && (
+                                {(selectedProvider !== "all" ||
+                                    selectedCapability !== "all" ||
+                                    contextWindowFilter !== "all") && (
                                     <div className="flex justify-end">
                                         <button
                                             onClick={() => {

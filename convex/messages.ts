@@ -145,7 +145,7 @@ export const addMessageInternal = internalMutation({
                     userMessage: args.content,
                     model: args.model || "gemini-2.0-flash",
                 });
-            } else {
+            } else {    
                 // Use first message approach (default/fallback)
                 const title = args.content.slice(0, 50).trim();
                 updates.title =
@@ -883,6 +883,7 @@ export const getMessageVersions = query({
         messageId: v.id("messages"),
     },
     handler: async (ctx, args) => {
+        console.log('Getting here...');
         const message = await ctx.db.get(args.messageId);
         if (!message) throw new Error("Message not found");
 

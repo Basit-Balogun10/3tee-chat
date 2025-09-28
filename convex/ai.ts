@@ -3,7 +3,14 @@
 import { v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
 import { internal, api } from "./_generated/api";
-import { generateText, streamText, generateObject, streamObject } from "ai";
+import {
+    generateText,
+    streamText,
+    generateObject,
+    streamObject,
+    createUIMessageStream,
+    createUIMessageStreamResponse,
+} from "ai";
 import { z } from "zod";
 
 import {
@@ -27,7 +34,7 @@ import {
 export const generateStreamingResponse = internalAction({
     args: {
         chatId: v.id("chats"),
-        retryMessageId:v.optional(
+        retryMessageId: v.optional(
             v.id("messages") // Optional messageId for existing messages
         ),
         model: v.string(),
@@ -86,15 +93,14 @@ export const generateStreamingResponse = internalAction({
             if (!chat) throw new Error("Chat not found");
 
             // Create assistant message for streaming
-            const messageId: any = args.retryMessageId || await ctx.runMutation(
-                internal.messages.addMessageInternal,
-                {
+            const messageId: any =
+                args.retryMessageId ||
+                (await ctx.runMutation(internal.messages.addMessageInternal, {
                     chatId: args.chatId,
                     role: "assistant",
                     content: "",
                     isStreaming: true,
-                }
-            );
+                }));
 
             // Get combined AI settings (per-chat + global preferences)
             const aiSettings: any = await ctx.runQuery(
@@ -506,28 +512,15 @@ export const generateStreamingResponse = internalAction({
                 },
             });
 
-            let fullResponse = "";
-
-            // Stream the response and update message incrementally
-            for await (const delta of result.textStream) {
-                fullResponse += delta;
-
-                // Update message content with partial response
-                await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
-                    messageId: messageId,
-                    content: fullResponse,
-                    isStreaming: true,
-                });
-            }
-
-            // Return streaming response for HTTP endpoint
-            return result.toTextStreamResponse({
+            // Return UI message stream response for HTTP endpoint (AI SDK v5)
+            return result.toUIMessageStreamResponse({
                 headers: {
                     "Access-Control-Allow-Origin": "*",
                     "Access-Control-Allow-Methods": "POST, OPTIONS",
                     "Access-Control-Allow-Headers":
                         "Content-Type, Authorization",
                 },
+                sendReasoning: true,
             });
         } catch (error) {
             console.error("❌ AI SDK STREAMING ERROR:", error);
@@ -687,10 +680,13 @@ export const generateStructuredOutput = internalAction({
                 const createdArtifactIds = [];
                 for (const artifact of artifacts) {
                     // Get chat to access userId
-                    const chat = await ctx.runQuery(internal.chats.getChatInternal, {
-                        chatId: args.chatId,
-                    });
-                    
+                    const chat = await ctx.runQuery(
+                        internal.chats.getChatInternal,
+                        {
+                            chatId: args.chatId,
+                        }
+                    );
+
                     const artifactId = await ctx.runMutation(
                         internal.artifacts.createArtifactInternal,
                         {
@@ -789,7 +785,6 @@ export const generateStructuredOutput = internalAction({
 });
 
 // Multi-AI Response Generation using AI SDK
-// Multi-AI Response Generation using AI SDK
 export const generateMultiAIResponses = internalAction({
     args: {
         chatId: v.id("chats"),
@@ -829,401 +824,478 @@ export const generateMultiAIResponses = internalAction({
         ),
         responseIds: v.array(v.string()),
     },
-    handler: async (ctx, args) => {
-        console.log("🧠 STARTING MULTI-AI GENERATION WITH AI SDK:", {
-            chatId: args.chatId,
-            messageId: args.messageId,
-            models: args.models,
-            commands: args.commands,
-            responseIds: args.responseIds,
-            timestamp: new Date().toISOString(),
-        });
+    returns: v.any(),
+    handler: async (ctx, args): Promise<Response> => {
+        const startTime = Date.now();
 
-        // Process attachments and library items (similar to generateStreamingResponse)
-        const allProcessedAttachments: any[] = [];
+        try {
+            console.log("🧠 STARTING MULTI-AI GENERATION WITH AI SDK:", {
+                chatId: args.chatId,
+                messageId: args.messageId,
+                models: args.models,
+                commands: args.commands,
+                responseIds: args.responseIds,
+                timestamp: new Date().toISOString(),
+            });
 
-        if (args.attachments && args.attachments.length > 0) {
-            for (const attachment of args.attachments) {
-                try {
-                    const processedAttachment = await processAttachmentForAISDK(
-                        attachment,
-                        ctx
-                    );
-                    allProcessedAttachments.push(processedAttachment);
-                } catch (error) {
-                    console.error(
-                        `Failed to process attachment ${attachment.name}:`,
-                        error
-                    );
+            const chat: any = await ctx.runQuery(
+                internal.chats.getChatInternal,
+                {
+                    chatId: args.chatId,
                 }
-            }
-        }
-
-        if (
-            args.referencedLibraryItems &&
-            args.referencedLibraryItems.length > 0
-        ) {
-            console.log(
-                `🔗 Processing ${args.referencedLibraryItems.length} referenced library items...`
             );
 
-            for (const item of args.referencedLibraryItems) {
-                try {
-                    const processedItem = await processLibraryItemForAISDK(
-                        item,
-                        ctx
-                    );
-                    allProcessedAttachments.push(processedItem);
-                } catch (error) {
-                    console.error(
-                        `Failed to process library item ${item.id}:`,
-                        error
-                    );
+            if (!chat) {
+                throw new Error("Chat not found");
+            }
+
+            const aiSettings: any = await ctx.runQuery(
+                internal.aiHelpers.getCombinedAISettings,
+                {
+                    chatId: args.chatId,
+                    userId: chat.userId,
+                }
+            );
+
+            const userApiKeys = await getUserApiKeys(ctx);
+            const messages = await ctx.runQuery(
+                internal.aiHelpers.getChatHistory,
+                {
+                    chatId: args.chatId,
+                    excludeMessageId: args.messageId,
+                }
+            );
+
+            const allProcessedAttachments: any[] = [];
+
+            if (args.attachments && args.attachments.length > 0) {
+                for (const attachment of args.attachments) {
+                    try {
+                        const processedAttachment =
+                            await processAttachmentForAISDK(attachment, ctx);
+                        allProcessedAttachments.push(processedAttachment);
+                    } catch (error) {
+                        console.error(
+                            `Failed to process attachment ${attachment.name}:`,
+                            error
+                        );
+                    }
                 }
             }
-        }
 
-        // Check for special commands
-        const hasCanvas = args.commands?.includes("canvas");
-        const hasImageGen = args.commands?.includes("image");
-        const hasVideoGen = args.commands?.includes("video");
-        const hasSearch = args.commands?.includes("search");
-
-        // Generate responses from all models in parallel using AI SDK
-        const responsePromises = args.models.map(async (model, index) => {
-            const responseId = args.responseIds[index];
-            const provider = getProviderFromModel(model);
-
-            try {
-                console.log(`🚀 GENERATING AI SDK RESPONSE FOR ${model}:`, {
-                    responseId,
-                    provider,
-                    chatId: args.chatId,
-                    messageId: args.messageId,
-                    commands: args.commands,
-                });
-
-                const userApiKeys = await getUserApiKeys(ctx);
-                const config = PROVIDER_CONFIGS[provider];
-                const userKey = userApiKeys[config.userKeyField];
-
-                // Get chat history
-                const messages = await ctx.runQuery(
-                    internal.aiHelpers.getChatHistory,
-                    {
-                        chatId: args.chatId,
-                        excludeMessageId: args.messageId,
-                    }
+            if (
+                args.referencedLibraryItems &&
+                args.referencedLibraryItems.length > 0
+            ) {
+                console.log(
+                    `🔗 Processing ${args.referencedLibraryItems.length} referenced library items...`
                 );
 
-                const lastUserMessage = messages
-                    .filter((m: any) => m.role === "user")
-                    .pop();
-                const content = lastUserMessage?.content || "";
-
-                // Handle special commands for each model
-                if (
-                    hasImageGen &&
-                    (provider === "openai" || provider === "google")
-                ) {
+                for (const item of args.referencedLibraryItems) {
                     try {
-                        const imageUrl =
-                            await imageGenerationManager.generateImage(
-                                provider,
-                                content,
-                                { size: "1024x1024" },
-                                ctx
-                            );
-
-                        const response = `Here's your generated image:\n\n![Generated Image](${imageUrl})`;
-
-                        await ctx.runMutation(
-                            api.messages.updateMultiAIResponse,
-                            {
-                                messageId: args.messageId,
-                                responseId,
-                                content: response,
-                                isComplete: true,
-                                metadata: {
-                                    provider,
-                                    model,
-                                    command: "image",
-                                    imagePrompt: content,
-                                    generatedImageUrl: imageUrl,
-                                },
-                            }
+                        const processedItem = await processLibraryItemForAISDK(
+                            item,
+                            ctx
                         );
-                        return;
+                        allProcessedAttachments.push(processedItem);
                     } catch (error) {
                         console.error(
-                            `Image generation failed for ${model}:`,
+                            `Failed to process library item ${item.id}:`,
                             error
                         );
-                        await ctx.runMutation(
-                            api.messages.updateMultiAIResponse,
-                            {
-                                messageId: args.messageId,
-                                responseId,
-                                content:
-                                    "Sorry, I couldn't generate the image. Please try again.",
-                                isComplete: true,
-                                metadata: { error: true, command: "image" },
-                            }
-                        );
-                        return;
                     }
                 }
+            }
 
-                if (
-                    hasVideoGen &&
-                    (provider === "google" || provider === "openai")
-                ) {
-                    try {
-                        const videoData =
-                            await videoGenerationManager.generateVideo(
-                                provider === "google" ? provider : "google", // Prefer Google for video
-                                content,
-                                { duration: 5, aspectRatio: "16:9" },
-                                ctx
-                            );
+            const hasCanvas = args.commands?.includes("canvas");
+            const hasImageGen = args.commands?.includes("image");
+            const hasVideoGen = args.commands?.includes("video");
+            const hasSearch = args.commands?.includes("search");
 
-                        const response = videoData.videoUrl
-                            ? `Here's your generated video:\n\n[Generated Video](${videoData.videoUrl})`
-                            : videoData.error || "Video generation failed";
+            const lastUserMessage = messages
+                .filter((m: any) => m.role === "user")
+                .pop();
+            const lastUserContent = lastUserMessage?.content || "";
 
-                        await ctx.runMutation(
-                            api.messages.updateMultiAIResponse,
-                            {
-                                messageId: args.messageId,
-                                responseId,
-                                content: response,
-                                isComplete: true,
-                                metadata: {
-                                    provider,
-                                    model,
-                                    command: "video",
-                                    videoPrompt: content,
-                                    generatedVideoUrl: videoData.videoUrl,
-                                    videoThumbnailUrl: videoData.thumbnailUrl,
-                                },
-                            }
-                        );
-                        return;
-                    } catch (error) {
-                        console.error(
-                            `Video generation failed for ${model}:`,
-                            error
-                        );
-                        await ctx.runMutation(
-                            api.messages.updateMultiAIResponse,
-                            {
-                                messageId: args.messageId,
-                                responseId,
-                                content:
-                                    "Sorry, I couldn't generate the video. Please try again.",
-                                isComplete: true,
-                                metadata: { error: true, command: "video" },
-                            }
-                        );
-                        return;
-                    }
+            const responseState = args.models.map((model, index) => ({
+                responseId: args.responseIds[index],
+                model,
+                content: "",
+                isPrimary: index === 0,
+                isDeleted: false,
+                metadata: {} as any,
+                timestamp: Date.now(),
+            }));
+
+            await ctx.runMutation(api.messages.initializeMultiAIMessage, {
+                messageId: args.messageId,
+                selectedModels: args.models,
+                responseIds: args.responseIds,
+            });
+
+            const buildMetadataPayload = () => ({
+                multiAIResponses: {
+                    selectedModels: args.models,
+                    responses: responseState.map((response) => ({
+                        responseId: response.responseId,
+                        model: response.model,
+                        content: response.content,
+                        timestamp: response.timestamp,
+                        isPrimary: response.isPrimary,
+                        isDeleted: response.isDeleted,
+                        metadata: response.metadata,
+                    })),
+                    primaryResponseId: responseState.find((r) => r.isPrimary)
+                        ?.responseId,
+                },
+            });
+
+            const attachmentParts = attachmentObjectsToCanonicalParts(
+                allProcessedAttachments
+            );
+            const systemPromptMsg =
+                aiSettings.systemPrompt && aiSettings.systemPrompt.trim()
+                    ? [
+                          {
+                              _id: "system-prompt",
+                              role: "system" as const,
+                              content: aiSettings.systemPrompt,
+                          },
+                      ]
+                    : [];
+            const convertedMessages = buildModelMessages(
+                [...systemPromptMsg, ...messages],
+                {
+                    userAttachmentParts: attachmentParts,
                 }
+            );
 
-                if (hasCanvas) {
-                    try {
-                        const canvasSchema = z.object({
-                            intro: z
-                                .string()
-                                .describe(
-                                    "Brief introduction to the created content"
-                                ),
-                            artifacts: z.array(
-                                z.object({
-                                    id: z.string(),
-                                    filename: z.string(),
-                                    language: z.string(),
-                                    content: z.string(),
-                                    description: z.string(),
-                                })
-                            ),
-                            summary: z
-                                .string()
-                                .describe("Summary of the created artifacts"),
+            const stream = createUIMessageStream({
+                generateId: () => args.messageId,
+                execute: async ({ writer }) => {
+                    const sendMetadata = () => {
+                        writer.write({
+                            type: "message-metadata",
+                            messageMetadata: buildMetadataPayload(),
                         });
+                    };
 
-                        let enhancedPrompt = content;
-                        if (hasSearch) {
-                            enhancedPrompt = `${content}\n\nNote: Use web search to find current information if needed for creating accurate and up-to-date artifacts.`;
-                        }
+                    writer.write({
+                        type: "start",
+                        messageMetadata: buildMetadataPayload(),
+                    });
 
-                        const convertedMessages = [
-                            ...messages.slice(0, -1).map((m: any) => ({
-                                role: m.role,
-                                content: m.content,
-                            })),
-                            { role: "user" as const, content: enhancedPrompt },
-                        ];
+                    const primaryResponse = responseState[0];
+                    writer.write({
+                        type: "text-start",
+                        id: primaryResponse.responseId,
+                    });
 
-                        const modelInstance = providerManager.getModel(
-                            provider,
-                            model,
-                            userKey
-                        );
+                    const processModel = async (
+                        model: string,
+                        index: number
+                    ) => {
+                        const responseId = responseState[index].responseId;
+                        const provider = getProviderFromModel(model);
+                        const config = PROVIDER_CONFIGS[provider];
+                        const userKey =
+                            userApiKeys[
+                                config.userKeyField as keyof typeof userApiKeys
+                            ];
 
-                        // Generate structured output using AI SDK
-                        const result = await generateObject({
-                            model: modelInstance,
-                            messages: convertedMessages,
-                            schema: canvasSchema,
-                            temperature: 0.7,
-                        });
+                        const updateStateAndPersist = async (
+                            content: string,
+                            metadata: any
+                        ) => {
+                            responseState[index].content = content;
+                            responseState[index].metadata = metadata;
+                            responseState[index].timestamp = Date.now();
 
-                        const parsedOutput = result.object;
-
-                        if (!parsedOutput || !parsedOutput.artifacts) {
-                            throw new Error("No artifacts generated");
-                        }
-
-                        // Build response with artifacts
-                        let responseText = parsedOutput.intro || "";
-                        const createdArtifacts = [];
-
-                        for (const artifact of parsedOutput.artifacts) {
-                            // Get chat to access userId
-                            const chat = await ctx.runQuery(internal.chats.getChatInternal, {
-                                chatId: args.chatId,
-                            });
-                            
-                            const artifactId = await ctx.runMutation(
-                                internal.artifacts.createArtifactInternal,
+                            await ctx.runMutation(
+                                api.messages.updateMultiAIResponse,
                                 {
                                     messageId: args.messageId,
-                                    chatId: args.chatId,
-                                    userId: chat.userId,
-                                    artifactId: artifact.id,
-                                    filename: artifact.filename,
-                                    language: artifact.language,
-                                    content: artifact.content,
-                                    description: artifact.description,
+                                    responseId,
+                                    content,
+                                    isComplete: true,
+                                    metadata,
                                 }
                             );
 
-                            createdArtifacts.push(artifactId);
-                        }
+                            sendMetadata();
 
-                        responseText += `\n\n${parsedOutput.summary || ""}`;
+                            if (index === 0) {
+                                writer.write({
+                                    type: "text-delta",
+                                    id: responseId,
+                                    delta: content,
+                                });
+                            }
+                        };
 
-                        await ctx.runMutation(
-                            api.messages.updateMultiAIResponse,
-                            {
-                                messageId: args.messageId,
-                                responseId,
-                                content: responseText,
-                                isComplete: true,
-                                metadata: {
+                        const handleCommandError = async (error: unknown) => {
+                            const errorMessage =
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error);
+
+                            await updateStateAndPersist(
+                                `Error generating response: ${errorMessage}`,
+                                { provider, model, error: true }
+                            );
+                        };
+
+                        try {
+                            if (
+                                hasImageGen &&
+                                (provider === "openai" || provider === "google")
+                            ) {
+                                const imageUrl =
+                                    await imageGenerationManager.generateImage(
+                                        provider,
+                                        lastUserContent,
+                                        { size: "1024x1024" },
+                                        ctx
+                                    );
+
+                                const responseText = `Here's your generated image:\n\n![Generated Image](${imageUrl})`;
+
+                                await updateStateAndPersist(responseText, {
+                                    provider,
+                                    model,
+                                    command: "image",
+                                    imagePrompt: lastUserContent,
+                                    generatedImageUrl: imageUrl,
+                                });
+                                return;
+                            }
+
+                            if (
+                                hasVideoGen &&
+                                (provider === "google" || provider === "openai")
+                            ) {
+                                const videoData =
+                                    await videoGenerationManager.generateVideo(
+                                        provider === "google"
+                                            ? provider
+                                            : "google",
+                                        lastUserContent,
+                                        { duration: 5, aspectRatio: "16:9" },
+                                        ctx
+                                    );
+
+                                const responseText = videoData.videoUrl
+                                    ? `Here's your generated video:\n\n[Generated Video](${videoData.videoUrl})`
+                                    : videoData.error ||
+                                      "Video generation failed";
+
+                                await updateStateAndPersist(responseText, {
+                                    provider,
+                                    model,
+                                    command: "video",
+                                    videoPrompt: lastUserContent,
+                                    generatedVideoUrl: videoData.videoUrl,
+                                    videoThumbnailUrl: videoData.thumbnailUrl,
+                                });
+                                return;
+                            }
+
+                            if (hasCanvas) {
+                                const canvasSchema = z.object({
+                                    intro: z
+                                        .string()
+                                        .describe(
+                                            "Brief introduction to the created content"
+                                        ),
+                                    artifacts: z.array(
+                                        z.object({
+                                            id: z.string(),
+                                            filename: z.string(),
+                                            language: z.string(),
+                                            content: z.string(),
+                                            description: z.string(),
+                                        })
+                                    ),
+                                    summary: z
+                                        .string()
+                                        .describe(
+                                            "Summary of the created artifacts"
+                                        ),
+                                });
+
+                                let enhancedPrompt = lastUserContent;
+                                if (hasSearch) {
+                                    enhancedPrompt = `${lastUserContent}\n\nNote: Use web search to find current information if needed for creating accurate and up-to-date artifacts.`;
+                                }
+
+                                const convertedCanvasMessages = [
+                                    ...messages.slice(0, -1).map((m: any) => ({
+                                        role: m.role,
+                                        content: m.content,
+                                    })),
+                                    {
+                                        role: "user" as const,
+                                        content: enhancedPrompt,
+                                    },
+                                ];
+
+                                const modelInstance = providerManager.getModel(
+                                    provider,
+                                    model,
+                                    userKey
+                                );
+
+                                const result = await generateObject({
+                                    model: modelInstance,
+                                    messages: convertedCanvasMessages,
+                                    schema: canvasSchema,
+                                    temperature: 0.7,
+                                });
+
+                                const parsedOutput = result.object;
+
+                                if (!parsedOutput || !parsedOutput.artifacts) {
+                                    throw new Error("No artifacts generated");
+                                }
+
+                                const artifacts = parsedOutput.artifacts;
+                                const createdArtifactIds: string[] = [];
+
+                                for (const artifact of artifacts) {
+                                    const artifactId = await ctx.runMutation(
+                                        internal.artifacts
+                                            .createArtifactInternal,
+                                        {
+                                            messageId: args.messageId,
+                                            chatId: args.chatId,
+                                            userId: chat.userId,
+                                            artifactId: artifact.id,
+                                            filename: artifact.filename,
+                                            language: artifact.language,
+                                            content: artifact.content,
+                                            description: artifact.description,
+                                        }
+                                    );
+                                    createdArtifactIds.push(artifactId);
+                                }
+
+                                const intro = parsedOutput.intro || "";
+                                const summary = parsedOutput.summary || "";
+
+                                const responseText = `${intro}\n\n${artifacts
+                                    .map(
+                                        (a: any, i: number) =>
+                                            `**Artifact ${i + 1}: ${a.filename}**\n${a.description}`
+                                    )
+                                    .join("\n\n")}\n\n${summary}`;
+
+                                await updateStateAndPersist(responseText, {
                                     provider,
                                     model,
                                     command: "canvas",
                                     structuredOutput: true,
-                                    canvasIntro: parsedOutput.intro,
-                                    canvasSummary: parsedOutput.summary,
-                                    artifacts: createdArtifacts,
-                                },
+                                    canvasIntro: intro,
+                                    canvasSummary: summary,
+                                    artifacts: createdArtifactIds,
+                                });
+                                return;
                             }
-                        );
-                        return;
-                    } catch (error) {
-                        console.error(
-                            `Canvas generation failed for ${model}:`,
-                            error
-                        );
-                        await ctx.runMutation(
-                            api.messages.updateMultiAIResponse,
-                            {
-                                messageId: args.messageId,
-                                responseId,
-                                content:
-                                    "Sorry, I couldn't generate the canvas artifacts. Please try again.",
-                                isComplete: true,
-                                metadata: { error: true, command: "canvas" },
-                            }
-                        );
-                        return;
-                    }
-                }
 
-                // Regular text generation (default case)
-                const systemPromptMsg: any[] = [];
-                const attachmentParts = attachmentObjectsToCanonicalParts(
-                    allProcessedAttachments
-                );
-                const convertedMessages = buildModelMessages(
-                    [...systemPromptMsg, ...messages],
-                    { userAttachmentParts: attachmentParts }
-                );
-                const modelInstance = providerManager.getModel(
-                    provider,
-                    model,
-                    userKey
-                );
+                            const modelInstance = providerManager.getModel(
+                                provider,
+                                model,
+                                userKey
+                            );
 
-                // Generate text using AI SDK
-                const result = await generateText({
-                    model: modelInstance,
-                    messages: convertedMessages,
-                    temperature: 0.7,
-                });
+                            const textResult = await generateText({
+                                model: modelInstance,
+                                messages: convertedMessages,
+                                temperature: aiSettings.temperature,
+                                maxOutputTokens: aiSettings.maxTokens,
+                                topP: aiSettings.topP,
+                                frequencyPenalty: aiSettings.frequencyPenalty,
+                                presencePenalty: aiSettings.presencePenalty,
+                            });
 
-                // Update the multi-AI response with the generated content
-                await ctx.runMutation(api.messages.updateMultiAIResponse, {
-                    messageId: args.messageId,
-                    responseId,
-                    content: result.text,
-                    isComplete: true,
-                    metadata: {
-                        provider,
-                        model,
-                        finishReason: result.finishReason,
-                        usage: result.usage, // raw usage
-                        commands: args.commands,
-                    },
-                });
+                            await updateStateAndPersist(textResult.text, {
+                                provider,
+                                model,
+                                finishReason: textResult.finishReason,
+                                usage: textResult.usage,
+                                commands: args.commands,
+                            });
+                        } catch (error) {
+                            console.error(
+                                `❌ FAILED AI SDK RESPONSE FOR ${model}:`,
+                                {
+                                    responseId,
+                                    error:
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error),
+                                    timestamp: new Date().toISOString(),
+                                }
+                            );
+                            await handleCommandError(error);
+                        }
+                    };
 
-                console.log(`✅ COMPLETED AI SDK RESPONSE FOR ${model}:`, {
-                    responseId,
-                    contentLength: result.text.length,
-                    provider,
-                    commands: args.commands,
-                    timestamp: new Date().toISOString(),
-                });
-            } catch (error) {
-                console.error(`❌ FAILED AI SDK RESPONSE FOR ${model}:`, {
-                    responseId,
-                    error:
-                        error instanceof Error ? error.message : String(error),
-                    timestamp: new Date().toISOString(),
-                });
+                    const tasks = args.models.map((model, index) =>
+                        processModel(model, index)
+                    );
 
-                await ctx.runMutation(api.messages.updateMultiAIResponse, {
-                    messageId: args.messageId,
-                    responseId,
-                    content: `Error generating response: ${error instanceof Error ? error.message : String(error)}`,
-                    isComplete: true,
-                    metadata: { error: true },
-                });
-            }
-        });
+                    await Promise.all(tasks);
 
-        // Wait for all responses to complete
-        await Promise.all(responsePromises);
+                    writer.write({
+                        type: "text-end",
+                        id: primaryResponse.responseId,
+                    });
 
-        console.log("🎉 MULTI-AI GENERATION COMPLETE WITH AI SDK:", {
-            chatId: args.chatId,
-            messageId: args.messageId,
-            completedModels: args.models.length,
-            commands: args.commands,
-            timestamp: new Date().toISOString(),
-        });
+                    sendMetadata();
+
+                    writer.write({
+                        type: "finish",
+                        messageMetadata: buildMetadataPayload(),
+                    });
+
+                    console.log(
+                        "🎉 MULTI-AI GENERATION COMPLETE WITH AI SDK:",
+                        {
+                            chatId: args.chatId,
+                            messageId: args.messageId,
+                            completedModels: args.models.length,
+                            commands: args.commands,
+                            responseTime: Date.now() - startTime,
+                            timestamp: new Date().toISOString(),
+                        }
+                    );
+                },
+            });
+
+            return createUIMessageStreamResponse({
+                stream,
+                headers: {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS",
+                    "Access-Control-Allow-Headers":
+                        "Content-Type, Authorization",
+                },
+            });
+        } catch (error) {
+            console.error("❌ MULTI-AI STREAMING ERROR:", error);
+
+            const errorMessage = `Error generating multi-model responses: ${
+                error instanceof Error ? error.message : String(error)
+            }`;
+
+            return new Response(errorMessage, {
+                status: 500,
+                headers: {
+                    "Content-Type": "text/plain",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            });
+        }
     },
 });
 

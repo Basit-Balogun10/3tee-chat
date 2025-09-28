@@ -353,11 +353,14 @@ export function MessageInput({
 
             // Early exit guards to prevent unnecessary execution
             if (isLoading || isStreaming) {
-                console.log("⚠️ SEND BUTTON: Blocked due to loading/streaming state", {
-                    timestamp: new Date().toISOString(),
-                    isLoading,
-                    isStreaming,
-                });
+                console.log(
+                    "⚠️ SEND BUTTON: Blocked due to loading/streaming state",
+                    {
+                        timestamp: new Date().toISOString(),
+                        isLoading,
+                        isStreaming,
+                    }
+                );
                 return;
             }
 
@@ -366,7 +369,8 @@ export function MessageInput({
                 console.log("✏️ SEND BUTTON: Edit mode detected", {
                     timestamp: new Date().toISOString(),
                     messageId: editMode.messageId,
-                    originalContent: editMode.originalContent?.substring(0, 50) + "...",
+                    originalContent:
+                        editMode.originalContent?.substring(0, 50) + "...",
                     newContent: content?.substring(0, 50) + "...",
                     hasContent: !!content?.trim(),
                 });
@@ -390,20 +394,25 @@ export function MessageInput({
                     console.log("💾 SEND BUTTON: Saving edit", {
                         timestamp: new Date().toISOString(),
                         allReferencedItemsCount: allReferencedItems.length,
-                        contentTrimmed: content.trim().substring(0, 100) + "...",
+                        contentTrimmed:
+                            content.trim().substring(0, 100) + "...",
                     });
 
                     void editMode.onSave(content, allReferencedItems);
                 } else {
-                    console.log("⚠️ SEND BUTTON: Edit mode - no content to save", {
-                        timestamp: new Date().toISOString(),
-                    });
+                    console.log(
+                        "⚠️ SEND BUTTON: Edit mode - no content to save",
+                        {
+                            timestamp: new Date().toISOString(),
+                        }
+                    );
                 }
                 return;
             }
 
             // Check if there's content to send
-            const hasContent = content?.trim() ||
+            const hasContent =
+                content?.trim() ||
                 attachments.length > 0 ||
                 referencedLibraryItems.length > 0 ||
                 activeCommands.length > 0;
@@ -430,7 +439,7 @@ export function MessageInput({
                 // if (textareaRef.current?.value) {
                 //     textareaRef.current.value = "";
                 // }
-                
+
                 // Add to message history (avoid duplicates)
                 const newHistory = [
                     message,
@@ -465,7 +474,9 @@ export function MessageInput({
                     totalReferencedItems: allReferencedItems.length,
                     attachmentItems: attachments.length,
                     libraryItems: referencedLibraryItems.length,
-                    referencedItemTypes: allReferencedItems.map(item => item.type),
+                    referencedItemTypes: allReferencedItems.map(
+                        (item) => item.type
+                    ),
                 });
 
                 // Handle multi-AI or regular submission
@@ -490,7 +501,9 @@ export function MessageInput({
                 } else {
                     console.log("🤖 SEND BUTTON: Single AI mode submission", {
                         timestamp: new Date().toISOString(),
-                        isMultiAIModeButInsufficientModels: isMultiAIMode && (!selectedModels || selectedModels.length < 2),
+                        isMultiAIModeButInsufficientModels:
+                            isMultiAIMode &&
+                            (!selectedModels || selectedModels.length < 2),
                         hasRegularHandler: !!onSendMessage,
                         selectedModel: selectedModel,
                     });
@@ -511,7 +524,12 @@ export function MessageInput({
                 console.log("✅ SEND BUTTON: Message submission complete", {
                     timestamp: new Date().toISOString(),
                     finalContentLength: (content || "").length,
-                    mode: isMultiAIMode && selectedModels && selectedModels.length >= 2 ? "multi-ai" : "single-ai",
+                    mode:
+                        isMultiAIMode &&
+                        selectedModels &&
+                        selectedModels.length >= 2
+                            ? "multi-ai"
+                            : "single-ai",
                 });
             } else {
                 console.log("❌ SEND BUTTON: No content to send", {
@@ -542,14 +560,13 @@ export function MessageInput({
 
     // Add logging for send button state tracking
     const sendButtonDisabled = useMemo(() => {
-        const disabled = isLoading ||
-            (
-                !message?.trim() &&
+        const disabled =
+            isLoading ||
+            (!message?.trim() &&
                 attachments.length === 0 &&
                 activeCommands.length === 0 &&
-                referencedLibraryItems.length === 0
-            );
-        
+                referencedLibraryItems.length === 0);
+
         console.log("🔘 SEND BUTTON STATE: disabled calculation", {
             timestamp: new Date().toISOString(),
             disabled,
@@ -560,34 +577,22 @@ export function MessageInput({
             attachmentsCount: attachments.length,
             activeCommandsCount: activeCommands.length,
             referencedItemsCount: referencedLibraryItems.length,
-            hasContent: !!(message?.trim() || attachments.length > 0 || activeCommands.length > 0 || referencedLibraryItems.length > 0),
+            hasContent: !!(
+                message?.trim() ||
+                attachments.length > 0 ||
+                activeCommands.length > 0 ||
+                referencedLibraryItems.length > 0
+            ),
         });
-        
-        return disabled;
-    }, [isLoading, message, attachments.length, activeCommands.length, referencedLibraryItems.length]);
 
-    // Track send button state changes
-    const previousSendButtonState = useRef<boolean | null>(null);
-    useEffect(() => {
-        if (previousSendButtonState.current !== null && previousSendButtonState.current !== sendButtonDisabled) {
-            console.log("🔄 SEND BUTTON STATE CHANGE:", {
-                timestamp: new Date().toISOString(),
-                from: previousSendButtonState.current ? "disabled" : "enabled",
-                to: sendButtonDisabled ? "disabled" : "enabled",
-                trigger: {
-                    isLoading,
-                    message,
-                    messageLength: message?.length || 0,
-                    messageTrimmed: message?.trim() || "",
-                    attachmentsCount: attachments.length,
-                    activeCommandsCount: activeCommands.length,
-                    referencedItemsCount: referencedLibraryItems.length,
-                },
-                stackTrace: new Error().stack?.split('\n').slice(1, 4).join('\n'),
-            });
-        }
-        previousSendButtonState.current = sendButtonDisabled;
-    }, [sendButtonDisabled, isLoading, message, attachments.length, activeCommands.length, referencedLibraryItems.length]);
+        return disabled;
+    }, [
+        isLoading,
+        message,
+        attachments.length,
+        activeCommands.length,
+        referencedLibraryItems.length,
+    ]);
 
     // Message input keyboard shortcuts
     useEffect(() => {
@@ -1785,7 +1790,7 @@ export function MessageInput({
                                             size="sm"
                                             className="h-8 w-8 p-0 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                             title="Send message"
-                                        >   
+                                        >
                                             {isLoading ? (
                                                 <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
                                             ) : (

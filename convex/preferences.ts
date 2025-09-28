@@ -600,7 +600,7 @@ export const getAllUserChats = query({
             .order("desc")
             .collect();
 
-        return chats.map(chat => ({
+        return chats.map((chat) => ({
             _id: chat._id,
             title: chat.title,
             model: chat.model,
@@ -621,10 +621,10 @@ export const getSelectedChatsData = query({
         if (!userId) throw new Error("Not authenticated");
 
         const chatsData = [];
-        
+
         for (const chatId of args.chatIds) {
             const chat = await ctx.db.get(chatId);
-            
+
             // Verify user owns this chat
             if (!chat || chat.userId !== userId) {
                 continue; // Skip chats the user doesn't own
@@ -632,16 +632,18 @@ export const getSelectedChatsData = query({
 
             // Get all messages for this chat through the active branch
             let messages: any[] = [];
-            
+
             if (chat.activeBranchId) {
                 const activeBranch = await ctx.db.get(chat.activeBranchId);
                 if (activeBranch) {
                     messages = await Promise.all(
-                        activeBranch.messages.map(messageId => ctx.db.get(messageId))
+                        activeBranch.messages.map((messageId) =>
+                            ctx.db.get(messageId)
+                        )
                     );
                     // Filter out any null messages and sort by timestamp
                     messages = messages
-                        .filter(msg => msg !== null)
+                        .filter((msg) => msg !== null)
                         .sort((a, b) => a.timestamp - b.timestamp);
                 }
             }

@@ -13,6 +13,38 @@ import { openai } from "@ai-sdk/openai";
 import { google } from "@ai-sdk/google";
 import { anthropic } from "@ai-sdk/anthropic";
 
+type IncomingMessagePart = {
+    type: string;
+    text?: string;
+    state?: string;
+    [key: string]: unknown;
+};
+
+type IncomingMessage = {
+    content?: string;
+    parts?: IncomingMessagePart[];
+    role?: string;
+    [key: string]: unknown;
+};
+
+const extractTextFromIncomingMessage = (message: IncomingMessage): string => {
+    if (Array.isArray(message?.parts)) {
+        return message.parts
+            .map((part) =>
+                part?.type === "text" && typeof part.text === "string"
+                    ? part.text
+                    : ""
+            )
+            .join("");
+    }
+
+    if (typeof message?.content === "string") {
+        return message.content;
+    }
+
+    return "";
+};
+
 const http = router;
 
 auth.addHttpRoutes(http);
@@ -390,21 +422,39 @@ http.route({
                 referencedLibraryItems = [],
             } = body;
 
-            const messages = body.messages || [];
+            const userId = await getAuthUserId(ctx);
+            if (!userId) {
+                return new Response(
+                    JSON.stringify({ error: "Not authenticated" }),
+                    {
+                        status: 401,
+                        headers: { "Content-Type": "application/json" },
+                    }
+                );
+            }
+
+            const messages = Array.isArray(body.messages) ? body.messages : [];
             const lastMessage = messages[messages.length - 1];
 
             if (!lastMessage || lastMessage.role !== "user") {
                 throw new Error("Last message must be from user");
             }
 
+            const userContent = extractTextFromIncomingMessage(lastMessage);
+
+            if (!userContent) {
+                throw new Error("User message content is empty");
+            }
+
             // Add user message first
             await ctx.runMutation(internal.messages.addMessageInternal, {
                 chatId,
                 role: "user",
-                content: lastMessage.content,
+                content: userContent,
                 attachments,
                 commands,
                 referencedLibraryItems,
+                userId,
             });
 
             // Generate streaming response using existing AI generation workflow
@@ -448,11 +498,28 @@ http.route({
                 referencedLibraryItems = [],
             } = body;
 
-            const messages = body.messages || [];
+            const userId = await getAuthUserId(ctx);
+            if (!userId) {
+                return new Response(
+                    JSON.stringify({ error: "Not authenticated" }),
+                    {
+                        status: 401,
+                        headers: { "Content-Type": "application/json" },
+                    }
+                );
+            }
+
+            const messages = Array.isArray(body.messages) ? body.messages : [];
             const lastMessage = messages[messages.length - 1];
 
             if (!lastMessage || lastMessage.role !== "user") {
                 throw new Error("Last message must be from user");
+            }
+
+            const userContent = extractTextFromIncomingMessage(lastMessage);
+
+            if (!userContent) {
+                throw new Error("User message content is empty");
             }
 
             // Add user message first
@@ -461,10 +528,11 @@ http.route({
                 {
                     chatId,
                     role: "user",
-                    content: lastMessage.content,
+                    content: userContent,
                     attachments,
                     commands,
                     referencedLibraryItems,
+                    userId,
                 }
             );
 
@@ -478,6 +546,7 @@ http.route({
                         "🧠 Generating responses from multiple AI models...",
                     model: models[0],
                     isStreaming: true,
+                    userId,
                 }
             );
 
@@ -487,8 +556,8 @@ http.route({
                     `${model}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
             );
 
-            // Generate multi-AI responses using existing workflow
-            const result = await ctx.runAction(
+            // Generate multi-AI responses using streaming workflow
+            const response = await ctx.runAction(
                 internal.ai.generateMultiAIResponses,
                 {
                     chatId,
@@ -501,19 +570,7 @@ http.route({
                 }
             );
 
-            return new Response(
-                JSON.stringify({
-                    success: true,
-                    userMessageId,
-                    assistantMessageId,
-                    models,
-                    responseIds,
-                }),
-                {
-                    status: 200,
-                    headers: { "Content-Type": "application/json" },
-                }
-            );
+            return response;
         } catch (error) {
             console.error("Error in multi-chat endpoint:", error);
             return new Response(

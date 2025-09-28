@@ -101,7 +101,11 @@ interface Message {
     };
     // Branch information (optional for now until fully implemented)
     activeBranchId?: string;
+    isTransient?: boolean;
 }
+
+const isValidConvexMessageId = (id: Id<"messages">): boolean =>
+    typeof id === "string" && id.includes(":");
 
 interface MessageListProps {
     messages: Message[];
@@ -1462,11 +1466,17 @@ export function MessageList({
                                             )}
 
                                         {/* Always show navigator - simplified positioning */}
-                                        <div className="mt-2 flex items-center justify-end">
-                                            <MessageBranchNavigator
-                                                messageId={message._id}
-                                            />
-                                        </div>
+                                        {!message.isStreaming &&
+                                            !message.isTransient &&
+                                            isValidConvexMessageId(
+                                                message._id
+                                            ) && (
+                                                <div className="mt-2 flex items-center justify-end">
+                                                    <MessageBranchNavigator
+                                                        messageId={message._id}
+                                                    />
+                                                </div>
+                                            )}
                                     </div>
                                 </div>
 
