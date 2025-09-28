@@ -1,16 +1,16 @@
-import { useChat } from "@ai-sdk/react";
+import { useChat, HttpChatTransport } from "@ai-sdk/react";
 import { useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
 // =============================================================================
-// AI SDK MIGRATION - PHASE 4: Frontend Hook Migration
+// AI SDK MIGRATION - PHASE 4: Frontend Hook Migration - Transport Pattern
 // =============================================================================
 
 /**
  * Custom hook that integrates AI SDK's useChat with Convex backend
- * Replaces existing manual streaming logic with AI SDK SSE endpoints
+ * Uses HttpChatTransport instead of deprecated append/body patterns
  */
 export function useConvexChat(chatId: Id<"chats">) {
     // Get existing chat messages for initialization
@@ -28,24 +28,30 @@ export function useConvexChat(chatId: Id<"chats">) {
         }));
     }, [existingMessages]);
 
-    // AI SDK useChat hook with our Convex SSE endpoints
+    // Create transport for Convex SSE endpoints
+    const transport = useMemo(() => {
+        return new HttpChatTransport({
+            url: "/api/chat",
+            headers: {
+                "Content-Type": "application/json",
+            },
+        });
+    }, []);
+
+    // AI SDK useChat hook with transport pattern
     const {
         messages,
         input,
         handleInputChange,
         handleSubmit: originalHandleSubmit,
-        append,
         reload,
         stop,
         isLoading,
         error,
         setMessages,
     } = useChat({
-        api: "/api/chat", // Our Convex SSE endpoint
+        transport,
         initialMessages,
-        body: {
-            chatId,
-        },
         onFinish: async (message) => {
             console.log("✅ AI SDK Message finished:", message);
             // Message is already persisted by SSE endpoint onFinish callback
@@ -85,9 +91,9 @@ export function useConvexChat(chatId: Id<"chats">) {
                 referencedLibraryItems = [],
             } = options || {};
 
-            // Enhance the request body with additional context
+            // Use transport to send request with context
             return originalHandleSubmit(e, {
-                body: {
+                data: {
                     chatId,
                     model,
                     commands,
@@ -99,7 +105,7 @@ export function useConvexChat(chatId: Id<"chats">) {
         [originalHandleSubmit, chatId]
     );
 
-    // Send message programmatically (replaces old sendMessage action)
+    // Send message programmatically using transport
     const sendMessage = useCallback(
         async (
             content: string,
@@ -129,23 +135,19 @@ export function useConvexChat(chatId: Id<"chats">) {
                 referencedLibraryItems = [],
             } = options || {};
 
-            return append(
-                {
-                    role: "user",
-                    content,
+            // Use transport for programmatic message sending
+            return transport.send({
+                messages: [...messages, { role: "user", content }],
+                data: {
+                    chatId,
+                    model,
+                    commands,
+                    attachments,
+                    referencedLibraryItems,
                 },
-                {
-                    body: {
-                        chatId,
-                        model,
-                        commands,
-                        attachments,
-                        referencedLibraryItems,
-                    },
-                }
-            );
+            });
         },
-        [append, chatId]
+        [transport, messages, chatId]
     );
 
     return {
@@ -155,7 +157,6 @@ export function useConvexChat(chatId: Id<"chats">) {
         handleInputChange,
         handleSubmit,
         sendMessage,
-        append,
         reload,
         stop,
         isLoading,
@@ -170,7 +171,7 @@ export function useConvexChat(chatId: Id<"chats">) {
 
 /**
  * Multi-AI chat hook for parallel model responses
- * Uses /api/multi-chat endpoint for multiple model streaming
+ * Uses /api/multi-chat endpoint with HttpChatTransport
  */
 export function useMultiAIChat(chatId: Id<"chats">) {
     const existingMessages = useQuery(api.chats.getChatMessages, { chatId });
@@ -186,20 +187,26 @@ export function useMultiAIChat(chatId: Id<"chats">) {
         }));
     }, [existingMessages]);
 
+    // Create transport for multi-chat endpoint
+    const transport = useMemo(() => {
+        return new HttpChatTransport({
+            url: "/api/multi-chat",
+            headers: {
+                "Content-Type": "application/json",
+            },
+        });
+    }, []);
+
     const {
         messages,
         input,
         handleInputChange,
-        append,
         isLoading,
         error,
         setMessages,
     } = useChat({
-        api: "/api/multi-chat", // Multi-model SSE endpoint
+        transport,
         initialMessages,
-        body: {
-            chatId,
-        },
         onFinish: async (message) => {
             console.log("✅ Multi-AI Message finished:", message);
         },
@@ -241,23 +248,18 @@ export function useMultiAIChat(chatId: Id<"chats">) {
                 referencedLibraryItems = [],
             } = options || {};
 
-            return append(
-                {
-                    role: "user",
-                    content,
+            return transport.send({
+                messages: [...messages, { role: "user", content }],
+                data: {
+                    chatId,
+                    models,
+                    commands,
+                    attachments,
+                    referencedLibraryItems,
                 },
-                {
-                    body: {
-                        chatId,
-                        models,
-                        commands,
-                        attachments,
-                        referencedLibraryItems,
-                    },
-                }
-            );
+            });
         },
-        [append, chatId]
+        [transport, messages, chatId]
     );
 
     return {

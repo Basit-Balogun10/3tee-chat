@@ -70,6 +70,7 @@ export const addMessageInternal = internalMutation({
         ),
         commands: v.optional(v.array(v.string())),
         userId: v.optional(v.id("users")), // Allow passing userId for internal calls
+        metadata: v.optional(v.any()), // Support metadata for multi-AI and other purposes
     },
     handler: async (ctx, args) => {
         // For internal calls, userId can be passed directly, otherwise get from auth

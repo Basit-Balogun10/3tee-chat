@@ -433,7 +433,7 @@ http.route({
     }),
 });
 
-// Multi-AI chat endpoint - lightweight entry point
+// Multi-AI chat endpoint - streaming UI messages
 http.route({
     path: "/api/multi-chat",
     method: "POST",
@@ -456,64 +456,28 @@ http.route({
             }
 
             // Add user message first
-            const userMessageId = await ctx.runMutation(
-                internal.messages.addMessageInternal,
-                {
-                    chatId,
-                    role: "user",
-                    content: lastMessage.content,
-                    attachments,
-                    commands,
-                    referencedLibraryItems,
-                }
-            );
+            await ctx.runMutation(internal.messages.addMessageInternal, {
+                chatId,
+                role: "user",
+                content: lastMessage.content,
+                attachments,
+                commands,
+                referencedLibraryItems,
+            });
 
-            // Create assistant message placeholder
-            const assistantMessageId = await ctx.runMutation(
-                internal.messages.addMessageInternal,
-                {
-                    chatId,
-                    role: "assistant",
-                    content:
-                        "🧠 Generating responses from multiple AI models...",
-                    model: models[0],
-                    isStreaming: true,
-                }
-            );
-
-            // Generate response IDs for multi-AI tracking
-            const responseIds = models.map(
-                (model: string) =>
-                    `${model}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-            );
-
-            // Generate multi-AI responses using existing workflow
+            // Generate streaming multi-AI response using new approach
             const result = await ctx.runAction(
-                internal.ai.generateMultiAIResponses,
+                internal.ai.generateMultiAIStreamingResponse,
                 {
                     chatId,
-                    messageId: assistantMessageId,
                     models,
-                    responseIds,
                     attachments,
                     commands,
                     referencedLibraryItems,
                 }
             );
 
-            return new Response(
-                JSON.stringify({
-                    success: true,
-                    userMessageId,
-                    assistantMessageId,
-                    models,
-                    responseIds,
-                }),
-                {
-                    status: 200,
-                    headers: { "Content-Type": "application/json" },
-                }
-            );
+            return result;
         } catch (error) {
             console.error("Error in multi-chat endpoint:", error);
             return new Response(

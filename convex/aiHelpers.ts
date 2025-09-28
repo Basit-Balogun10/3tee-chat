@@ -161,6 +161,8 @@ export const updateMessageContent = internalMutation({
                 model: v.optional(v.string()),
                 provider: v.optional(v.string()),
                 requestId: v.optional(v.string()),
+                multiAIMode: v.optional(v.boolean()),
+                models: v.optional(v.array(v.string())),
             })
         ),
     },

@@ -506,22 +506,8 @@ export const generateStreamingResponse = internalAction({
                 },
             });
 
-            let fullResponse = "";
-
-            // Stream the response and update message incrementally
-            for await (const delta of result.textStream) {
-                fullResponse += delta;
-
-                // Update message content with partial response
-                await ctx.runMutation(internal.aiHelpers.updateMessageContent, {
-                    messageId: messageId,
-                    content: fullResponse,
-                    isStreaming: true,
-                });
-            }
-
-            // Return streaming response for HTTP endpoint
-            return result.toTextStreamResponse({
+            // Return UI message streaming response for AI SDK v5 transport compatibility
+            return result.toUIMessageStreamResponse({
                 headers: {
                     "Access-Control-Allow-Origin": "*",
                     "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -788,8 +774,313 @@ export const generateStructuredOutput = internalAction({
     },
 });
 
-// Multi-AI Response Generation using AI SDK
-// Multi-AI Response Generation using AI SDK
+// Multi-AI Response Generation using AI SDK - Streaming UI Messages
+export const generateMultiAIStreamingResponse = internalAction({
+    args: {
+        chatId: v.id("chats"),
+        attachments: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("image"),
+                        v.literal("pdf"),
+                        v.literal("file"),
+                        v.literal("audio"),
+                        v.literal("video")
+                    ),
+                    storageId: v.id("_storage"),
+                    name: v.string(),
+                    size: v.number(),
+                })
+            )
+        ),
+        commands: v.optional(v.array(v.string())),
+        referencedLibraryItems: v.optional(
+            v.array(
+                v.object({
+                    type: v.union(
+                        v.literal("attachment"),
+                        v.literal("artifact"),
+                        v.literal("media")
+                    ),
+                    id: v.string(),
+                    name: v.string(),
+                    size: v.optional(v.number()),
+                    mimeType: v.optional(v.string()),
+                })
+            )
+        ),
+        models: v.array(v.string()),
+    },
+    handler: async (ctx, args) => {
+        console.log("🧠 STARTING MULTI-AI STREAMING GENERATION:", {
+            chatId: args.chatId,
+            models: args.models,
+            timestamp: new Date().toISOString(),
+        });
+
+        // Get chat and create assistant message
+        const chat: any = await ctx.runQuery(
+            internal.chats.getChatInternal,
+            {
+                chatId: args.chatId,
+            }
+        );
+        if (!chat) throw new Error("Chat not found");
+
+        // Create assistant message for streaming
+        const messageId: any = await ctx.runMutation(
+            internal.messages.addMessageInternal,
+            {
+                chatId: args.chatId,
+                role: "assistant",
+                content: "",
+                isStreaming: true,
+            }
+        );
+
+        // Get combined AI settings
+        const aiSettings: any = await ctx.runQuery(
+            internal.aiHelpers.getCombinedAISettings,
+            {
+                chatId: args.chatId,
+                userId: chat.userId,
+            }
+        );
+
+        // Get user API keys and chat history
+        const userApiKeys = await getUserApiKeys(ctx);
+        const messages = await ctx.runQuery(
+            internal.aiHelpers.getChatHistory,
+            {
+                chatId: args.chatId,
+                excludeMessageId: messageId,
+            }
+        );
+
+        // Process attachments
+        const allProcessedAttachments: any[] = [];
+        if (args.attachments && args.attachments.length > 0) {
+            for (const attachment of args.attachments) {
+                try {
+                    const processedAttachment = await processAttachmentForAISDK(
+                        attachment,
+                        ctx
+                    );
+                    allProcessedAttachments.push(processedAttachment);
+                } catch (error) {
+                    console.error(
+                        `Failed to process attachment ${attachment.name}:`,
+                        error
+                    );
+                }
+            }
+        }
+
+        // Process library items
+        if (args.referencedLibraryItems && args.referencedLibraryItems.length > 0) {
+            for (const item of args.referencedLibraryItems) {
+                try {
+                    const processedItem = await processLibraryItemForAISDK(
+                        item,
+                        ctx
+                    );
+                    allProcessedAttachments.push(processedItem);
+                } catch (error) {
+                    console.error(
+                        `Failed to process library item ${item.id}:`,
+                        error
+                    );
+                }
+            }
+        }
+
+        // Use the primary model (first one) for the streaming response
+        const primaryModel = args.models[0];
+        const provider = getProviderFromModel(primaryModel);
+        const config = PROVIDER_CONFIGS[provider];
+        const userKey = userApiKeys[config.userKeyField as keyof typeof userApiKeys];
+
+        const systemPromptMsg: any[] = aiSettings.systemPrompt
+            ? [{ role: "system", content: aiSettings.systemPrompt }]
+            : [];
+
+        const attachmentParts = attachmentObjectsToCanonicalParts(
+            allProcessedAttachments
+        );
+        const convertedMessages = buildModelMessages(
+            [...systemPromptMsg, ...messages],
+            { userAttachmentParts: attachmentParts }
+        );
+
+        const modelInstance = providerManager.getModel(
+            provider,
+            primaryModel,
+            userKey
+        );
+
+        // Add model context to the prompt
+        const lastMessage = convertedMessages[convertedMessages.length - 1];
+        if (lastMessage && args.models.length > 1) {
+            lastMessage.content += `\n\n[Multi-AI mode: This response is from ${primaryModel}. Other models (${args.models.slice(1).join(', ')}) will also respond to create a comparison of different AI perspectives.]`;
+        }
+
+        try {
+            const result: any = streamText({
+                model: modelInstance,
+                messages: convertedMessages,
+                temperature: aiSettings.temperature,
+                maxOutputTokens: aiSettings.maxTokens,
+                topP: aiSettings.topP,
+                frequencyPenalty: aiSettings.frequencyPenalty,
+                presencePenalty: aiSettings.presencePenalty,
+                onFinish: async (result) => {
+                    // Store the primary response
+                    await ctx.runMutation(
+                        internal.aiHelpers.updateMessageContent,
+                        {
+                            messageId: messageId,
+                            content: result.text,
+                            isStreaming: false,
+                            responseMetadata: {
+                                usage: result.usage,
+                                finishReason: result.finishReason,
+                                model: primaryModel,
+                                provider,
+                                multiAIMode: true,
+                                models: args.models,
+                            },
+                        }
+                    );
+
+                    // Generate additional responses from other models in the background
+                    if (args.models.length > 1) {
+                        const additionalModels = args.models.slice(1);
+                        for (const model of additionalModels) {
+                            ctx.runAction(internal.ai.generateAdditionalMultiAIResponse, {
+                                chatId: args.chatId,
+                                model,
+                                messages: convertedMessages,
+                                attachments: args.attachments,
+                                commands: args.commands,
+                                referencedLibraryItems: args.referencedLibraryItems,
+                            }).catch(error => {
+                                console.error(`Background multi-AI response failed for ${model}:`, error);
+                            });
+                        }
+                    }
+
+                    console.log("✅ MULTI-AI PRIMARY STREAMING COMPLETE:", {
+                        chatId: args.chatId,
+                        messageId: messageId,
+                        primaryModel,
+                        additionalModels: args.models.slice(1),
+                        responseLength: result.text.length,
+                    });
+                },
+            });
+
+            // Return UI message streaming response for the primary model
+            return result.toUIMessageStreamResponse({
+                headers: {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                },
+            });
+        } catch (error) {
+            console.error("❌ MULTI-AI STREAMING ERROR:", error);
+            return new Response(`Error generating multi-AI response: ${error instanceof Error ? error.message : String(error)}`, {
+                status: 500,
+                headers: {
+                    "Content-Type": "text/plain",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            });
+        }
+    },
+});
+
+// Generate additional responses from other models in background
+export const generateAdditionalMultiAIResponse = internalAction({
+    args: {
+        chatId: v.id("chats"),
+        model: v.string(),
+        messages: v.array(v.any()),
+        attachments: v.optional(v.array(v.any())),
+        commands: v.optional(v.array(v.string())),
+        referencedLibraryItems: v.optional(v.array(v.any())),
+    },
+    handler: async (ctx, args) => {
+        try {
+            const provider = getProviderFromModel(args.model);
+            const userApiKeys = await getUserApiKeys(ctx);
+            const config = PROVIDER_CONFIGS[provider];
+            const userKey = userApiKeys[config.userKeyField as keyof typeof userApiKeys];
+
+            const modelInstance = providerManager.getModel(
+                provider,
+                args.model,
+                userKey
+            );
+
+            // Modify the last message to indicate this is from a different model
+            const modifiedMessages = [...args.messages];
+            const lastMessage = modifiedMessages[modifiedMessages.length - 1];
+            if (lastMessage) {
+                lastMessage.content += `\n\n[This response is from ${args.model} as part of multi-AI comparison mode.]`;
+            }
+
+            const result = await generateText({
+                model: modelInstance,
+                messages: modifiedMessages,
+                temperature: 0.7,
+                maxOutputTokens: 1000,
+            });
+
+            // Create a separate assistant message for this additional response
+            await ctx.runMutation(
+                internal.messages.addMessageInternal,
+                {
+                    chatId: args.chatId,
+                    role: "assistant",
+                    content: result.text,
+                    model: args.model,
+                    isStreaming: false,
+                    metadata: {
+                        multiAIMode: true,
+                        additionalResponse: true,
+                        finishReason: result.finishReason,
+                        usage: result.usage,
+                    },
+                }
+            );
+
+            console.log(`✅ Additional multi-AI response completed: ${args.model}`);
+        } catch (error) {
+            console.error(`❌ Additional multi-AI response failed for ${args.model}:`, error);
+            
+            // Create error message
+            await ctx.runMutation(
+                internal.messages.addMessageInternal,
+                {
+                    chatId: args.chatId,
+                    role: "assistant",
+                    content: `[${args.model}] Error generating response: ${error instanceof Error ? error.message : String(error)}`,
+                    model: args.model,
+                    isStreaming: false,
+                    metadata: {
+                        multiAIMode: true,
+                        additionalResponse: true,
+                        error: true,
+                    },
+                }
+            );
+        }
+    },
+});
+
+// Legacy Multi-AI Response Generation using AI SDK (kept for backward compatibility)
 export const generateMultiAIResponses = internalAction({
     args: {
         chatId: v.id("chats"),
