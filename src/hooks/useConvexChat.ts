@@ -1,16 +1,16 @@
-import { useChat, HttpChatTransport } from "@ai-sdk/react";
+import { useChat } from "@ai-sdk/react";
 import { useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 
 // =============================================================================
-// AI SDK MIGRATION - PHASE 4: Frontend Hook Migration - Transport Pattern
+// AI SDK MIGRATION - PHASE 4: Frontend Hook Migration - v5 Compatible
 // =============================================================================
 
 /**
  * Custom hook that integrates AI SDK's useChat with Convex backend
- * Uses HttpChatTransport instead of deprecated append/body patterns
+ * Uses AI SDK v5 compatible patterns instead of deprecated append/body
  */
 export function useConvexChat(chatId: Id<"chats">) {
     // Get existing chat messages for initialization
@@ -28,17 +28,7 @@ export function useConvexChat(chatId: Id<"chats">) {
         }));
     }, [existingMessages]);
 
-    // Create transport for Convex SSE endpoints
-    const transport = useMemo(() => {
-        return new HttpChatTransport({
-            url: "/api/chat",
-            headers: {
-                "Content-Type": "application/json",
-            },
-        });
-    }, []);
-
-    // AI SDK useChat hook with transport pattern
+    // AI SDK useChat hook - using fetch approach instead of deprecated patterns
     const {
         messages,
         input,
@@ -50,7 +40,7 @@ export function useConvexChat(chatId: Id<"chats">) {
         error,
         setMessages,
     } = useChat({
-        transport,
+        api: "/api/chat", // Our Convex SSE endpoint
         initialMessages,
         onFinish: async (message) => {
             console.log("✅ AI SDK Message finished:", message);
@@ -91,9 +81,9 @@ export function useConvexChat(chatId: Id<"chats">) {
                 referencedLibraryItems = [],
             } = options || {};
 
-            // Use transport to send request with context
+            // Create a custom request with additional context
             return originalHandleSubmit(e, {
-                data: {
+                body: {
                     chatId,
                     model,
                     commands,
@@ -105,7 +95,7 @@ export function useConvexChat(chatId: Id<"chats">) {
         [originalHandleSubmit, chatId]
     );
 
-    // Send message programmatically using transport
+    // Send message programmatically using fetch
     const sendMessage = useCallback(
         async (
             content: string,
@@ -135,19 +125,24 @@ export function useConvexChat(chatId: Id<"chats">) {
                 referencedLibraryItems = [],
             } = options || {};
 
-            // Use transport for programmatic message sending
-            return transport.send({
-                messages: [...messages, { role: "user", content }],
-                data: {
-                    chatId,
-                    model,
-                    commands,
-                    attachments,
-                    referencedLibraryItems,
-                },
+            // Use the handleSubmit with a synthetic event
+            const syntheticEvent = {
+                preventDefault: () => {},
+                target: { 
+                    elements: { 
+                        content: { value: content } 
+                    } 
+                }
+            } as any;
+
+            return handleSubmit(syntheticEvent, {
+                model,
+                commands,
+                attachments,
+                referencedLibraryItems,
             });
         },
-        [transport, messages, chatId]
+        [handleSubmit]
     );
 
     return {
@@ -171,7 +166,7 @@ export function useConvexChat(chatId: Id<"chats">) {
 
 /**
  * Multi-AI chat hook for parallel model responses
- * Uses /api/multi-chat endpoint with HttpChatTransport
+ * Uses /api/multi-chat endpoint with AI SDK v5 compatible patterns
  */
 export function useMultiAIChat(chatId: Id<"chats">) {
     const existingMessages = useQuery(api.chats.getChatMessages, { chatId });
@@ -187,25 +182,16 @@ export function useMultiAIChat(chatId: Id<"chats">) {
         }));
     }, [existingMessages]);
 
-    // Create transport for multi-chat endpoint
-    const transport = useMemo(() => {
-        return new HttpChatTransport({
-            url: "/api/multi-chat",
-            headers: {
-                "Content-Type": "application/json",
-            },
-        });
-    }, []);
-
     const {
         messages,
         input,
         handleInputChange,
+        handleSubmit: originalHandleSubmit,
         isLoading,
         error,
         setMessages,
     } = useChat({
-        transport,
+        api: "/api/multi-chat", // Multi-model SSE endpoint
         initialMessages,
         onFinish: async (message) => {
             console.log("✅ Multi-AI Message finished:", message);
@@ -248,9 +234,17 @@ export function useMultiAIChat(chatId: Id<"chats">) {
                 referencedLibraryItems = [],
             } = options || {};
 
-            return transport.send({
-                messages: [...messages, { role: "user", content }],
-                data: {
+            const syntheticEvent = {
+                preventDefault: () => {},
+                target: { 
+                    elements: { 
+                        content: { value: content } 
+                    } 
+                }
+            } as any;
+
+            return originalHandleSubmit(syntheticEvent, {
+                body: {
                     chatId,
                     models,
                     commands,
@@ -259,7 +253,7 @@ export function useMultiAIChat(chatId: Id<"chats">) {
                 },
             });
         },
-        [transport, messages, chatId]
+        [originalHandleSubmit, chatId]
     );
 
     return {
